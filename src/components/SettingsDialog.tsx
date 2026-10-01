@@ -73,10 +73,10 @@ function SectionTitle({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="flex size-6 items-center justify-center bg-primary nb-border">
+      <div className="flex size-6 items-center justify-center rounded-lg bg-primary/15 text-primary">
         <Icon className="size-3.5" />
       </div>
-      <h3 className="text-xs font-black uppercase tracking-widest">
+      <h3 className="text-xs font-semibold uppercase tracking-[0.2em]">
         {children}
       </h3>
     </div>
@@ -118,7 +118,7 @@ export default function SettingsDialog({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `neochat-export-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `pentagon-export-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success(`Exported ${chatCount} chats`);
@@ -142,13 +142,15 @@ export default function SettingsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[85vh] max-w-lg gap-0 overflow-y-auto nb-scroll p-0 nb-border nb-shadow-lg">
-          <DialogHeader className="bg-primary px-5 py-4 nb-border-b">
-            <DialogTitle className="flex items-center gap-2 text-sm font-black uppercase tracking-widest">
-              <Settings2 className="size-4" />
+        <DialogContent className="max-h-[85vh] max-w-lg gap-0 overflow-y-auto ptg-scroll rounded-2xl border-border bg-card p-0 shadow-2xl shadow-black/50">
+          <DialogHeader className="rounded-t-2xl px-5 py-4 ptg-border-b">
+            <DialogTitle className="flex items-center gap-2.5 text-sm font-semibold tracking-wide">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                <Settings2 className="size-4" />
+              </span>
               Settings
             </DialogTitle>
-            <DialogDescription className="text-xs font-semibold uppercase tracking-wider text-foreground/70">
+            <DialogDescription className="text-xs text-muted-foreground">
               Model behavior · history · data
             </DialogDescription>
           </DialogHeader>
@@ -160,10 +162,10 @@ export default function SettingsDialog({
 
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold uppercase tracking-wide">
+                  <Label className="text-xs font-medium text-muted-foreground">
                     Temperature
                   </Label>
-                  <span className="bg-secondary px-1.5 text-xs font-black nb-border nb-shadow-sm">
+                  <span className="rounded-md bg-accent px-2 py-0.5 text-xs font-semibold">
                     {settings.temperature.toFixed(2)}
                   </span>
                 </div>
@@ -174,17 +176,17 @@ export default function SettingsDialog({
                   step={0.05}
                   onValueChange={([v]) => set("temperature", v)}
                 />
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                <p className="text-[10px] text-muted-foreground">
                   Lower = focused · higher = creative
                 </p>
               </div>
 
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold uppercase tracking-wide">
+                  <Label className="text-xs font-medium text-muted-foreground">
                     Top P
                   </Label>
-                  <span className="bg-secondary px-1.5 text-xs font-black nb-border nb-shadow-sm">
+                  <span className="rounded-md bg-accent px-2 py-0.5 text-xs font-semibold">
                     {settings.topP.toFixed(2)}
                   </span>
                 </div>
@@ -199,10 +201,10 @@ export default function SettingsDialog({
 
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold uppercase tracking-wide">
+                  <Label className="text-xs font-medium text-muted-foreground">
                     Max response tokens
                   </Label>
-                  <span className="bg-secondary px-1.5 text-xs font-black nb-border nb-shadow-sm">
+                  <span className="rounded-md bg-accent px-2 py-0.5 text-xs font-semibold">
                     {settings.maxTokens.toLocaleString()}
                   </span>
                 </div>
@@ -213,13 +215,13 @@ export default function SettingsDialog({
                   step={512}
                   onValueChange={([v]) => set("maxTokens", v)}
                 />
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                <p className="text-[10px] text-muted-foreground">
                   Reasoning tokens count toward this budget
                 </p>
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label className="text-xs font-bold uppercase tracking-wide">
+                <Label className="text-xs font-medium text-muted-foreground">
                   Custom instructions
                 </Label>
                 <Textarea
@@ -228,19 +230,17 @@ export default function SettingsDialog({
                     set("customInstructions", e.target.value.slice(0, MAX_INSTRUCTIONS))
                   }
                   placeholder="e.g. Always answer in bullet points. You are a witty assistant…"
-                  className="min-h-20 resize-none bg-background nb-border"
+                  className="min-h-20 resize-none rounded-xl border-border bg-background/60 text-sm"
                 />
-                <p className="text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                <p className="text-right text-[10px] text-muted-foreground">
                   {settings.customInstructions.length}/{MAX_INSTRUCTIONS}
                 </p>
               </div>
 
-              <div className="flex items-center justify-between bg-secondary px-3 py-2.5 nb-border nb-shadow-sm">
+              <div className="flex items-center justify-between rounded-xl bg-accent/50 px-3 py-2.5 ptg-border">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide">
-                    Enter to send
-                  </p>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground/70">
+                  <p className="text-xs font-medium">Enter to send</p>
+                  <p className="text-[10px] text-muted-foreground">
                     Shift+Enter always makes a newline
                   </p>
                 </div>
@@ -250,12 +250,10 @@ export default function SettingsDialog({
                 />
               </div>
 
-              <div className="flex items-center justify-between bg-secondary px-3 py-2.5 nb-border nb-shadow-sm">
+              <div className="flex items-center justify-between rounded-xl bg-accent/50 px-3 py-2.5 ptg-border">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide">
-                    Web search (RAG)
-                  </p>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground/70">
+                  <p className="text-xs font-medium">Web search (RAG)</p>
+                  <p className="text-[10px] text-muted-foreground">
                     Model can search the web and read pages · Tavily +
                     Firecrawl
                   </p>
@@ -269,7 +267,7 @@ export default function SettingsDialog({
               <Button
                 variant="outline"
                 size="sm"
-                className="self-start gap-2 font-bold uppercase"
+                className="self-start gap-2 rounded-full border-border bg-transparent text-xs font-medium hover:bg-accent"
                 onClick={() => {
                   onSettingsChange({ ...DEFAULT_SETTINGS });
                   toast.success("Model settings reset to defaults");
@@ -280,12 +278,12 @@ export default function SettingsDialog({
               </Button>
             </section>
 
-            <Separator />
+            <Separator className="bg-border" />
 
             {/* History / data */}
             <section className="flex flex-col gap-3">
               <SectionTitle icon={Download}>Chat history</SectionTitle>
-              <p className="text-xs font-semibold text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {chatCount} {chatCount === 1 ? "chat" : "chats"} ·{" "}
                 {messageCount.toLocaleString()}{" "}
                 {messageCount === 1 ? "message" : "messages"} stored. Images are
@@ -295,7 +293,7 @@ export default function SettingsDialog({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="gap-2 bg-card font-bold uppercase"
+                  className="gap-2 rounded-full border-border bg-transparent text-xs font-medium hover:bg-accent"
                   disabled={!data}
                   onClick={downloadExport}
                 >
@@ -305,7 +303,7 @@ export default function SettingsDialog({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="gap-2 border-destructive bg-destructive/10 font-bold uppercase text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                  className="gap-2 rounded-full border-destructive/40 bg-destructive/10 text-xs font-medium text-destructive hover:bg-destructive hover:text-white"
                   disabled={chatCount === 0}
                   onClick={() => setDangerOpen(true)}
                 >
@@ -315,17 +313,17 @@ export default function SettingsDialog({
               </div>
             </section>
 
-            <Separator />
+            <Separator className="bg-border" />
 
             {/* Account */}
             <section className="flex flex-col gap-3">
               <SectionTitle icon={User}>Account</SectionTitle>
-              <div className="flex items-center justify-between bg-card px-3 py-2.5 nb-border nb-shadow-sm">
-                <span className="truncate text-xs font-bold">{userName}</span>
+              <div className="flex items-center justify-between rounded-xl bg-accent/50 px-3 py-2.5 ptg-border">
+                <span className="truncate text-xs font-medium">{userName}</span>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="gap-2 bg-card font-bold uppercase"
+                  className="gap-2 rounded-full border-border bg-transparent text-xs font-medium hover:bg-accent"
                   onClick={onSignOut}
                 >
                   <LogOut className="size-3.5" />
@@ -339,12 +337,12 @@ export default function SettingsDialog({
 
       {/* Delete-all confirmation */}
       <AlertDialog open={dangerOpen} onOpenChange={setDangerOpen}>
-        <AlertDialogContent className="max-w-md gap-0 p-0 nb-border nb-shadow-lg">
-          <AlertDialogHeader className="bg-destructive px-5 py-4 nb-border-b text-destructive-foreground">
-            <AlertDialogTitle className="text-sm font-black uppercase tracking-widest">
+        <AlertDialogContent className="max-w-md gap-0 rounded-2xl border-border bg-card p-0 shadow-2xl shadow-black/50">
+          <AlertDialogHeader className="rounded-t-2xl px-5 py-4 ptg-border-b">
+            <AlertDialogTitle className="text-sm font-semibold tracking-wide">
               Delete all chats?
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-xs font-bold uppercase tracking-wider text-destructive-foreground/90">
+            <AlertDialogDescription className="text-xs text-muted-foreground">
               {chatCount} {chatCount === 1 ? "chat" : "chats"} and{" "}
               {messageCount.toLocaleString()}{" "}
               {messageCount === 1 ? "message" : "messages"} will be permanently
@@ -352,7 +350,7 @@ export default function SettingsDialog({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex flex-col gap-3 px-5 py-4">
-            <Label className="text-xs font-bold uppercase tracking-wide">
+            <Label className="text-xs font-medium text-muted-foreground">
               Type DELETE to confirm
             </Label>
             <input
@@ -360,11 +358,11 @@ export default function SettingsDialog({
               value={confirmText}
               onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
               placeholder="DELETE"
-              className="w-full bg-background px-3 py-2 text-sm font-black tracking-widest outline-none nb-border"
+              className="w-full rounded-xl border-border bg-background/60 px-3 py-2 text-sm font-semibold tracking-widest outline-none ring-border transition focus:ring-2 focus:ring-primary/50"
             />
           </div>
-          <AlertDialogFooter className="gap-2 px-5 py-4 nb-border-t">
-            <AlertDialogCancel className="bg-card font-bold uppercase nb-border">
+          <AlertDialogFooter className="gap-2 px-5 py-4 ptg-border-t">
+            <AlertDialogCancel className="rounded-full border-border bg-transparent text-xs font-medium hover:bg-accent">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
@@ -373,7 +371,7 @@ export default function SettingsDialog({
                 e.preventDefault();
                 void handleClearAll();
               }}
-              className="bg-destructive font-black uppercase text-destructive-foreground"
+              className="rounded-full bg-destructive text-xs font-semibold text-white hover:bg-destructive/90"
             >
               {clearing ? "Deleting…" : "Delete everything"}
             </AlertDialogAction>
