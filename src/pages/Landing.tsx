@@ -4,6 +4,7 @@ import {
   Bot,
   Cpu,
   Database,
+  Globe,
   MessageSquare,
   Shield,
   Zap,
@@ -35,6 +36,12 @@ const FEATURES = [
     title: "Locked down",
     body: "Your API key stays server-side in a Convex action. Chats belong to you alone.",
     bg: "bg-secondary",
+  },
+  {
+    icon: Globe,
+    title: "Live web RAG",
+    body: "Tavily search and Firecrawl scraping give the model current sources — cited under every answer.",
+    bg: "bg-primary",
   },
 ];
 
@@ -104,7 +111,8 @@ export default function Landing() {
               z-ai/glm-5.3-flash
             </span>{" "}
             on NVIDIA NIM — OpenAI-compatible calls with text and image input,
-            stored in your own Convex history.
+            stored in your own Convex history, with live web search when it
+            matters.
           </motion.p>
 
           <motion.div
@@ -174,7 +182,7 @@ export default function Landing() {
               Flat design. Sharp answers.
             </h2>
             <p className="max-w-sm text-sm font-medium text-muted-foreground">
-              Four blocks, zero fluff. Everything is squared away — borders,
+              Five blocks, zero fluff. Everything is squared away — borders,
               buttons, and reasoning.
             </p>
           </div>

@@ -85,8 +85,17 @@ export const addMessage = mutation({
     role: v.union(v.literal("user"), v.literal("assistant")),
     content: v.string(),
     imageId: v.optional(v.id("_storage")),
+    sources: v.optional(
+      v.array(
+        v.object({
+          title: v.string(),
+          url: v.string(),
+          snippet: v.string(),
+        }),
+      ),
+    ),
   },
-  handler: async (ctx, { chatId, role, content, imageId }) => {
+  handler: async (ctx, { chatId, role, content, imageId, sources }) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("Not signed in");
     const chat = await ctx.db.get(chatId);
@@ -96,6 +105,7 @@ export const addMessage = mutation({
       role,
       content,
       imageId,
+      sources,
       createdAt: Date.now(),
     });
     await ctx.db.patch(chatId, { updatedAt: Date.now() });

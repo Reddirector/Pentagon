@@ -47,7 +47,45 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   createdAt: number;
+  sources?: { title: string; url: string; snippet: string }[];
 };
+
+function SourceList({
+  sources,
+}: {
+  sources: NonNullable<Message["sources"]>;
+}) {
+  return (
+    <div className="mt-3 border-t-2 border-border pt-2">
+      <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+        Sources
+      </p>
+      <div className="flex flex-col gap-1">
+        {sources.map((s, i) => (
+          <a
+            key={`${s.url}-${i}`}
+            href={s.url}
+            target="_blank"
+            rel="noreferrer"
+            className="group flex items-start gap-2 bg-background px-2 py-1.5 text-xs nb-border hover:bg-secondary"
+          >
+            <span className="mt-px flex size-4 shrink-0 items-center justify-center bg-primary text-[9px] font-black nb-border">
+              {i + 1}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate font-bold group-hover:underline">
+                {s.title}
+              </span>
+              <span className="block truncate text-[10px] text-muted-foreground">
+                {s.url}
+              </span>
+            </span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const SUGGESTIONS = [
   "Which number is larger, 9.11 or 9.8?",
@@ -199,11 +237,12 @@ export default function Dashboard() {
         })),
         { role: "user" as const, content: userContent },
       ];
-      const { content: reply } = await complete({
+      const result = await complete({
         messages: history,
         temperature: settings.temperature,
         topP: settings.topP,
         maxTokens: settings.maxTokens,
+        webSearch: settings.webSearch,
       });
       setPending(null);
       await addMessage({
@@ -215,7 +254,8 @@ export default function Dashboard() {
       await addMessage({
         chatId: selectedId,
         role: "assistant",
-        content: reply,
+        content: result.content,
+        sources: result.sources.length ? result.sources : undefined,
       });
       if (isFirstExchange) {
         const title =
@@ -538,6 +578,9 @@ export default function Dashboard() {
                     <div className="mt-2" />
                   )}
                   {m.content}
+                  {m.role === "assistant" && m.sources?.length ? (
+                    <SourceList sources={m.sources} />
+                  ) : null}
                 </div>
                 <div className="mt-1 flex items-center gap-2 px-1">
                   <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -681,7 +724,8 @@ export default function Dashboard() {
             </div>
             <p className="mt-2 text-center text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
               z-ai/glm-5.3-flash · NVIDIA NIM · temp 1 · top_p 0.95 · max
-              16384 tokens · streaming
+              16384 tokens · streaming · web RAG{" "}
+              {settings.webSearch ? "on" : "off"}
             </p>
           </div>
         </div>

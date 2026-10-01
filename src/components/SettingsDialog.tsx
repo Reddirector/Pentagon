@@ -40,6 +40,7 @@ export type ChatSettings = {
   maxTokens: number;
   customInstructions: string;
   sendWithEnter: boolean;
+  webSearch: boolean;
 };
 
 export const DEFAULT_SETTINGS: ChatSettings = {
@@ -48,6 +49,7 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   maxTokens: 16384,
   customInstructions: "",
   sendWithEnter: true,
+  webSearch: true,
 };
 
 const MAX_INSTRUCTIONS = 2000;
@@ -245,6 +247,22 @@ export default function SettingsDialog({
                 <Switch
                   checked={settings.sendWithEnter}
                   onCheckedChange={(v) => set("sendWithEnter", v)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between bg-secondary px-3 py-2.5 nb-border nb-shadow-sm">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide">
+                    Web search (RAG)
+                  </p>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-foreground/70">
+                    Model can search the web and read pages · Tavily +
+                    Firecrawl
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.webSearch}
+                  onCheckedChange={(v) => set("webSearch", v)}
                 />
               </div>
 

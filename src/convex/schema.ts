@@ -52,6 +52,15 @@ const schema = defineSchema(
       role: v.union(v.literal("user"), v.literal("assistant")),
       content: v.string(),
       imageId: v.optional(v.id("_storage")),
+      sources: v.optional(
+        v.array(
+          v.object({
+            title: v.string(),
+            url: v.string(),
+            snippet: v.string(),
+          }),
+        ),
+      ),
       createdAt: v.number(),
     }).index("by_chat", ["chatId"]),
   },
