@@ -10,6 +10,7 @@ import {
   Bot,
   Check,
   Copy,
+  ImagePlus,
   LogOut,
   MessagesSquare,
   PanelLeft,
@@ -24,6 +25,17 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
+function ChatMessageImage({ storageId }: { storageId: Id<"_storage"> }) {
+  const url = useQuery(api.chats.imageUrl, { storageId });
+  if (!url) return null;
+  return (
+    <img
+      src={url}
+      alt="Attached"
+      className="max-h-64 w-auto max-w-full border-2 border-border bg-background object-contain"
+    />
+  );
+}
 type ChatId = Id<"chats">;
 type Message = {
   _id: string;
@@ -68,9 +80,17 @@ export default function Dashboard() {
   const [editingId, setEditingId] = useState<ChatId | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [attached, setAttached] = useState<{
+    storageId: Id<"_storage">;
+    previewUrl: string;
+  } | null>(null);
+  const [sending, setSending] = useState(false);
 
   const creatingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const generateUploadUrl = useMutation(api.chats.generateImageUploadUrl);
 
   // Ensure at least one chat exists and something is selected.
   useEffect(() => {
@@ -101,20 +121,30 @@ export default function Dashboard() {
   // Auto-scroll to the newest message.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages?.length, pending]);
-
-  const send = async (text: string) => {
+  }, [messages?.length, pending]);  const send = async (text: string, storageId?: Id<"_storage">) => {
     const content = text.trim();
-    if (!content || pending) return;
+    if (!content || pending || sending) return;
     if (!selectedId) {
       toast.error("No chat selected yet — try again in a second.");
       return;
     }
     setInput("");
     setError(null);
+    setSending(true);
     setPending({ user: content, assistant: "" });
     const isFirstExchange = (messages?.length ?? 0) === 0;
     try {
+      // Build multimodal content for the final user turn when an image is attached.
+      const userContent = storageId
+        ? [
+            ...(content ? [{ type: "text" as const, text: content }] : []),
+            {
+              type: "image_url" as const,
+              image_url: { url: await storageToDataUrl(storageId) },
+            },
+          ]
+        : content;
+
       const history = [
         {
           role: "system" as const,
@@ -125,12 +155,21 @@ export default function Dashboard() {
           role: m.role,
           content: m.content,
         })),
-        { role: "user" as const, content },
+        { role: "user" as const, content: userContent },
       ];
       const { content: reply } = await complete({ messages: history });
       setPending(null);
-      await addMessage({ chatId: selectedId, role: "user", content });
-      await addMessage({ chatId: selectedId, role: "assistant", content: reply });
+      await addMessage({
+        chatId: selectedId,
+        role: "user",
+        content,
+        imageId: storageId,
+      });
+      await addMessage({
+        chatId: selectedId,
+        role: "assistant",
+        content: reply,
+      });
       if (isFirstExchange) {
         const title =
           content.length > 42 ? `${content.slice(0, 42)}…` : content;
@@ -141,10 +180,56 @@ export default function Dashboard() {
       setError(
         err instanceof Error ? err.message : "Something went wrong. Try again.",
       );
+    } finally {
+      setSending(false);
     }
   };
 
-  const submit = () => send(input);
+  /** Fetch a stored image and convert it to a base64 data URL for the API. */
+  const storageToDataUrl = async (storageId: Id<"_storage">) => {
+    const blob = await fetch(
+      `${import.meta.env.VITE_CONVEX_URL}/api/storage/${storageId}`,
+    ).then((r) => {
+      if (!r.ok) throw new Error("Failed to read attached image.");
+      return r.blob();
+    });
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("Failed to encode attached image."));
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const submit = () => {
+    const storageId = attached?.storageId;
+    setAttached(null);
+    send(input, storageId);
+  };
+
+  const handleAttach = async (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Only image attachments are supported.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Image must be 8 MB or smaller.");
+      return;
+    }
+    try {
+      const uploadUrl = await generateUploadUrl({});
+      const result = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      const { storageId } = (await result.json()) as { storageId: Id<"_storage"> };
+      setAttached({ storageId, previewUrl: URL.createObjectURL(file) });
+    } catch {
+      toast.error("Failed to attach image.");
+    }
+  };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -403,6 +488,10 @@ export default function Dashboard() {
                       : "bg-card nb-shadow",
                   )}
                 >
+                  {m.imageId && <ChatMessageImage storageId={m.imageId} />}
+                  {m.imageId && m.content && (
+                    <div className="mt-2" />
+                  )}
                   {m.content}
                 </div>
                 <div className="mt-1 flex items-center gap-2 px-1">
@@ -432,6 +521,13 @@ export default function Dashboard() {
               <>
                 <div className="flex flex-col items-end">
                   <div className="max-w-[85%] bg-secondary px-4 py-3 text-sm font-medium leading-relaxed whitespace-pre-wrap nb-border nb-shadow">
+                    {attached && (
+                      <img
+                        src={attached.previewUrl}
+                        alt="Attached"
+                        className="mb-2 max-h-64 w-auto max-w-full border-2 border-border bg-background object-contain"
+                      />
+                    )}
                     {pending.user}
                   </div>
                   <span className="mt-1 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -472,20 +568,65 @@ export default function Dashboard() {
         {/* Composer */}
         <div className="bg-card px-4 py-4 nb-border-t">
           <div className="mx-auto w-full max-w-3xl">
+            {attached && (
+              <div className="mb-2 flex items-center gap-3 bg-background p-2 nb-border nb-shadow-sm">
+                <img
+                  src={attached.previewUrl}
+                  alt="Attachment preview"
+                  className="h-16 w-16 border-2 border-border object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-bold uppercase tracking-wide">
+                    Image attached
+                  </p>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Will be sent to the model
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setAttached(null)}
+                  aria-label="Remove attachment"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            )}
             <div className="flex items-end gap-2 bg-background p-2 nb-border nb-shadow">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  void handleAttach(e.target.files?.[0] ?? null);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={!!pending || !!attached}
+                className="mb-0.5 shrink-0"
+                aria-label="Attach image"
+              >
+                <ImagePlus className="size-4" />
+              </Button>
               <Textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
                 placeholder="Type your message… (Enter to send, Shift+Enter for newline)"
-                disabled={!!pending}
+                disabled={!!pending || sending}
                 className="max-h-40 min-h-10 resize-none border-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
                 rows={1}
               />
               <Button
                 size="icon"
                 onClick={submit}
-                disabled={!input.trim() || !!pending}
+                disabled={!input.trim() || !!pending || sending}
                 className="mb-0.5 shrink-0"
                 aria-label="Send message"
               >
@@ -493,7 +634,8 @@ export default function Dashboard() {
               </Button>
             </div>
             <p className="mt-2 text-center text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              z-ai/glm-5.3-flash · NVIDIA NIM · temp 0.5 · max 1024 tokens
+              deepseek-ai/deepseek-v4.1-flash · NVIDIA NIM · temp 1 · top_p
+              0.95 · max 262144 tokens
             </p>
           </div>
         </div>

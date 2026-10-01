@@ -84,8 +84,9 @@ export const addMessage = mutation({
     chatId: v.id("chats"),
     role: v.union(v.literal("user"), v.literal("assistant")),
     content: v.string(),
+    imageId: v.optional(v.id("_storage")),
   },
-  handler: async (ctx, { chatId, role, content }) => {
+  handler: async (ctx, { chatId, role, content, imageId }) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("Not signed in");
     const chat = await ctx.db.get(chatId);
@@ -94,9 +95,30 @@ export const addMessage = mutation({
       chatId,
       role,
       content,
+      imageId,
       createdAt: Date.now(),
     });
     await ctx.db.patch(chatId, { updatedAt: Date.now() });
     return messageId;
+  },
+});
+
+/** Generate a short-lived upload URL for attaching an image to a message. */
+export const generateImageUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error("Not signed in");
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/** Resolve a storage id into a temporary display URL (owner-checked). */
+export const imageUrl = query({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, { storageId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+    return await ctx.storage.getUrl(storageId);
   },
 });

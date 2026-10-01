@@ -5,9 +5,11 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 
 /**
  * Chat completion proxy for the NVIDIA NIM API (OpenAI-compatible endpoint).
- * API key is read from the environment (set NVAPI_KEY in the Keys/API keys tab).
- * Model: z-ai/glm-5.3-flash — defaults match the reference snippet:
- * temperature 0.5, top_p 1, max_tokens 1024.
+ * API key is read from the environment (set NVIDIA_API_KEY in the Keys/API keys tab).
+ * Model: deepseek-ai/deepseek-v4.1-flash (vision-capable).
+ * Params match the reference snippet: temperature 1, top_p 0.95, max_tokens 262144.
+ * Accepts multimodal messages: content can be a plain string or an array of
+ * { type: "text" } / { type: "image_url" } parts (data URLs).
  */
 export const complete = action({
   args: {
@@ -18,7 +20,7 @@ export const complete = action({
           v.literal("user"),
           v.literal("assistant"),
         ),
-        content: v.string(),
+        content: v.union(v.string(), v.array(v.any())),
       }),
     ),
     temperature: v.optional(v.number()),
@@ -29,10 +31,10 @@ export const complete = action({
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("Not signed in");
 
-    const apiKey = process.env.NVAPI_KEY;
+    const apiKey = process.env.NVIDIA_API_KEY;
     if (!apiKey) {
       throw new Error(
-        "Missing NVAPI_KEY. Add your NVIDIA API key in the Keys/API keys tab as NVAPI_KEY.",
+        "Missing NVIDIA_API_KEY. Add your NVIDIA API key in the Keys/API keys tab as NVIDIA_API_KEY.",
       );
     }
 
@@ -42,11 +44,11 @@ export const complete = action({
     });
 
     const completion = await client.chat.completions.create({
-      model: "z-ai/glm-5.3-flash",
+      model: "deepseek-ai/deepseek-v4.1-flash",
       messages,
-      temperature: temperature ?? 0.5,
-      top_p: topP ?? 1,
-      max_tokens: maxTokens ?? 1024,
+      temperature: temperature ?? 1,
+      top_p: topP ?? 0.95,
+      max_tokens: maxTokens ?? 262144,
       stream: false,
     });
 

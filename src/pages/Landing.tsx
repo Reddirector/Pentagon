@@ -21,7 +21,7 @@ const FEATURES = [
   {
     icon: Cpu,
     title: "NVIDIA NIM engine",
-    body: "z-ai/glm-5.3-flash via the OpenAI-compatible integrate.api.nvidia.com endpoint.",
+    body: "deepseek-ai/deepseek-v4.1-flash with vision — send text and images via the OpenAI-compatible endpoint.",
     bg: "bg-secondary",
   },
   {
@@ -102,9 +102,9 @@ export default function Landing() {
             NeoChat is a chatbot built straight on the NVIDIA NIM API —
             OpenAI-compatible calls to{" "}
             <span className="bg-secondary px-1 font-bold text-foreground">
-              z-ai/glm-5.3-flash
-            </span>
-            , stored in your own Convex history.
+              deepseek-v4.1-flash
+            </span>{" "}
+            with text and image input, stored in your own Convex history.
           </motion.p>
 
           <motion.div
@@ -142,7 +142,7 @@ export default function Landing() {
                 <p className="text-xs font-black uppercase tracking-widest">
                   neochat — live
                 </p>
-                <p className="text-xs font-bold uppercase">glm-5.3-flash</p>
+                <p className="text-xs font-bold uppercase">deepseek-v4.1</p>
               </div>
               <div className="flex flex-col gap-4 p-4 text-left md:p-6">
                 <div className="self-end bg-secondary px-4 py-3 text-sm font-medium nb-border nb-shadow max-w-[80%]">
@@ -215,10 +215,10 @@ export default function Landing() {
               lives in the environment — the browser never sees it.
             </p>
             <ul className="flex flex-col gap-2 text-sm font-semibold">
-              {[
+              {              [
                 "POST /v1/chat/completions — OpenAI-compatible",
-                "temperature 0.5 · top_p 1 · max_tokens 1024",
-                "Full conversation context sent every turn",
+                "temperature 1 · top_p 0.95 · max_tokens 262144",
+                "Text + image (vision) messages supported",
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2">
                   <span className="mt-0.5 size-3 shrink-0 bg-primary nb-border" />
@@ -233,16 +233,19 @@ export default function Landing() {
 Authorization: Bearer $NVAPI_KEY
 
 {
-  "model": "z-ai/glm-5.3-flash",
+  "model": "deepseek-ai/deepseek-v4.1-flash",
   "messages": [
-    {"role": "system",
-     "content": "You are a helpful assistant."},
     {"role": "user",
-     "content": "Which number is larger, 9.11 or 9.8?"}
+     "content": [
+       {"type": "text",
+        "text": "Describe this image."},
+       {"type": "image_url",
+        "image_url": {"url": "data:image/jpeg;base64,..."}}
+     ]}
   ],
-  "temperature": 0.5,
-  "top_p": 1,
-  "max_tokens": 1024,
+  "temperature": 1,
+  "top_p": 0.95,
+  "max_tokens": 262144,
   "stream": false
 }`}</code>
             </pre>
