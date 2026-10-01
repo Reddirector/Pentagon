@@ -21,7 +21,7 @@ const FEATURES = [
   {
     icon: Cpu,
     title: "NVIDIA NIM engine",
-    body: "deepseek-ai/deepseek-v4.1-flash with vision — send text and images via the OpenAI-compatible endpoint.",
+    body: "z-ai/glm-5.3-flash with vision — send text and images via the OpenAI-compatible endpoint.",
     bg: "bg-secondary",
   },
   {
@@ -102,7 +102,7 @@ export default function Landing() {
             NeoChat is a chatbot built straight on the NVIDIA NIM API —
             OpenAI-compatible calls to{" "}
             <span className="bg-secondary px-1 font-bold text-foreground">
-              deepseek-v4.1-flash
+              z-ai/glm-5.3-flash
             </span>{" "}
             with text and image input, stored in your own Convex history.
           </motion.p>
@@ -142,7 +142,7 @@ export default function Landing() {
                 <p className="text-xs font-black uppercase tracking-widest">
                   neochat — live
                 </p>
-                <p className="text-xs font-bold uppercase">deepseek-v4.1</p>
+                <p className="text-xs font-bold uppercase">glm-5.3-flash</p>
               </div>
               <div className="flex flex-col gap-4 p-4 text-left md:p-6">
                 <div className="self-end bg-secondary px-4 py-3 text-sm font-medium nb-border nb-shadow max-w-[80%]">
@@ -215,7 +215,7 @@ export default function Landing() {
               lives in the environment — the browser never sees it.
             </p>
             <ul className="flex flex-col gap-2 text-sm font-semibold">
-              {              [
+              {[
                 "POST /v1/chat/completions — OpenAI-compatible",
                 "temperature 1 · top_p 0.95 · max_tokens 262144",
                 "Text + image (vision) messages supported",
@@ -229,11 +229,10 @@ export default function Landing() {
           </div>
           <div className="bg-foreground p-1 text-background nb-border nb-offset">
             <pre className="overflow-x-auto p-4 text-xs leading-relaxed md:text-sm">
-              <code>{`POST https://integrate.api.nvidia.com/v1
-Authorization: Bearer $NVAPI_KEY
+              <code>{`POST https://integrate.api.nvidia.com/v1Authorization: Bearer $NVIDIA_API_KEY
 
 {
-  "model": "deepseek-ai/deepseek-v4.1-flash",
+  "model": "z-ai/glm-5.3-flash",
   "messages": [
     {"role": "user",
      "content": [

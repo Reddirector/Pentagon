@@ -134,14 +134,12 @@ export default function Dashboard() {
     setPending({ user: content, assistant: "" });
     const isFirstExchange = (messages?.length ?? 0) === 0;
     try {
-      // Build multimodal content for the final user turn when an image is attached.
+      // When an image is attached, pass its storage id; the action converts
+      // the stored file into a base64 data URL server-side.
       const userContent = storageId
         ? [
             ...(content ? [{ type: "text" as const, text: content }] : []),
-            {
-              type: "image_url" as const,
-              image_url: { url: await storageToDataUrl(storageId) },
-            },
+            { type: "image_url" as const, image_url: { storageId } },
           ]
         : content;
 
@@ -183,22 +181,6 @@ export default function Dashboard() {
     } finally {
       setSending(false);
     }
-  };
-
-  /** Fetch a stored image and convert it to a base64 data URL for the API. */
-  const storageToDataUrl = async (storageId: Id<"_storage">) => {
-    const blob = await fetch(
-      `${import.meta.env.VITE_CONVEX_URL}/api/storage/${storageId}`,
-    ).then((r) => {
-      if (!r.ok) throw new Error("Failed to read attached image.");
-      return r.blob();
-    });
-    return await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error("Failed to encode attached image."));
-      reader.readAsDataURL(blob);
-    });
   };
 
   const submit = () => {
@@ -433,7 +415,7 @@ export default function Dashboard() {
             </h1>
           </div>
           <Badge variant="outline" className="font-bold uppercase nb-shadow-sm">
-            GLM-5.3-Flash
+            GLM-5.3-Flash · Vision
           </Badge>
         </header>
 
@@ -634,8 +616,8 @@ export default function Dashboard() {
               </Button>
             </div>
             <p className="mt-2 text-center text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              deepseek-ai/deepseek-v4.1-flash · NVIDIA NIM · temp 1 · top_p
-              0.95 · max 262144 tokens
+              z-ai/glm-5.3-flash · NVIDIA NIM · temp 1 · top_p 0.95 · max
+              262144 tokens
             </p>
           </div>
         </div>
