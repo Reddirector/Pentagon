@@ -631,7 +631,7 @@ export default function Dashboard() {
             </div>
             <p className="mt-2 text-center text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
               z-ai/glm-5.3-flash · NVIDIA NIM · temp 1 · top_p 0.95 · max
-              262144 tokens
+              16384 tokens · streaming
             </p>
           </div>
         </div>

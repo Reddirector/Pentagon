@@ -1,19 +1,33 @@
-import OpenAI from "openai";
+"use node";
+
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
 /**
- * Chat completion proxy for the NVIDIA NIM API (OpenAI-compatible endpoint).
- * API key is read from the environment (set NVIDIA_API_KEY in the Keys/API keys tab).
- * Model: z-ai/glm-5.3-flash — enabled for this NVIDIA account; supports vision
- * (image_url parts) and emits reasoning_content before the final content.
+ * Chat completion proxy for the NVIDIA Build model z-ai/glm-5.3-flash.
  *
- * Uses STREAMING to avoid idle-connection timeouts: a slow reasoning model can
- * think for a while before the first token, and non-streaming requests die in
- * transit. With streaming we accumulate chunks; if the model exceeds the hard
- * deadline we still return whatever was generated so far instead of erroring.
+ * Why not the OpenAI SDK / integrate.api.nvidia.com directly?
+ * NVIDIA's public `integrate` edge silently black-holes POST /v1/chat/completions
+ * from serverless egress IPs (GET /v1/models responds fine, inference never
+ * returns headers — verified by probes from Convex's own runtimes). Requests
+ * therefore route through the platform's OpenAI-compatible integration gateway,
+ * which reaches the same NVIDIA-hosted model reliably (verified 200 + SSE).
+ *
+ * Uses raw fetch + manual SSE parsing (no SDK) and streaming so a slow
+ * reasoning model can't kill the connection; partial output is preserved on
+ * stream errors or deadline overrun.
  */
+
+const MODEL = "z-ai/glm-5.3-flash";
+
+function gatewayUrl() {
+  const base = (
+    process.env.VLY_INTEGRATION_BASE_URL ?? "https://integrations.vly.ai"
+  ).replace(/\/$/, "");
+  return `${base}/v1/chat/completions`;
+}
+
 export const complete = action({
   args: {
     messages: v.array(
@@ -34,19 +48,12 @@ export const complete = action({
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("Not signed in");
 
-    const apiKey = process.env.NVIDIA_API_KEY;
+    const apiKey = process.env.VLY_INTEGRATION_KEY;
     if (!apiKey) {
       throw new Error(
-        "Missing NVIDIA_API_KEY. Add your NVIDIA API key in the Keys/API keys tab as NVIDIA_API_KEY.",
+        "Missing integration credentials. Contact support — the deployment is missing VLY_INTEGRATION_KEY.",
       );
     }
-
-    const client = new OpenAI({
-      baseURL: "https://integrate.api.nvidia.com/v1",
-      apiKey,
-      timeout: 30_000, // time to first chunk only; stream keeps it alive after
-      maxRetries: 1,
-    });
 
     // Convert any attached images (stored in Convex storage) into base64 data
     // URLs so the model receives the multimodal format it expects.
@@ -78,42 +85,120 @@ export const complete = action({
       }),
     );
 
-    const stream = await client.chat.completions.create({
-      model: "z-ai/glm-5.3-flash",
-      messages: prepared,
-      temperature: temperature ?? 1,
-      top_p: topP ?? 0.95,
-      max_tokens: maxTokens ?? 262144,
-      stream: true,
-    });
+    const started = Date.now();
+    // Hard cap: reasoning models may think for a long time. Keep the action
+    // from running away; whatever streamed so far is returned.
+    const DEADLINE_MS = 110_000;
+    let timedOut = false;
 
-    // Hard cap: reasoning models may think for minutes. Keep the action from
-    // running away; whatever has streamed so far is returned.
-    const DEADLINE_MS = 240_000;
-    const deadline = Date.now() + DEADLINE_MS;
-
-    let content = "";
-    let reasoning = "";
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, DEADLINE_MS);
 
     try {
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta;
-        if (delta?.content) content += delta.content;
-        const extra = delta as { reasoning_content?: string } | undefined;
-        if (extra?.reasoning_content) reasoning += extra.reasoning_content;
-        if (Date.now() > deadline) break;
-      }
-    } catch (err) {
-      // If we already have partial output, prefer it over failing hard.
-      if (!content && !reasoning) throw err;
-    }
+      const res = await fetch(gatewayUrl(), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: prepared,
+          temperature: temperature ?? 1,
+          top_p: topP ?? 0.95,
+          max_tokens: maxTokens ?? 16384,
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
 
-    const text = content || reasoning || "";
-    if (!text) {
-      throw new Error(
-        "The model returned an empty response. Please try sending your message again.",
-      );
+      if (!res.ok || !res.body) {
+        const detail = await res.text().catch(() => "");
+        let message = `Model request failed (HTTP ${res.status}).`;
+        try {
+          const parsed = JSON.parse(detail) as {
+            error?: { message?: string } | string;
+          };
+          if (typeof parsed.error === "string") message = parsed.error;
+          else if (parsed.error?.message) message = parsed.error.message;
+        } catch {
+          if (detail) message = detail.slice(0, 300);
+        }
+        throw new Error(message);
+      }
+
+      // Manual SSE parsing: accumulate content + reasoning deltas.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let content = "";
+      let reasoning = "";
+
+      const handleChunk = (payload: string) => {
+        if (payload === "[DONE]") return;
+        try {
+          const chunk = JSON.parse(payload) as {
+            choices?: {
+              delta?: {
+                content?: string | null;
+                reasoning?: string | null;
+                reasoning_content?: string | null;
+              };
+            }[];
+          };
+          const delta = chunk.choices?.[0]?.delta;
+          if (!delta) return;
+          if (delta.content) content += delta.content;
+          const think = delta.reasoning ?? delta.reasoning_content;
+          if (think) reasoning += think;
+        } catch {
+          // Ignore malformed chunks.
+        }
+      };
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const event of events) {
+          for (const line of event.split("\n")) {
+            if (line.startsWith("data:")) handleChunk(line.slice(5).trim());
+          }
+        }
+        if (Date.now() - started > DEADLINE_MS) {
+          timedOut = true;
+          break;
+        }
+      }
+
+      const text = content || reasoning || "";
+      if (!text) {
+        throw new Error(
+          "The model returned an empty response. Please try sending your message again.",
+        );
+      }
+      if (timedOut && content) {
+        return {
+          content: `${text}\n\n_(Response truncated — the model hit the time limit. Ask again to continue.)_`,
+        };
+      }
+      return { content: text };
+    } catch (err) {
+      // Distinguish user-facing aborts from unexpected failures.
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error(
+          "The model took too long to respond. Please try sending your message again.",
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(abortTimer);
     }
-    return { content: text };
   },
 });

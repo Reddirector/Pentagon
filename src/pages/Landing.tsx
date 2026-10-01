@@ -99,12 +99,12 @@ export default function Landing() {
             transition={{ duration: 0.4, delay: 0.1 }}
             className="max-w-xl text-base font-medium text-muted-foreground md:text-lg"
           >
-            NeoChat is a chatbot built straight on the NVIDIA NIM API —
-            OpenAI-compatible calls to{" "}
+            NeoChat is a chatbot running{" "}
             <span className="bg-secondary px-1 font-bold text-foreground">
               z-ai/glm-5.3-flash
             </span>{" "}
-            with text and image input, stored in your own Convex history.
+            on NVIDIA NIM — OpenAI-compatible calls with text and image input,
+            stored in your own Convex history.
           </motion.p>
 
           <motion.div
@@ -217,7 +217,7 @@ export default function Landing() {
             <ul className="flex flex-col gap-2 text-sm font-semibold">
               {[
                 "POST /v1/chat/completions — OpenAI-compatible",
-                "temperature 1 · top_p 0.95 · max_tokens 262144",
+                "temperature 1 · top_p 0.95 · max_tokens 16384",
                 "Text + image (vision) messages supported",
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2">
@@ -229,7 +229,8 @@ export default function Landing() {
           </div>
           <div className="bg-foreground p-1 text-background nb-border nb-offset">
             <pre className="overflow-x-auto p-4 text-xs leading-relaxed md:text-sm">
-              <code>{`POST https://integrate.api.nvidia.com/v1Authorization: Bearer $NVIDIA_API_KEY
+              <code>{`POST /v1/chat/completions
+Authorization: Bearer $MODEL_API_KEY  # stays server-side
 
 {
   "model": "z-ai/glm-5.3-flash",
@@ -244,8 +245,8 @@ export default function Landing() {
   ],
   "temperature": 1,
   "top_p": 0.95,
-  "max_tokens": 262144,
-  "stream": false
+  "max_tokens": 16384,
+  "stream": true
 }`}</code>
             </pre>
           </div>
