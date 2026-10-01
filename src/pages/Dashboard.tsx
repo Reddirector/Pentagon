@@ -1,6 +1,10 @@
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
+import SettingsDialog, {
+  DEFAULT_SETTINGS,
+  type ChatSettings,
+} from "@/components/SettingsDialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +20,7 @@ import {
   PanelLeft,
   Pencil,
   Plus,
+  Settings2,
   Trash2,
   X,
   Zap,
@@ -58,6 +63,18 @@ function timeLabel(ts: number) {
   });
 }
 
+const SETTINGS_KEY = "neochat-settings";
+
+function loadSettings(): ChatSettings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    // Fall through to defaults.
+  }
+  return { ...DEFAULT_SETTINGS };
+}
+
 export default function Dashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -86,6 +103,17 @@ export default function Dashboard() {
   } | null>(null);
   const [sending, setSending] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [settings, setSettings] = useState<ChatSettings>(loadSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Persist settings across sessions.
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      // Storage may be unavailable; settings just won't persist.
+    }
+  }, [settings]);
 
   const creatingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -156,19 +184,27 @@ export default function Dashboard() {
           ]
         : content;
 
+      const systemContent = [
+        "You are a helpful assistant. Answer clearly and concisely.",
+        settings.customInstructions.trim() || null,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
       const history = [
-        {
-          role: "system" as const,
-          content:
-            "You are a helpful assistant. Answer clearly and concisely.",
-        },
+        { role: "system" as const, content: systemContent },
         ...(messages ?? []).map((m) => ({
           role: m.role,
           content: m.content,
         })),
         { role: "user" as const, content: userContent },
       ];
-      const { content: reply } = await complete({ messages: history });
+      const { content: reply } = await complete({
+        messages: history,
+        temperature: settings.temperature,
+        topP: settings.topP,
+        maxTokens: settings.maxTokens,
+      });
       setPending(null);
       await addMessage({
         chatId: selectedId,
@@ -227,7 +263,11 @@ export default function Dashboard() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      settings.sendWithEnter
+    ) {
       e.preventDefault();
       submit();
     }
@@ -382,14 +422,24 @@ export default function Dashboard() {
             {user?.name ?? user?.email ?? "You"}
           </p>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={handleSignOut}
-          aria-label="Sign out"
-        >
-          <LogOut className="size-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Open settings"
+          >
+            <Settings2 className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleSignOut}
+            aria-label="Sign out"
+          >
+            <LogOut className="size-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -636,6 +686,16 @@ export default function Dashboard() {
           </div>
         </div>
       </section>
+
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        settings={settings}
+        onSettingsChange={setSettings}
+        userName={user?.name ?? user?.email ?? "You"}
+        onSignOut={handleSignOut}
+        onDeletedAll={() => setSelectedId(null)}
+      />
     </main>
   );
 }

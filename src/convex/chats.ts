@@ -103,6 +103,73 @@ export const addMessage = mutation({
   },
 });
 
+/** Delete every chat and message owned by the signed-in user. */
+export const clearAllChats = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error("Not signed in");
+    const chats = await ctx.db
+      .query("chats")
+      .withIndex("by_user_updated", (q) => q.eq("userId", userId))
+      .collect();
+    for (const chat of chats) {
+      for (const msg of await ctx.db
+        .query("messages")
+        .withIndex("by_chat", (q) => q.eq("chatId", chat._id))
+        .collect()) {
+        await ctx.db.delete(msg._id);
+      }
+      await ctx.db.delete(chat._id);
+    }
+    return chats.length;
+  },
+});
+
+/** Export every chat + message of the signed-in user as JSON-safe data. */
+export const exportAll = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return { exportedAt: Date.now(), chats: [] };
+    const chats = await ctx.db
+      .query("chats")
+      .withIndex("by_user_updated", (q) => q.eq("userId", userId))
+      .order("desc")
+      .collect();
+    const out: {
+      id: string;
+      title: string;
+      updatedAt: number;
+      messages: {
+        role: string;
+        content: string;
+        hasImage: boolean;
+        createdAt: number;
+      }[];
+    }[] = [];
+    for (const chat of chats) {
+      const messages = await ctx.db
+        .query("messages")
+        .withIndex("by_chat", (q) => q.eq("chatId", chat._id))
+        .order("asc")
+        .collect();
+      out.push({
+        id: chat._id,
+        title: chat.title,
+        updatedAt: chat.updatedAt,
+        messages: messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          hasImage: m.imageId !== undefined,
+          createdAt: m.createdAt,
+        })),
+      });
+    }
+    return { exportedAt: Date.now(), chats: out };
+  },
+});
+
 /** Generate a short-lived upload URL for attaching an image to a message. */
 export const generateImageUploadUrl = mutation({
   args: {},
