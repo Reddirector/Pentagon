@@ -85,6 +85,7 @@ export default function Dashboard() {
     previewUrl: string;
   } | null>(null);
   const [sending, setSending] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
 
   const creatingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -121,7 +122,19 @@ export default function Dashboard() {
   // Auto-scroll to the newest message.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages?.length, pending]);  const send = async (text: string, storageId?: Id<"_storage">) => {
+  }, [messages?.length, pending]);
+
+  // Elapsed-seconds ticker while waiting on a slow reasoning model.
+  useEffect(() => {
+    if (!pending) return;
+    setElapsed(0);
+    const start = Date.now();
+    const timer = setInterval(
+      () => setElapsed(Math.floor((Date.now() - start) / 1000)),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, [pending]);  const send = async (text: string, storageId?: Id<"_storage">) => {
     const content = text.trim();
     if (!content || pending || sending) return;
     if (!selectedId) {
@@ -532,7 +545,8 @@ export default function Dashboard() {
                     )}
                   </div>
                   <span className="mt-1 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    NeoChat is thinking
+                    NeoChat is thinking{elapsed > 0 ? ` · ${elapsed}s` : ""}
+                    {elapsed > 15 && " · reasoning models can take a minute"}
                   </span>
                 </div>
               </>

@@ -7,8 +7,12 @@ import { getAuthUserId } from "@convex-dev/auth/server";
  * Chat completion proxy for the NVIDIA NIM API (OpenAI-compatible endpoint).
  * API key is read from the environment (set NVIDIA_API_KEY in the Keys/API keys tab).
  * Model: z-ai/glm-5.3-flash — enabled for this NVIDIA account; supports vision
- * (image_url parts) and returns reasoning_content before the final content.
- * Params match the reference snippet: temperature 1, top_p 0.95, max_tokens 262144.
+ * (image_url parts) and emits reasoning_content before the final content.
+ *
+ * Uses STREAMING to avoid idle-connection timeouts: a slow reasoning model can
+ * think for a while before the first token, and non-streaming requests die in
+ * transit. With streaming we accumulate chunks; if the model exceeds the hard
+ * deadline we still return whatever was generated so far instead of erroring.
  */
 export const complete = action({
   args: {
@@ -40,7 +44,7 @@ export const complete = action({
     const client = new OpenAI({
       baseURL: "https://integrate.api.nvidia.com/v1",
       apiKey,
-      timeout: 120_000,
+      timeout: 30_000, // time to first chunk only; stream keeps it alive after
       maxRetries: 1,
     });
 
@@ -74,20 +78,42 @@ export const complete = action({
       }),
     );
 
-    const completion = await client.chat.completions.create({
+    const stream = await client.chat.completions.create({
       model: "z-ai/glm-5.3-flash",
       messages: prepared,
       temperature: temperature ?? 1,
       top_p: topP ?? 0.95,
       max_tokens: maxTokens ?? 262144,
-      stream: false,
+      stream: true,
     });
 
-    const choice = completion.choices[0]?.message;
-    // Reasoning models may leave `content` null and put text in reasoning_content.
-    const reasoning = (choice as { reasoning_content?: string | null } | undefined)
-      ?.reasoning_content;
-    const content = choice?.content || reasoning || "";
-    return { content };
+    // Hard cap: reasoning models may think for minutes. Keep the action from
+    // running away; whatever has streamed so far is returned.
+    const DEADLINE_MS = 240_000;
+    const deadline = Date.now() + DEADLINE_MS;
+
+    let content = "";
+    let reasoning = "";
+
+    try {
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta;
+        if (delta?.content) content += delta.content;
+        const extra = delta as { reasoning_content?: string } | undefined;
+        if (extra?.reasoning_content) reasoning += extra.reasoning_content;
+        if (Date.now() > deadline) break;
+      }
+    } catch (err) {
+      // If we already have partial output, prefer it over failing hard.
+      if (!content && !reasoning) throw err;
+    }
+
+    const text = content || reasoning || "";
+    if (!text) {
+      throw new Error(
+        "The model returned an empty response. Please try sending your message again.",
+      );
+    }
+    return { content: text };
   },
 });
