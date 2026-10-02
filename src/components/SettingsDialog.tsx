@@ -252,10 +252,10 @@ export default function SettingsDialog({
 
               <div className="flex items-center justify-between rounded-xl bg-accent/50 px-3 py-2.5 ptg-border">
                 <div>
-                  <p className="text-xs font-medium">Web search (RAG)</p>
+                  <p className="text-xs font-medium">Internet search (RAG)</p>
                   <p className="text-[10px] text-muted-foreground">
-                    Model can search the web and read pages · Tavily +
-                    Firecrawl
+                    Built-in web search with citations — works out of the box.
+                    Add TAVILY_API_KEY / FIRECRAWL_API_KEY for higher quality.
                   </p>
                 </div>
                 <Switch

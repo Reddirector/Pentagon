@@ -12,11 +12,13 @@ import type { WebSource } from "./webTools";
  * from serverless egress IPs (probes verified), so requests route through the
  * platform's OpenAI-compatible gateway, which reaches the same hosted model.
  *
- * Web RAG: the model gets two tools — `web_search` (Tavily) and `open_url`
- * (Firecrawl). If the gateway/model rejects tool definitions, we fall back to
- * a heuristic pipeline: strong search-y prompts trigger a Tavily search whose
- * sources are injected into the context, and URL-only prompts get Firecrawl
- * scrapes. Sources are returned so the UI can render citations.
+ * Web RAG: the model gets tools — `web_search` (Tavily when TAVILY_API_KEY is
+ * set, otherwise a built-in keyless DuckDuckGo search) and `open_url`
+ * (Firecrawl, only when FIRECRAWL_API_KEY is set). If the gateway/model
+ * rejects tool definitions, we fall back to a heuristic pipeline: strong
+ * search-y prompts trigger a search whose sources are injected into the
+ * context, and URL prompts get scraped. Sources are returned so the UI can
+ * render citations.
  */
 
 const MODEL = "z-ai/glm-5.3-flash";
@@ -48,8 +50,8 @@ function gatewayUrl() {
   return `${base}/v1/chat/completions`;
 }
 
-function hasWebKeys() {
-  return Boolean(process.env.TAVILY_API_KEY || process.env.FIRECRAWL_API_KEY);
+function hasScrapeKey() {
+  return Boolean(process.env.FIRECRAWL_API_KEY);
 }
 
 const TOOLS = [
@@ -58,7 +60,7 @@ const TOOLS = [
     function: {
       name: "web_search",
       description:
-        "Search the public internet for current information. Returns a list of sources with title, URL and a content excerpt. Use whenever the answer depends on recent events, prices, docs, releases, or anything you are not certain about.",
+        "REQUIRED for any factual, time-sensitive, or news-like question (news, prices, releases, scores, weather, 'latest', 'current', 'who is', 'what is', dates, version numbers). Searches the live internet and returns ranked sources with titles, URLs and content excerpts. Always call this BEFORE answering such questions, then cite the sources you used inline like [1], [2]. Only skip it for pure math, coding, translation, or creative writing.",
       parameters: {
         type: "object",
         properties: {
@@ -71,22 +73,213 @@ const TOOLS = [
       },
     },
   },
-  {
-    type: "function",
-    function: {
-      name: "open_url",
-      description:
-        "Fetch the full readable content (markdown) of a web page URL. Use after web_search when a source looks promising and you need more detail, or whenever the user pastes a URL.",
-      parameters: {
-        type: "object",
-        properties: {
-          url: { type: "string", description: "The http(s) URL to read." },
+  ...(hasScrapeKey()
+    ? [
+        {
+          type: "function",
+          function: {
+            name: "open_url",
+            description:
+              "Fetch the full readable content (markdown) of a web page URL. Use after web_search when a source looks promising and you need more detail, or whenever the user pastes a URL.",
+            parameters: {
+              type: "object",
+              properties: {
+                url: { type: "string", description: "The http(s) URL to read." },
+              },
+              required: ["url"],
+            },
+          },
         },
-        required: ["url"],
-      },
-    },
-  },
+      ]
+    : []),
 ];
+
+/**
+ * Keyless web search via DuckDuckGo's HTML endpoint. Returns parsed organic
+ * results (title, url, snippet). Best-effort: empty array on any failure
+ * (DDG bot-challenges some datacenter IPs).
+ */
+async function runDuckDuckGo(query: string): Promise<WebSource[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(
+      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+      {
+        headers: {
+          // A browser-like UA keeps DDG from serving a JS-only page.
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          Accept: "text/html",
+        },
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) return [];
+    const html = await res.text();
+    const results: WebSource[] = [];
+    const linkRe =
+      /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    const snippetRe = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+    const snippets: string[] = [];
+    for (const m of html.matchAll(snippetRe)) snippets.push(m[1]);
+    let idx = 0;
+    for (const m of html.matchAll(linkRe)) {
+      const rawUrl = m[1];
+      // DDG wraps results in /l/?uddg=<encoded real url>
+      const uddg = /[?&]uddg=([^&]+)/.exec(rawUrl)?.[1];
+      const url = uddg
+        ? decodeURIComponent(uddg)
+        : rawUrl.startsWith("http")
+          ? rawUrl
+          : `https://duckduckgo.com${rawUrl}`;
+      const title = m[2]
+        .replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&")
+        .replace(/&#x27;|&apos;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .trim();
+      const snippet = (snippets[idx] ?? "")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&")
+        .replace(/&#x27;|&apos;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .trim();
+      idx++;
+      if (url.startsWith("http") && title) {
+        results.push({ title, url, snippet: snippet.slice(0, 400) });
+      }
+      if (results.length >= 8) break;
+    }
+    return results;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Keyless encyclopedic search via the Wikipedia API. Great for people,
+ * companies, places, events, tech, science. Best-effort.
+ */
+async function runWikipedia(query: string): Promise<WebSource[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const url =
+      `https://en.wikipedia.org/w/api.php?action=query&list=search` +
+      `&srsearch=${encodeURIComponent(query)}&format=json&srlimit=5&origin=*`;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      query?: {
+        search?: { title?: string; snippet?: string }[];
+      };
+    };
+    return (data.query?.search ?? [])
+      .filter((r) => r.title)
+      .map((r) => ({
+        title: `Wikipedia: ${r.title}`,
+        url: `https://en.wikipedia.org/wiki/${encodeURIComponent(
+          (r.title ?? "").replace(/ /g, "_"),
+        )}`,
+        snippet: (r.snippet ?? "")
+          .replace(/<[^>]+>/g, "")
+          .replace(/&amp;/g, "&")
+          .replace(/&quot;/g, '"')
+          .trim()
+          .slice(0, 400),
+      }));
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Keyless tech/news search via the Hacker News Algolia API. Surfaces recent
+ * articles, releases and discussions. Best-effort.
+ */
+async function runHackerNews(query: string): Promise<WebSource[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const url =
+      `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}` +
+      `&hitsPerPage=6&tags=story`;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      hits?: {
+        title?: string;
+        url?: string | null;
+        objectID?: string;
+        story_text?: string | null;
+        points?: number;
+        created_at?: string;
+      }[];
+    };
+    return (data.hits ?? [])
+      .filter((h) => h.title)
+      .map((h) => ({
+        title: h.title ?? "Untitled",
+        url:
+          h.url ||
+          `https://news.ycombinator.com/item?id=${h.objectID ?? ""}`,
+        snippet: [
+          (h.story_text ?? "").replace(/<[^>]+>/g, " ").trim(),
+          h.points !== undefined ? `${h.points} points on Hacker News` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+          .slice(0, 400),
+      }))
+      .filter((s) => s.url.startsWith("http"));
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function dedupeSources(sources: WebSource[]): WebSource[] {
+  const seen = new Set<string>();
+  const out: WebSource[] = [];
+  for (const s of sources) {
+    const key = s.url.replace(/\/$/, "");
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      out.push(s);
+    }
+  }
+  return out.slice(0, 8);
+}
+
+/**
+ * Search with graceful degradation:
+ * 1. Tavily (if TAVILY_API_KEY is set) — best quality.
+ * 2. DuckDuckGo HTML — keyless, works from most egress IPs.
+ * 3. Wikipedia + Hacker News — keyless APIs, always available.
+ */
+async function runSearch(query: string): Promise<WebSource[]> {
+  if (process.env.TAVILY_API_KEY) {
+    const tavily = await runTavily(query).catch(() => []);
+    if (tavily.length > 0) return tavily;
+  }
+  const ddg = await runDuckDuckGo(query);
+  if (ddg.length > 0) return ddg;
+  const [wiki, hn] = await Promise.all([
+    runWikipedia(query),
+    runHackerNews(query),
+  ]);
+  return dedupeSources([...wiki, ...hn]);
+}
 
 function sourcesToContext(sources: WebSource[]) {
   return sources
@@ -205,6 +398,58 @@ type ToolCall = {
   type: "function";
   function: { name: string; arguments: string };
 };
+
+/** Firecrawl when the key exists, otherwise a keyless direct fetch. */
+function htmlToText(html: string) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&#x27;|&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+/** Firecrawl when the key exists, otherwise a keyless direct fetch + text extraction. */
+async function runOpenUrl(
+  url: string,
+): Promise<{ title: string; url: string; markdown: string }> {
+  if (!/^https?:\/\//i.test(url)) throw new Error("Only http(s) URLs.");
+  if (hasScrapeKey()) return runFirecrawl(url);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": BROWSER_UA, Accept: "text/html,*/*" },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Fetch failed (HTTP ${res.status}).`);
+    const contentType = res.headers.get("content-type") ?? "";
+    if (!/html|text|xml/.test(contentType)) {
+      throw new Error(`Unsupported content type: ${contentType.split(";")[0]}`);
+    }
+    const html = await res.text();
+    const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+    const text = htmlToText(html).slice(0, 8_000);
+    if (!text) throw new Error("Page returned no readable content.");
+    return {
+      url,
+      title: titleMatch ? htmlToText(titleMatch[1]).slice(0, 200) || url : url,
+      markdown: text,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function runTavily(query: string): Promise<WebSource[]> {
   const apiKey = process.env.TAVILY_API_KEY;
@@ -359,11 +604,11 @@ export const complete = action({
       let usedToolCallPath = false;
       let unsupported = false;
 
-      if (webEnabled && hasWebKeys()) {
+      if (webEnabled) {
         convo.push({
           role: "system",
           content:
-            "You have web tools. Use web_search for current facts or anything uncertain, and open_url when a source needs deeper reading or the user pastes a link. After gathering sources, answer concisely and cite them inline like [1], [2] matching the order you used them. If no tool is needed, just answer.",
+            'Web access is ENABLED. For any factual, time-sensitive, or knowledge question (news, people, companies, products, prices, weather, sports, tech, history you are unsure of) you MUST call web_search FIRST and base your answer on the results. After searching, answer concisely and cite the sources you used inline like [1], [2] — numbering must match the order of sources you used. Only answer from memory for pure math, coding help, translation, or creative writing. If search results do not cover the question, say so plainly.',
         });
       }
 
@@ -376,7 +621,7 @@ export const complete = action({
         if (temperature !== undefined) body.temperature = temperature;
         if (topP !== undefined) body.top_p = topP;
         if (maxTokens !== undefined) body.max_tokens = maxTokens;
-        if (webEnabled && hasWebKeys()) body.tools = TOOLS;
+        if (webEnabled) body.tools = TOOLS;
 
         const res = await callGateway(apiKey, body, controller.signal);
         if (!res.ok || !res.body) {
@@ -432,14 +677,14 @@ export const complete = action({
               unknown
             >;
             if (call.function.name === "web_search") {
-              const sources = await runTavily(String(args.query ?? ""));
+              const sources = await runSearch(String(args.query ?? ""));
               sources.forEach((s) => {
                 if (collected.length < 12 && !collected.some((c) => c.url === s.url))
                   collected.push(s);
               });
               resultText = sourcesToContext(sources) || "No results found.";
             } else if (call.function.name === "open_url") {
-              const page = await runFirecrawl(String(args.url ?? ""));
+              const page = await runOpenUrl(String(args.url ?? ""));
               const source: WebSource = {
                 title: page.title,
                 url: page.url,
@@ -490,7 +735,7 @@ export const complete = action({
       let contentText = "";
       let sources: WebSource[] = [];
 
-      if (webEnabled && hasWebKeys()) {
+      if (webEnabled) {
         const lastUser = [...prepared]
           .reverse()
           .find((m) => m.role === "user");
@@ -506,9 +751,9 @@ export const complete = action({
 
         const urls = lastText.match(/https?:\/\/[^\s)"'>]+/g) ?? [];
 
-        if (urls.length > 0 && process.env.FIRECRAWL_API_KEY) {
+        if (urls.length > 0) {
           const scraped = await Promise.all(
-            urls.slice(0, 2).map((u) => runFirecrawl(u).catch((e: Error) => ({
+            urls.slice(0, 2).map((u) => runOpenUrl(u).catch((e: Error) => ({
               title: u,
               url: u,
               markdown: `Scrape failed: ${e.message}`,
@@ -530,8 +775,8 @@ export const complete = action({
             content: `The user shared link(s). Extracted page content follows; use it to answer factually.\n\n${context}`,
           });
           contentText = "";
-        } else if (urls.length === 0 && process.env.TAVILY_API_KEY && looksLikeSearchQuery(lastText)) {
-          const searchSources = await runTavily(lastText).catch(() => []);
+        } else if (urls.length === 0 && looksLikeSearchQuery(lastText)) {
+          const searchSources = await runSearch(lastText).catch(() => []);
           if (searchSources.length > 0) {
             sources = searchSources;
             convo.push({
