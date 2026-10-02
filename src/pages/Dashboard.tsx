@@ -310,6 +310,9 @@ export default function Dashboard() {
         topP: settings.topP,
         maxTokens: settings.maxTokens,
         webSearch: settings.webSearch,
+        // Browser IANA zone so the clock tool answers in the user's local
+        // time; backend falls back to Asia/Kolkata when absent.
+        userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       setPending(null);
       await addMessage({
