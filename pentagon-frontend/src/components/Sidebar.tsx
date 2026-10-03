@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Check, MessageSquarePlus, Pencil, Search, Settings2, Trash2, X } from 'lucide-react'
 import { LogomarkBadge } from './Logomark'
-import { getPreferences, subscribePreferences } from '../lib/preferences'
+import {
+  getPreferences,
+  setSidebarWidth as persistSidebarWidth,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  subscribePreferences,
+} from '../lib/preferences'
 import type { Conversation } from '../types'
 
 type Group = { title: string; conversations: Conversation[] }
@@ -58,6 +65,76 @@ export function Sidebar({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
 
+  // --- Resizing ---------------------------------------------------------------
+  // Width is only user-adjustable from md up; below that the sidebar is a
+  // drawer whose width is dictated by the viewport, so the handle is hidden and
+  // the stored width is not applied.
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches,
+  )
+  const asideRef = useRef<HTMLElement>(null)
+  const [draftWidth, setDraftWidth] = useState<number | null>(null)
+  const [resizing, setResizing] = useState(false)
+  const widthPreference = useSyncExternalStore(subscribePreferences, getPreferences).sidebarWidth
+
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 768px)')
+    const onChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches)
+    onChange({ matches: query.matches } as MediaQueryListEvent)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+
+  const appliedWidth = draftWidth ?? (widthPreference > 0 ? widthPreference : null)
+
+  function clamp(value: number) {
+    return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(value)))
+  }
+
+  function beginResize(event: React.PointerEvent<HTMLDivElement>) {
+    if (!isDesktop || event.button !== 0) return
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = asideRef.current?.getBoundingClientRect().width ?? SIDEBAR_DEFAULT_WIDTH
+    setResizing(true)
+
+    const onMove = (move: PointerEvent) => setDraftWidth(clamp(startWidth + (move.clientX - startX)))
+    const finish = () => {
+      setDraftWidth((current) => {
+        if (current !== null) persistSidebarWidth(current)
+        return null
+      })
+      setResizing(false)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+  }
+
+  function nudgeWidth(delta: number) {
+    const current = appliedWidth ?? asideRef.current?.getBoundingClientRect().width ?? SIDEBAR_DEFAULT_WIDTH
+    persistSidebarWidth(clamp(current + delta))
+  }
+
+  function resetWidth() {
+    persistSidebarWidth(0)
+    setDraftWidth(null)
+  }
+
+  // Stop stray text selection while the pointer is dragging the divider.
+  useEffect(() => {
+    if (!resizing) return
+    const previous = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    return () => {
+      document.body.style.userSelect = previous
+    }
+  }, [resizing])
+
   useEffect(() => {
     if (!open || !onClose) return
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -78,11 +155,40 @@ export function Sidebar({
     if (next && next !== originalTitle) onRename(id, next)
   }
   return <aside
+    ref={asideRef}
     aria-label="Threads"
     // Below md this is a fixed drawer that slides in over the conversation;
     // from md up it is a plain flex column and the transform is neutralised.
-    className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(86vw,300px)] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] px-4 py-5 shadow-[0_0_60px_rgba(0,0,0,.6)] backdrop-blur-2xl backdrop-saturate-150 transition-transform duration-200 ease-out md:static md:z-auto md:w-[270px] md:translate-x-0 md:shadow-none lg:w-[230px] xl:w-[270px] ${open ? 'translate-x-0' : '-translate-x-full'}`}
+    // md:relative (not static) so the resize handle can anchor to this element.
+    style={isDesktop && appliedWidth ? { width: `${appliedWidth}px` } : undefined}
+    className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(86vw,300px)] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] px-4 py-5 shadow-[0_0_60px_rgba(0,0,0,.6)] backdrop-blur-2xl backdrop-saturate-150 transition-transform duration-200 ease-out md:relative md:z-auto md:w-[270px] md:translate-x-0 md:shadow-none lg:w-[230px] xl:w-[270px] ${open ? 'translate-x-0' : '-translate-x-full'}`}
   >
+    {isDesktop ? (
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        aria-valuenow={Math.round(appliedWidth ?? SIDEBAR_DEFAULT_WIDTH)}
+        aria-valuemin={SIDEBAR_MIN_WIDTH}
+        aria-valuemax={SIDEBAR_MAX_WIDTH}
+        tabIndex={0}
+        onPointerDown={beginResize}
+        onDoubleClick={resetWidth}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft') nudgeWidth(-16)
+          if (event.key === 'ArrowRight') nudgeWidth(16)
+          if (event.key === 'Home') resetWidth()
+        }}
+        title="Drag to resize · double-click to reset"
+        className="group absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none focus:outline-none"
+      >
+        <span
+          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 ${
+            resizing ? 'bg-white/70' : 'bg-white/0 group-hover:bg-white/25 group-focus-visible:bg-white/50'
+          }`}
+        />
+      </div>
+    ) : null}
     <div className="mb-8 flex items-center gap-3 px-2">
       <button
         type="button"

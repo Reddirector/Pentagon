@@ -44,6 +44,7 @@ hosted service you did not choose.
 | **Voice** | Speech-to-text and text-to-speech, with local fallbacks |
 | **Bring your own key** | Stored per user, Fernet-encrypted, validated before saving |
 | **Appearance** | Monochrome themes, contrast, text size, density, ambient background |
+| **Resizable sidebar** | Drag the edge to resize; arrow keys work too, double-click resets |
 | **Offline-friendly retrieval** | Embeddings fall back to a local model, so RAG survives key changes |
 
 ---

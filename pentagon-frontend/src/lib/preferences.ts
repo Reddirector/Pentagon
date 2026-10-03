@@ -15,6 +15,8 @@ export interface Preferences {
   textSize: TextSize
   workspaceName: string
   defaultModel: string
+  /** Pixels, or 0 to follow the responsive breakpoint widths. */
+  sidebarWidth: number
 }
 
 export const DENSITIES: { value: Density; label: string; note: string }[] = [
@@ -35,6 +37,10 @@ export const APPEARANCES: { value: Appearance; label: string; swatch: string; no
   { value: 'dusk', label: 'Dusk', swatch: '#141414', note: 'Lifted panels, easier on long reading sessions.' },
 ]
 
+export const SIDEBAR_MIN_WIDTH = 200
+export const SIDEBAR_MAX_WIDTH = 480
+export const SIDEBAR_DEFAULT_WIDTH = 270
+
 const DEFAULTS: Preferences = {
   appearance: 'pitch',
   contrast: 'standard',
@@ -42,6 +48,14 @@ const DEFAULTS: Preferences = {
   textSize: 'default',
   workspaceName: 'Personal workspace',
   defaultModel: '',
+  sidebarWidth: 0,
+}
+
+function clampSidebarWidth(value: unknown): number {
+  const parsed = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0
+  // 0 means "use the breakpoint default", so it must survive as-is.
+  if (parsed === 0) return 0
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, parsed))
 }
 
 const STORE_KEY = 'pentagon.preferences'
@@ -72,6 +86,7 @@ function read(): Preferences {
         ? parsed.workspaceName.trim().slice(0, 40)
         : DEFAULTS.workspaceName,
       defaultModel: typeof parsed.defaultModel === 'string' ? parsed.defaultModel : '',
+      sidebarWidth: clampSidebarWidth(parsed.sidebarWidth),
     }
   } catch {
     return DEFAULTS
@@ -110,7 +125,8 @@ function commit(next: Partial<Preferences>) {
     merged.density === current.density &&
     merged.textSize === current.textSize &&
     merged.workspaceName === current.workspaceName &&
-    merged.defaultModel === current.defaultModel
+    merged.defaultModel === current.defaultModel &&
+    merged.sidebarWidth === current.sidebarWidth
   ) return
   current = merged
   persist()
@@ -151,6 +167,11 @@ export function setWorkspaceName(workspaceName: string) {
 
 export function setDefaultModel(defaultModel: string) {
   commit({ defaultModel })
+}
+
+/** Pass 0 to hand the width back to the responsive breakpoint defaults. */
+export function setSidebarWidth(sidebarWidth: number) {
+  commit({ sidebarWidth: clampSidebarWidth(sidebarWidth) })
 }
 
 export function resetPreferences() {
