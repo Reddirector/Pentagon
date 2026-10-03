@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
-import { Activity, ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, Mic, Paperclip, Plus, Square, Video, X } from 'lucide-react'
+import { ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, Mic, Paperclip, Plus, Square, Video, X } from 'lucide-react'
 import { apiRequest, ApiError, getLocalUserId, pcmToWavUrl } from './api'
 import { AssistantDetails } from './components/MessageContent'
 import { Sidebar } from './components/Sidebar'
@@ -60,7 +60,10 @@ function App() {
   const [active, setActive] = useState<ConversationDetail | Conversation | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [documents, setDocuments] = useState<DocumentInfo[]>([])
-  const [summaryActive, setSummaryActive] = useState(false)
+  // The summary flag is still set wherever a thread is opened or switched, so
+  // it is kept tracked even though no surface reads it today. Dropping it would
+  // leave those call sites silently wrong if the indicator ever comes back.
+  const [, setSummaryActive] = useState(false)
   const [queuedDocuments, setQueuedDocuments] = useState<File[]>([])
   const [media, setMedia] = useState<File | null>(null)
   const [selectedModel, setSelectedModel] = useState('')
@@ -96,9 +99,6 @@ function App() {
   const activeId = active?.id || null
   const sidebarThreads = active && 'isDraft' in active && active.isDraft ? [active as Conversation, ...threads] : threads
   const isDraftThread = Boolean(active && 'isDraft' in active && active.isDraft)
-  const contextLabel = summaryActive
-    ? `Summary + ${Math.min(messages.length, 6)} recent`
-    : `${messages.length} ${messages.length === 1 ? 'message' : 'messages'}`
   const conversationAnnouncement = useMemo(() => {
     if (transcribing) return 'Transcribing your recording.'
     if (uploading) return 'Uploading a document.'
@@ -835,9 +835,6 @@ function App() {
               <div className="px-2 py-1.5 text-caption font-medium uppercase tracking-[.15em] text-zinc-600">Thread documents</div>
               {documents.length ? documents.map((doc) => <div key={doc.document_id} className="flex items-center gap-2 rounded-lg px-2 py-2 text-small text-zinc-300"><FileText size={12} className="text-sky-300" /><span className="min-w-0 flex-1 truncate">{doc.filename}</span><span className="font-mono text-caption text-zinc-600">{doc.chunks_stored}</span></div>) : <div className="px-2 py-3 text-micro text-zinc-500">No documents in this thread yet.</div>}
             </div>
-          </div>
-          <div className="hidden items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.02] px-2.5 py-1.5 text-micro text-zinc-500 sm:flex" title="Message count from the loaded backend history; token totals are not returned by the API.">
-            <Activity size={12} className="text-zinc-600" /><span className="text-zinc-600">Context</span><span className="text-zinc-300">{contextLabel}</span>
           </div>
           <button onClick={startThread} className="grid size-8 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.06] hover:text-white md:hidden" title="New thread"><Plus size={16} /></button>
         </div>
