@@ -816,7 +816,9 @@ function App() {
           </form>
           <div className="flex items-center justify-between gap-3 px-2 pt-2 text-[9px] text-zinc-600 max-sm:text-[8px]">
             <span className="truncate">Drop files to upload · Markdown supported</span>
-            <span className="max-w-[50%] truncate text-right">{activeModel?.id || selectedModel || 'Choose a model'}{transcribing ? ' · Transcribing…' : uploading ? ' · Uploading…' : ''}</span>
+            {(transcribing || uploading) && (
+              <span className="max-w-[50%] truncate text-right">{transcribing ? 'Transcribing…' : 'Uploading…'}</span>
+            )}
           </div>
         </div>
       </section>
@@ -852,7 +854,7 @@ function MessageRow({ message, isStreaming = false, copied = false, onCopy }: { 
   return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
     {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center"><Logomark size={20} /></div>}
     <div className={`min-w-0 ${user ? 'max-w-[78%]' : 'w-full max-w-[calc(100%-40px)]'}`}>
-      <div className={`mb-2 flex items-center gap-2 text-[10px] ${user ? 'justify-end pr-1 text-zinc-500' : 'text-zinc-500'}`}><span className="font-medium text-zinc-300">{user ? 'You' : 'Pentagon'}</span>{!user && <span className="truncate font-mono text-[9px] text-zinc-700">{message.model_used}</span>}</div>
+      <div className={`mb-2 flex items-center gap-2 text-[10px] ${user ? 'justify-end pr-1 text-zinc-500' : 'text-zinc-500'}`}><span className="font-medium text-zinc-300">{user ? 'You' : 'Pentagon'}</span></div>
       {user ? <div className="rounded-2xl rounded-tr-md border border-white/[0.07] bg-[#171717] px-4 py-3 text-[13px] leading-6 text-zinc-100">
         <div className="whitespace-pre-wrap break-words">{message.content}</div>
         {message.attachmentName && <div className="mt-2 flex items-center gap-1.5 text-[9px] text-zinc-500"><Paperclip size={11} />{message.attachmentName}</div>}
