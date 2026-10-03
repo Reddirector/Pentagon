@@ -655,7 +655,6 @@ function App() {
       onOpenPalette={() => setPaletteOpen(true)}
       onOpenSettings={() => setSettingsOpen(true)}
       activeId={activeId}
-      userId={userId}
       query={search}
       onQueryChange={setSearch}
       onNewThread={startThread}

@@ -24,7 +24,6 @@ function recencyGroups(conversations: Conversation[]): Group[] {
 export function Sidebar({
   conversations,
   activeId,
-  userId,
   query,
   onQueryChange,
   onNewThread,
@@ -34,7 +33,6 @@ export function Sidebar({
 }: {
   conversations: Conversation[]
   activeId: string | null
-  userId: string
   query: string
   onQueryChange: (value: string) => void
   onNewThread: () => void
@@ -73,13 +71,8 @@ export function Sidebar({
       {groups.length === 0 && <p className="px-2 text-[11px] leading-6 text-zinc-600">{query ? 'No matching threads.' : 'Your threads will appear here.'}</p>}
     </nav>
 
-    <div className="mt-4 border-t border-white/[0.06] pt-4">
-      <div className="flex items-center gap-2.5 px-2">
-        <div className="grid size-7 place-items-center rounded-full border border-white/10 bg-white/[0.045] font-mono text-[10px] text-zinc-300">{userId.slice(-1).toUpperCase()}</div>
-        <div className="min-w-0"><div className="text-[10px] font-medium text-zinc-300">Local session</div><div className="truncate text-[9px] text-zinc-600">{userId}</div></div>
-        <span className="ml-auto size-1.5 rounded-full bg-emerald-300 shadow-[0_0_8px_rgba(255,255,255,.7)]" title="Backend connected" />
-      </div>
-      <button type="button" onClick={onOpenSettings} className="mt-2 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-white/[0.045]" title="Settings">
+    <div className="mt-4 border-t border-white/[0.06] pt-3">
+      <button type="button" onClick={onOpenSettings} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-white/[0.045]" title="Settings">
         <Settings2 size={14} className="shrink-0 text-zinc-500" />
         <span className="text-[10px] text-zinc-400">Settings</span>
         <span className="ml-auto text-[9px] text-zinc-700">ambient, shortcuts</span>
