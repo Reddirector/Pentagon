@@ -10,7 +10,7 @@ import { AmbientLayer } from './components/AmbientLayer'
 import { CommandPalette } from './components/CommandPalette'
 import { SettingsDialog } from './components/SettingsDialog'
 import { setAmbientSignal } from './lib/ambient'
-import { getPreferences } from './lib/preferences'
+import { getPreferences, toggleSidebarCollapsed } from './lib/preferences'
 import type { ChatMessage, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, SourcesUsed } from './types'
 
 type ConversationDetail = Conversation & { messages: ChatMessage[]; summary_at_switch: string | null }
@@ -233,6 +233,16 @@ function App() {
       if (meta && event.shiftKey && event.key.toLowerCase() === 'o') {
         event.preventDefault()
         startThread()
+        return
+      }
+      // ⌘B / Ctrl+B folds the sidebar away to an icon rail. Ignored on a phone,
+      // where the sidebar is already a full-width drawer.
+      if (meta && !event.shiftKey && event.key.toLowerCase() === 'b') {
+        if (window.matchMedia('(min-width: 768px)').matches) {
+          event.preventDefault()
+          toggleSidebarCollapsed()
+        }
+        return
       }
     }
     window.addEventListener('keydown', onKeyDown)

@@ -33,6 +33,22 @@ is a transport proxy with no application logic; chat, keys, and persistence
 remain in FastAPI. The packaged Electron app uses the same small static-file
 and `/api` proxy for that CORS boundary.
 
+## Keyboard
+
+| Shortcut | Action |
+| --- | --- |
+| `⌘K` / `Ctrl+K` | Command palette |
+| `⌘B` / `Ctrl+B` | Collapse or expand the sidebar into its icon rail |
+| `⌘⇧O` / `Ctrl+Shift+O` | New thread |
+| `/` | Focus the composer |
+| `Alt+↑` / `Alt+↓` | Jump between answers |
+| `Esc` | Close the palette, settings or drawer |
+
+The sidebar also resizes by dragging its right edge, with `←` / `→` and `Home`
+on the focused handle, and a double-click to return to the breakpoint default.
+Collapsed state, width, theme, density and text size all persist in
+`localStorage` under `pentagon.preferences`.
+
 ## Desktop packaging
 
 Use `npm run electron:dev` to open the running Vite preview in Electron. Build

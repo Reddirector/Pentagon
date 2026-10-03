@@ -45,6 +45,7 @@ hosted service you did not choose.
 | **Bring your own key** | Stored per user, Fernet-encrypted, validated before saving |
 | **Appearance** | Monochrome themes, contrast, text size, density, ambient background |
 | **Resizable sidebar** | Drag the edge to resize; arrow keys work too, double-click resets |
+| **Collapsible sidebar** | Folds to an icon rail with ⌘B / Ctrl+B, and remembers the choice |
 | **Offline-friendly retrieval** | Embeddings fall back to a local model, so RAG survives key changes |
 
 ---

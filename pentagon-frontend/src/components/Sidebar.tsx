@@ -1,12 +1,25 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { Check, MessageSquarePlus, Pencil, Search, Settings2, Trash2, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  Check,
+  MessageSquare,
+  MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
+  Search,
+  Settings2,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { LogomarkBadge } from './Logomark'
 import {
   getPreferences,
+  setSidebarCollapsed as persistSidebarCollapsed,
   setSidebarWidth as persistSidebarWidth,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
+  SIDEBAR_RAIL_WIDTH,
   subscribePreferences,
 } from '../lib/preferences'
 import type { Conversation } from '../types'
@@ -59,7 +72,8 @@ export function Sidebar({
   onClose?: () => void
 }) {
   const groups = useMemo(() => recencyGroups(conversations.filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase()))), [conversations, query])
-  const workspaceName = useSyncExternalStore(subscribePreferences, getPreferences).workspaceName
+  const preferences = useSyncExternalStore(subscribePreferences, getPreferences)
+  const workspaceName = preferences.workspaceName
   // Inline rename state. Kept as an id rather than a map so that only the row
   // being edited re-renders its input state.
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -75,7 +89,12 @@ export function Sidebar({
   const asideRef = useRef<HTMLElement>(null)
   const [draftWidth, setDraftWidth] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
-  const widthPreference = useSyncExternalStore(subscribePreferences, getPreferences).sidebarWidth
+  const widthPreference = preferences.sidebarWidth
+
+  // The rail is a desktop-only affordance. On a phone the sidebar is an overlay
+  // drawer that is already as narrow as it can usefully be, so collapsing it
+  // would only make it harder to read.
+  const collapsed = isDesktop && preferences.sidebarCollapsed
 
   useEffect(() => {
     const query = window.matchMedia('(min-width: 768px)')
@@ -85,7 +104,22 @@ export function Sidebar({
     return () => query.removeEventListener('change', onChange)
   }, [])
 
-  const appliedWidth = draftWidth ?? (widthPreference > 0 ? widthPreference : null)
+  // A collapsed rail has a fixed width, so the stored width is set aside rather
+  // than overwritten — expanding again restores whatever the user had chosen.
+  const appliedWidth = collapsed ? SIDEBAR_RAIL_WIDTH : (draftWidth ?? (widthPreference > 0 ? widthPreference : null))
+
+  // Search lives in the input, which the rail has no room for. Asking for it
+  // from the rail therefore expands the sidebar and focuses the field, which is
+  // what the magnifier is understood to mean. The focus is deferred to a
+  // callback ref rather than an effect, so it happens the moment the input
+  // actually exists instead of costing an extra render.
+  const focusSearchOnMount = useRef(false)
+  const attachSearch = useCallback((node: HTMLInputElement | null) => {
+    if (!node || !focusSearchOnMount.current) return
+    focusSearchOnMount.current = false
+    node.focus()
+    node.select()
+  }, [])
 
   function clamp(value: number) {
     return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(value)))
@@ -120,7 +154,12 @@ export function Sidebar({
   }
 
   function nudgeWidth(delta: number) {
-    const current = appliedWidth ?? asideRef.current?.getBoundingClientRect().width ?? SIDEBAR_DEFAULT_WIDTH
+    // Deliberately not appliedWidth: while collapsed that is the 64px rail, and
+    // nudging from there would clamp to the minimum and overwrite the width the
+    // user actually chose. Keyboard resizing works on the stored width.
+    const current = widthPreference > 0
+      ? widthPreference
+      : asideRef.current?.getBoundingClientRect().width ?? SIDEBAR_DEFAULT_WIDTH
     persistSidebarWidth(clamp(current + delta))
   }
 
@@ -158,6 +197,7 @@ export function Sidebar({
     setEditingId(null)
     if (next && next !== originalTitle) onRename(id, next)
   }
+
   return <aside
     ref={asideRef}
     aria-label="Threads"
@@ -165,34 +205,49 @@ export function Sidebar({
     // from md up it is a plain flex column and the transform is neutralised.
     // md:relative (not static) so the resize handle can anchor to this element.
     style={isDesktop && appliedWidth ? { width: `${appliedWidth}px` } : undefined}
-    className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(86vw,300px)] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] px-4 py-5 shadow-[0_0_60px_rgba(0,0,0,.6)] backdrop-blur-2xl backdrop-saturate-150 transition-transform duration-200 ease-out md:relative md:z-auto md:w-[270px] md:translate-x-0 md:shadow-none lg:w-[230px] xl:w-[270px] ${open ? 'translate-x-0' : '-translate-x-full'}`}
+    className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(86vw,300px)] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] py-5 shadow-[0_0_60px_rgba(0,0,0,.6)] backdrop-blur-2xl backdrop-saturate-150 transition-transform duration-200 ease-out md:relative md:z-auto md:w-[270px] md:translate-x-0 md:shadow-none lg:w-[230px] xl:w-[270px] ${collapsed ? 'px-3' : 'px-4'} ${open ? 'translate-x-0' : '-translate-x-full'}`}
   >
-    {isDesktop ? (
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize sidebar"
-        aria-valuenow={Math.round(appliedWidth ?? SIDEBAR_DEFAULT_WIDTH)}
-        aria-valuemin={SIDEBAR_MIN_WIDTH}
-        aria-valuemax={SIDEBAR_MAX_WIDTH}
-        tabIndex={0}
-        onPointerDown={beginResize}
-        onDoubleClick={resetWidth}
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowLeft') nudgeWidth(-16)
-          if (event.key === 'ArrowRight') nudgeWidth(16)
-          if (event.key === 'Home') resetWidth()
-        }}
-        title="Drag to resize · double-click to reset"
-        className="group absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none focus:outline-none"
+  {isDesktop && !collapsed ? (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      aria-valuenow={Math.round(appliedWidth ?? SIDEBAR_DEFAULT_WIDTH)}
+      aria-valuemin={SIDEBAR_MIN_WIDTH}
+      aria-valuemax={SIDEBAR_MAX_WIDTH}
+      tabIndex={0}
+      onPointerDown={beginResize}
+      onDoubleClick={resetWidth}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowLeft') nudgeWidth(-16)
+        if (event.key === 'ArrowRight') nudgeWidth(16)
+        if (event.key === 'Home') resetWidth()
+      }}
+      title="Drag to resize · double-click to reset"
+      className="group absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none focus:outline-none"
+    >
+      <span
+        className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 ${
+          resizing ? 'bg-white/70' : 'bg-white/0 group-hover:bg-white/25 group-focus-visible:bg-white/50'
+        }`}
+      />
+    </div>
+  ) : null}
+  {collapsed ? (
+    <div className="mb-6 flex flex-col items-center gap-3">
+      <LogomarkBadge size={30} label="Pentagon" />
+      <button
+        type="button"
+        onClick={() => persistSidebarCollapsed(false)}
+        aria-label="Expand sidebar"
+        title="Expand sidebar (⌘B)"
+        className="grid size-8 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-100"
       >
-        <span
-          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 ${
-            resizing ? 'bg-white/70' : 'bg-white/0 group-hover:bg-white/25 group-focus-visible:bg-white/50'
-          }`}
-        />
-      </div>
-    ) : null}
+        <PanelLeftOpen size={15} />
+      </button>
+    </div>
+  ) : (
+    <>
     <div className="mb-8 flex items-center gap-3 px-2">
       <button
         type="button"
@@ -203,21 +258,90 @@ export function Sidebar({
         <X size={16} />
       </button>
       <LogomarkBadge size={32} label="Pentagon" />
-      <div><div className="text-body font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 truncate text-caption uppercase tracking-[.18em] text-zinc-600">{workspaceName}</div></div>
+      <div className="min-w-0 flex-1"><div className="text-body font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 truncate text-caption uppercase tracking-[.18em] text-zinc-600">{workspaceName}</div></div>
+      {isDesktop ? (
+        <button
+          type="button"
+          onClick={() => persistSidebarCollapsed(true)}
+          aria-label="Collapse sidebar"
+          title="Collapse sidebar (⌘B)"
+          className="grid size-8 shrink-0 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-100"
+        >
+          <PanelLeftClose size={15} />
+        </button>
+      ) : null}
     </div>
+    </>
+  )}
 
-    <div className="mb-5 flex items-center gap-1.5">
-      <button onClick={onNewThread} className="flex h-10 flex-1 items-center gap-2.5 rounded-xl border border-white/[0.09] bg-white/[0.035] px-3 text-left text-body font-medium text-zinc-200 transition-[background-color,border-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-emerald-300/30 hover:bg-emerald-300/[0.07] hover:text-white active:translate-y-0 active:scale-[.99]">
-        <MessageSquarePlus size={15} className="text-emerald-300" />New Thread
+  {collapsed ? (
+    <div className="mb-5 flex flex-col items-center gap-1.5">
+      <button
+        type="button"
+        onClick={onNewThread}
+        aria-label="New thread"
+        title="New thread"
+        className="grid size-9 place-items-center rounded-xl border border-white/[0.09] bg-white/[0.035] text-zinc-200 transition hover:border-emerald-300/30 hover:bg-emerald-300/[0.07] hover:text-white"
+      >
+        <MessageSquarePlus size={15} className="text-emerald-300" />
       </button>
-      <button type="button" onClick={onOpenPalette} className="grid h-10 w-9 shrink-0 place-items-center rounded-xl border border-white/[0.07] text-caption text-zinc-600 transition hover:border-emerald-300/25 hover:text-zinc-300" title="Open command palette" aria-label="Open command palette">⌘K</button>
+      <button
+        type="button"
+        onClick={() => {
+          focusSearchOnMount.current = true
+          persistSidebarCollapsed(false)
+        }}
+        aria-label="Search threads"
+        title="Search threads"
+        className="grid size-9 place-items-center rounded-xl border border-white/[0.07] text-zinc-500 transition hover:border-emerald-300/25 hover:text-zinc-200"
+      >
+        <Search size={15} />
+      </button>
     </div>
+  ) : (
+    <>
+  <div className="mb-5 flex items-center gap-1.5">
+    <button onClick={onNewThread} className="flex h-10 flex-1 items-center gap-2.5 rounded-xl border border-white/[0.09] bg-white/[0.035] px-3 text-left text-body font-medium text-zinc-200 transition-[background-color,border-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-emerald-300/30 hover:bg-emerald-300/[0.07] hover:text-white active:translate-y-0 active:scale-[.99]">
+      <MessageSquarePlus size={15} className="text-emerald-300" />New Thread
+    </button>
+    <button type="button" onClick={onOpenPalette} className="grid h-10 w-9 shrink-0 place-items-center rounded-xl border border-white/[0.07] text-caption text-zinc-600 transition hover:border-emerald-300/25 hover:text-zinc-300" title="Open command palette" aria-label="Open command palette">⌘K</button>
+  </div>
 
-    <div className="relative mb-6">
-      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
-      <input aria-label="Search conversations" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search threads" className="h-9 w-full rounded-lg border border-white/[0.06] bg-white/[0.025] pl-9 pr-3 text-small text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-emerald-300/30" />
-    </div>
+  <div className="relative mb-6">
+    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
+    <input ref={attachSearch} aria-label="Search conversations" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search threads" className="h-9 w-full rounded-lg border border-white/[0.06] bg-white/[0.025] pl-9 pr-3 text-small text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-emerald-300/30" />
+  </div>
+    </>
+  )}
 
+  {collapsed ? (
+    <nav aria-label="Conversations" className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+      {groups.map((group) => (
+        <section key={group.title} className="space-y-1">
+          <div className="mx-auto h-px w-5 bg-white/[0.09]" aria-hidden="true" />
+          {group.conversations.map((conversation) => (
+            <button
+              key={conversation.id}
+              onClick={() => onSelect(conversation.id)}
+              title={conversation.title || 'New thread'}
+              aria-label={conversation.title || 'New thread'}
+              aria-current={activeId === conversation.id}
+              className={`mx-auto grid size-9 place-items-center rounded-lg transition-[background-color,color] duration-200 ease-out ${
+                activeId === conversation.id
+                  ? 'bg-emerald-300/[0.12] text-emerald-100'
+                  : 'text-zinc-500 hover:bg-white/[0.045] hover:text-zinc-200'
+              }`}
+            >
+              <MessageSquare size={15} />
+            </button>
+          ))}
+        </section>
+      ))}
+      {groups.length === 0 && (
+        <p className="px-1 text-center text-micro leading-5 text-zinc-600">{query ? 'No matches' : 'No threads yet'}</p>
+      )}
+    </nav>
+  ) : (
     <nav aria-label="Conversations" className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
       {groups.map((group) => <section key={group.title}>
         <h2 className="mb-2 px-2 text-caption font-medium uppercase tracking-[.18em] text-zinc-600">{group.title}</h2>
@@ -247,37 +371,37 @@ export function Sidebar({
                 </div>
               ) : (
                 <>
+                <button
+                  onClick={() => onSelect(conversation.id)}
+                  title={conversation.title || 'New thread'}
+                  className={`block w-full truncate rounded-lg py-2.5 pl-2.5 pr-14 text-left text-small transition-[background-color,color,box-shadow] duration-200 ease-out ${activeId === conversation.id ? 'bg-emerald-300/[0.09] font-medium text-emerald-100 shadow-[inset_2px_0_0_#ffffff]' : 'text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200'}`}
+                >
+                  {conversation.title || 'New thread'}
+                </button>
+                {/* Actions stay hidden until hover or keyboard focus, so the
+                list reads as titles first. */}
+                <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                   <button
-                    onClick={() => onSelect(conversation.id)}
-                    title={conversation.title || 'New thread'}
-                    className={`block w-full truncate rounded-lg py-2.5 pl-2.5 pr-14 text-left text-small transition-[background-color,color,box-shadow] duration-200 ease-out ${activeId === conversation.id ? 'bg-emerald-300/[0.09] font-medium text-emerald-100 shadow-[inset_2px_0_0_#ffffff]' : 'text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200'}`}
+                    type="button"
+                    onClick={() => beginRename(conversation.id, conversation.title)}
+                    aria-label={`Rename ${conversation.title || 'thread'}`}
+                    className="rounded p-1 text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
                   >
-                    {conversation.title || 'New thread'}
+                    <Pencil size={11} />
                   </button>
-                  {/* Actions stay hidden until hover or keyboard focus, so the
-                      list reads as titles first. */}
-                  <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                    <button
-                      type="button"
-                      onClick={() => beginRename(conversation.id, conversation.title)}
-                      aria-label={`Rename ${conversation.title || 'thread'}`}
-                      className="rounded p-1 text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
-                    >
-                      <Pencil size={11} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm(`Delete "${conversation.title || 'New thread'}"?\n\nThis removes the thread and its messages from the server. It cannot be undone.`)) {
-                          onDelete(conversation.id)
-                        }
-                      }}
-                      aria-label={`Delete ${conversation.title || 'thread'}`}
-                      className="rounded p-1 text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Delete "${conversation.title || 'New thread'}"?\n\nThis removes the thread and its messages from the server. It cannot be undone.`)) {
+                        onDelete(conversation.id)
+                      }
+                    }}
+                    aria-label={`Delete ${conversation.title || 'thread'}`}
+                    className="rounded p-1 text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
                 </>
               )}
             </div>
@@ -286,12 +410,13 @@ export function Sidebar({
       </section>)}
       {groups.length === 0 && <p className="px-2 text-small leading-6 text-zinc-600">{query ? 'No matching threads.' : 'Your threads will appear here.'}</p>}
     </nav>
+  )}
 
-    <div className="mt-4 border-t border-white/[0.06] pt-3">
-      <button type="button" onClick={onOpenSettings} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-white/[0.045]">
-        <Settings2 size={14} className="shrink-0 text-zinc-500" />
-        <span className="text-micro text-zinc-400">Settings</span>
-      </button>
-    </div>
+  <div className={`mt-4 border-t border-white/[0.06] pt-3 ${collapsed ? 'flex justify-center' : ''}`}>
+    <button type="button" onClick={onOpenSettings} title="Settings" className={`flex items-center rounded-lg text-zinc-400 transition hover:bg-white/[0.045] ${collapsed ? 'size-9 justify-center' : 'w-full gap-2.5 px-2 py-2 text-left'}`}>
+      <Settings2 size={14} className={`shrink-0 text-zinc-500 ${collapsed ? '' : ''}`} />
+      {collapsed ? <span className="sr-only">Settings</span> : <span className="text-micro">Settings</span>}
+    </button>
+  </div>
   </aside>
 }

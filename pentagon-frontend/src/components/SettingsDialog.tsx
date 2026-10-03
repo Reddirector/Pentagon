@@ -11,6 +11,7 @@ import {
   setContrast,
   setDefaultModel,
   setDensity,
+  setSidebarCollapsed,
   setTextSize,
   setWorkspaceName,
   subscribePreferences,
@@ -615,6 +616,23 @@ export function SettingsDialog({
                 </div>
               </Section>
 
+              <Section title="Sidebar" hint="Folds the thread list away to icons, or shows it in full. Also toggleable with ⌘B / Ctrl+B.">
+                <div role="radiogroup" aria-label="Sidebar" className="grid gap-2 sm:grid-cols-2">
+                  <Choice
+                    selected={!prefs.sidebarCollapsed}
+                    onSelect={() => setSidebarCollapsed(false)}
+                    label="Expanded"
+                    note="Thread titles, dates and the search field."
+                  />
+                  <Choice
+                    selected={prefs.sidebarCollapsed}
+                    onSelect={() => setSidebarCollapsed(true)}
+                    label="Collapsed"
+                    note="An icon rail. Hover a thread for its title."
+                  />
+                </div>
+              </Section>
+
               <Section title="Ambient effects" hint="The animated backdrop behind the conversation.">
                 <div role="radiogroup" aria-label="Ambient background intensity" className="grid gap-2">
                   {AMBIENT_OPTIONS.map((option) => (
@@ -706,7 +724,7 @@ export function SettingsDialog({
                 )}
               </Section>
 
-              <Section title="This browser" hint="Appearance, contrast, text size, density, ambient mode and the default model.">
+              <Section title="This browser" hint="Appearance, contrast, text size, density, sidebar layout, ambient mode and the default model.">
                 <button
                   type="button"
                   onClick={() => {

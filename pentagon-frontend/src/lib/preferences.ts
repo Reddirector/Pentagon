@@ -17,6 +17,9 @@ export interface Preferences {
   defaultModel: string
   /** Pixels, or 0 to follow the responsive breakpoint widths. */
   sidebarWidth: number
+  /** Collapses the sidebar to an icon-only rail. Desktop only; the mobile
+      drawer always shows labels, since there is no room to spare there. */
+  sidebarCollapsed: boolean
 }
 
 export const DENSITIES: { value: Density; label: string; note: string }[] = [
@@ -40,6 +43,8 @@ export const APPEARANCES: { value: Appearance; label: string; swatch: string; no
 export const SIDEBAR_MIN_WIDTH = 200
 export const SIDEBAR_MAX_WIDTH = 480
 export const SIDEBAR_DEFAULT_WIDTH = 270
+/** Fixed width of the collapsed icon rail. Not user-adjustable. */
+export const SIDEBAR_RAIL_WIDTH = 64
 
 const DEFAULTS: Preferences = {
   appearance: 'pitch',
@@ -49,6 +54,7 @@ const DEFAULTS: Preferences = {
   workspaceName: 'Personal workspace',
   defaultModel: '',
   sidebarWidth: 0,
+  sidebarCollapsed: false,
 }
 
 function clampSidebarWidth(value: unknown): number {
@@ -87,6 +93,7 @@ function read(): Preferences {
         : DEFAULTS.workspaceName,
       defaultModel: typeof parsed.defaultModel === 'string' ? parsed.defaultModel : '',
       sidebarWidth: clampSidebarWidth(parsed.sidebarWidth),
+      sidebarCollapsed: parsed.sidebarCollapsed === true,
     }
   } catch {
     return DEFAULTS
@@ -126,7 +133,8 @@ function commit(next: Partial<Preferences>) {
     merged.textSize === current.textSize &&
     merged.workspaceName === current.workspaceName &&
     merged.defaultModel === current.defaultModel &&
-    merged.sidebarWidth === current.sidebarWidth
+    merged.sidebarWidth === current.sidebarWidth &&
+    merged.sidebarCollapsed === current.sidebarCollapsed
   ) return
   current = merged
   persist()
@@ -172,6 +180,17 @@ export function setDefaultModel(defaultModel: string) {
 /** Pass 0 to hand the width back to the responsive breakpoint defaults. */
 export function setSidebarWidth(sidebarWidth: number) {
   commit({ sidebarWidth: clampSidebarWidth(sidebarWidth) })
+}
+
+export function setSidebarCollapsed(sidebarCollapsed: boolean) {
+  commit({ sidebarCollapsed })
+}
+
+/** Flips the rail and returns the new state, for keyboard shortcuts. */
+export function toggleSidebarCollapsed(): boolean {
+  const next = !current.sidebarCollapsed
+  commit({ sidebarCollapsed: next })
+  return next
 }
 
 export function resetPreferences() {
