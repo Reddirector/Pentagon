@@ -10,6 +10,7 @@ import { AmbientLayer } from './components/AmbientLayer'
 import { CommandPalette } from './components/CommandPalette'
 import { SettingsDialog } from './components/SettingsDialog'
 import { setAmbientSignal } from './lib/ambient'
+import { getPreferences } from './lib/preferences'
 import type { ChatMessage, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, SourcesUsed } from './types'
 
 type ConversationDetail = Conversation & { messages: ChatMessage[]; summary_at_switch: string | null }
@@ -101,7 +102,11 @@ function App() {
         const modelResult = await apiRequest<{ models: ModelInfo[]; default_model?: string | null }>(`/api/models?user_id=${encodeURIComponent(userId)}`)
         if (cancelled) return
         setModels(modelResult.models)
-        preferredModel = modelResult.default_model || modelResult.models[0]?.id || ''
+        const storedModel = getPreferences().defaultModel
+        preferredModel =
+          storedModel && modelResult.models.some((model) => model.id === storedModel)
+            ? storedModel
+            : modelResult.default_model || modelResult.models[0]?.id || ''
         setDefaultModel(preferredModel)
         list = await apiRequest<Conversation[]>('/api/conversations?user_id=' + encodeURIComponent(userId))
         if (cancelled) return
@@ -297,6 +302,20 @@ function App() {
     }
   }
 
+  /** Re-reads the model list after the API key changes, without a reload. */
+  async function refreshModels() {
+    try {
+      const result = await apiRequest<{ models: ModelInfo[]; default_model?: string | null }>(
+        `/api/models?user_id=${encodeURIComponent(userId)}`,
+      )
+      setModels(result.models)
+      setDefaultModel(result.default_model || '')
+      setKeyNeeded(false)
+    } catch {
+      /* Keep the previous list; the next send will surface any real problem. */
+    }
+  }
+
   function startThread() {
     if (streaming) return
     followConversation.current = true
@@ -316,6 +335,9 @@ function App() {
     setMedia(null)
     setDraft('')
     setTranscriptInfo(null)
+    // A draft has no model of its own, so it falls back to the default chosen
+    // in Settings rather than inheriting whatever the previous thread used.
+    setSelectedModel(getPreferences().defaultModel || defaultModel || selectedModel)
   }
 
   async function openThread(id: string) {
@@ -754,7 +776,20 @@ function App() {
       onOpenSettings={() => setSettingsOpen(true)}
       onClose={() => setPaletteOpen(false)}
     /> : null}
-    {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
+    {settingsOpen ? (
+      <SettingsDialog
+        userId={userId}
+        models={models}
+        serverDefaultModel={defaultModel}
+        documents={documents}
+        threadCount={threads.length}
+        onClose={() => setSettingsOpen(false)}
+        onKeySaved={() => void refreshModels()}
+        onDocumentDeleted={(documentId) =>
+          setDocuments((current) => current.filter((item) => item.document_id !== documentId))
+        }
+      />
+    ) : null}
   </div>
 }
 

@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { MessageSquarePlus, Search, Settings2 } from 'lucide-react'
 import { LogomarkBadge } from './Logomark'
+import { getPreferences, subscribePreferences } from '../lib/preferences'
 import type { Conversation } from '../types'
 
 type Group = { title: string; conversations: Conversation[] }
@@ -41,10 +42,11 @@ export function Sidebar({
   onOpenSettings?: () => void
 }) {
   const groups = useMemo(() => recencyGroups(conversations.filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase()))), [conversations, query])
-  return <aside className="flex h-full w-[270px] shrink-0 flex-col border-r border-white/[0.07] bg-[#0a0a0a]/72 px-4 py-5 backdrop-blur-2xl backdrop-saturate-150 max-lg:w-[230px] max-md:hidden">
+  const workspaceName = useSyncExternalStore(subscribePreferences, getPreferences).workspaceName
+  return <aside className="flex h-full w-[270px] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] px-4 py-5 backdrop-blur-2xl backdrop-saturate-150 max-lg:w-[230px] max-md:hidden">
     <div className="mb-8 flex items-center gap-3 px-2">
       <LogomarkBadge size={32} label="Pentagon" />
-      <div><div className="text-[12px] font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 text-[9px] uppercase tracking-[.18em] text-zinc-600">Personal workspace</div></div>
+      <div><div className="text-[12px] font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 truncate text-[9px] uppercase tracking-[.18em] text-zinc-600">{workspaceName}</div></div>
     </div>
 
     <div className="mb-5 flex items-center gap-1.5">
