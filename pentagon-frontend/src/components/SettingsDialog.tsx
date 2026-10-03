@@ -88,6 +88,12 @@ function Choice({
 const inputClass =
   'h-9 w-full rounded-lg border border-white/[0.09] bg-white/[0.03] px-3 text-[12px] text-zinc-100 outline-none transition placeholder:text-zinc-700 focus:border-white/30'
 
+// Kept separate from inputClass on purpose: adding bg-black/text-white on top of
+// the input utilities would lose to them in the generated stylesheet, where
+// source order decides, not the order written in the attribute.
+const selectClass =
+  'h-9 w-full cursor-pointer rounded-lg border border-white/[0.12] bg-black px-3 text-[12px] text-white outline-none transition focus:border-white/30'
+
 export function SettingsDialog({
   userId,
   models,
@@ -521,14 +527,14 @@ export function SettingsDialog({
                 <select
                   value={prefs.defaultModel || ''}
                   onChange={(event) => setDefaultModel(event.target.value)}
-                  className={`${inputClass} cursor-pointer`}
+                  className={selectClass}
                   aria-label="Default model"
                 >
-                  <option value="">
+                  <option value="" className="bg-black text-white">
                     Server default{serverDefaultModel ? ` (${serverDefaultModel})` : ''}
                   </option>
                   {models.map((model) => (
-                    <option key={model.id} value={model.id}>
+                    <option key={model.id} value={model.id} className="bg-black text-white">
                       {model.id}
                     </option>
                   ))}

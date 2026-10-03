@@ -688,13 +688,15 @@ function App() {
     <main className="relative flex min-w-0 flex-1 flex-col">
       <header className="z-20 flex min-h-[66px] items-center justify-between gap-4 border-b border-white/[0.065] bg-[#000000]/90 px-7 backdrop-blur-xl max-sm:px-4">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.12] bg-black px-3 py-2">
             <Logomark size={16} />
-            <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="max-w-[min(34vw,360px)] min-w-0 appearance-none bg-transparent pr-1 text-[11px] font-medium text-zinc-200 outline-none disabled:text-zinc-500">
-              {!models.length && <option value="">No models available</option>}
-              {models.map((model) => <option value={model.id} key={model.id} className="bg-[#0f0f0f]">{model.id}{model.supports_vision ? ' · Vision' : ''}</option>)}
+            {/* Native <select>: the popup is drawn by the OS, so the options carry
+                explicit black/white rather than inheriting the panel's greys. */}
+            <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="max-w-[min(34vw,360px)] min-w-0 appearance-none bg-black text-[11px] font-medium text-white outline-none disabled:text-zinc-500">
+              {!models.length && <option value="" className="bg-black text-white">No models available</option>}
+              {models.map((model) => <option value={model.id} key={model.id} className="bg-black text-white">{model.id}{model.supports_vision ? ' · Vision' : ''}</option>)}
             </select>
-            <ChevronDown size={12} className="shrink-0 text-zinc-600" />
+            <ChevronDown size={12} className="shrink-0 text-zinc-400" />
           </div>
           
           {activeModel?.supports_vision && <span className="hidden items-center gap-1.5 rounded-full border border-violet-300/15 bg-violet-300/[0.06] px-2.5 py-1.5 text-[10px] text-violet-200 md:inline-flex"><ImageIcon size={11} />Vision ready</span>}
