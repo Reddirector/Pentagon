@@ -72,10 +72,9 @@ export function Sidebar({
     </nav>
 
     <div className="mt-4 border-t border-white/[0.06] pt-3">
-      <button type="button" onClick={onOpenSettings} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-white/[0.045]" title="Settings">
+      <button type="button" onClick={onOpenSettings} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-white/[0.045]">
         <Settings2 size={14} className="shrink-0 text-zinc-500" />
         <span className="text-[10px] text-zinc-400">Settings</span>
-        <span className="ml-auto text-[9px] text-zinc-700">ambient, shortcuts</span>
       </button>
     </div>
   </aside>
