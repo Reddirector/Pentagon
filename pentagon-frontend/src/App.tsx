@@ -84,7 +84,6 @@ function App() {
   const [uploading, setUploading] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
-  const [showDocuments, setShowDocuments] = useState(false)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const recorder = useRef<MediaRecorder | null>(null)
@@ -827,15 +826,6 @@ function App() {
           {activeModel?.supports_vision && <span className="hidden items-center gap-1.5 rounded-full border border-violet-300/15 bg-violet-300/[0.06] px-2.5 py-1.5 text-micro text-violet-200 md:inline-flex"><ImageIcon size={11} />Vision ready</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2 max-sm:gap-1.5">
-          <div className="relative">
-            <button onClick={() => setShowDocuments((current) => !current)} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-micro transition-colors duration-200 ease-out ${documents.length ? 'border-sky-300/15 bg-sky-300/[0.055] text-sky-200' : 'border-white/[0.07] text-zinc-500 hover:text-zinc-300'}`} aria-expanded={showDocuments}>
-              <FileText size={12} /><span className="max-sm:sr-only">{documents.length} docs active</span>
-            </button>
-            <div aria-hidden={!showDocuments} className={`absolute right-0 top-10 z-30 w-64 origin-top-right rounded-xl border border-white/10 bg-[#0f0f0f] p-2 shadow-2xl transition-[opacity,transform,visibility] duration-200 ease-out ${showDocuments ? 'visible translate-y-0 scale-100 opacity-100' : 'invisible pointer-events-none translate-y-1 scale-[.98] opacity-0'}`}>
-              <div className="px-2 py-1.5 text-caption font-medium uppercase tracking-[.15em] text-zinc-600">Thread documents</div>
-              {documents.length ? documents.map((doc) => <div key={doc.document_id} className="flex items-center gap-2 rounded-lg px-2 py-2 text-small text-zinc-300"><FileText size={12} className="text-sky-300" /><span className="min-w-0 flex-1 truncate">{doc.filename}</span><span className="font-mono text-caption text-zinc-600">{doc.chunks_stored}</span></div>) : <div className="px-2 py-3 text-micro text-zinc-500">No documents in this thread yet.</div>}
-            </div>
-          </div>
           <button onClick={startThread} className="grid size-8 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.06] hover:text-white md:hidden" title="New thread"><Plus size={16} /></button>
         </div>
       </header>
@@ -854,6 +844,20 @@ function App() {
               This announces only the transitions that matter.
             */}
             <p role="status" aria-live="polite" className="sr-only">{conversationAnnouncement}</p>
+            {/*
+              Thread documents sit with the conversation rather than in the
+              header, and only when this thread actually has some: a draft has
+              nowhere to store them yet, and an empty thread has nothing to
+              reference.
+            */}
+            {!isDraftThread && documents.length > 0 && <div className="mb-5 flex flex-wrap items-center gap-1.5">
+              <span className="mr-0.5 text-micro font-medium uppercase tracking-[.15em] text-zinc-600">In this thread</span>
+              {documents.map((doc) => <span key={doc.document_id} title={`${doc.filename} · ${doc.chunks_stored} indexed chunks`} className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-sky-300/10 bg-sky-300/[0.045] px-2 py-1.5 text-caption text-sky-100/80">
+                <FileText size={11} className="shrink-0" />
+                <span className="max-w-[220px] truncate">{doc.filename}</span>
+                <span className="font-mono text-[10px] text-sky-100/40">{doc.chunks_stored}</span>
+              </span>)}
+            </div>}
             {messages.length ? <div className="space-y-8">
               {messages.map((message, index) => <MessageRow key={message.id} message={message} isStreaming={streaming && index === messages.length - 1} copied={copiedId === message.id} onCopy={() => void copyMessage(message)} />)}
             </div> : <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-16 text-center">
