@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
-import { Activity, ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Mic, Paperclip, Plus, Search, Square, Video, X } from 'lucide-react'
+import { Activity, ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Mic, Paperclip, Plus, Square, Video, X } from 'lucide-react'
 import { apiRequest, ApiError, getLocalUserId, pcmToWavUrl } from './api'
 import { AssistantDetails } from './components/MessageContent'
 import { Sidebar } from './components/Sidebar'
@@ -675,9 +675,7 @@ function App() {
             </select>
             <ChevronDown size={12} className="shrink-0 text-zinc-600" />
           </div>
-          <span className="hidden items-center gap-1.5 rounded-full border border-white/[0.07] px-2.5 py-1.5 text-[10px] text-zinc-500 sm:inline-flex" title="Web search runs automatically when a question needs it">
-            <span className="size-1.5 rounded-full bg-zinc-600" />Web search auto
-          </span>
+          
           {activeModel?.supports_vision && <span className="hidden items-center gap-1.5 rounded-full border border-violet-300/15 bg-violet-300/[0.06] px-2.5 py-1.5 text-[10px] text-violet-200 md:inline-flex"><ImageIcon size={11} />Vision ready</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2 max-sm:gap-1.5">
@@ -736,8 +734,6 @@ function App() {
               <div className="flex flex-wrap items-center gap-1.5">
                 <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.txt" multiple hidden onChange={(event) => void handleAttachmentChange(event)} />
                 <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, or document"><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
-                <span className="mx-0.5 h-4 w-px bg-white/[0.08]" />
-                <span className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] text-zinc-600" title="Pentagon searches the web automatically when a question needs current information"><Search size={12} /><span className="max-sm:hidden">Searches when needed</span></span>
                 <button type="button" onClick={() => void toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
               </div>
               {streaming
