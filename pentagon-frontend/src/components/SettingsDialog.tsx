@@ -40,7 +40,7 @@ type Tab = (typeof TABS)[number]
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
-    <section className="border-b border-white/[0.06] px-6 py-5 last:border-b-0">
+    <section className="border-b border-white/[0.06] px-4 py-5 sm:px-6 last:border-b-0">
       <h3 className="text-micro font-medium uppercase tracking-[.16em] text-zinc-500">{title}</h3>
       {hint && <p className="mt-1.5 text-small leading-5 text-zinc-600">{hint}</p>}
       <div className="mt-4">{children}</div>
@@ -352,7 +352,7 @@ export function SettingsDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[8vh] pb-[4vh] backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-0 pt-0 backdrop-blur-sm sm:px-4 sm:pt-[8vh] sm:pb-[4vh]"
       onClick={onClose}
       role="presentation"
     >
@@ -362,10 +362,10 @@ export function SettingsDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        className="panel-enter flex max-h-full w-full max-w-[720px] flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[var(--surface-panel)] shadow-[0_40px_120px_rgba(0,0,0,.6)] outline-none"
+        className="panel-enter flex h-full max-h-full w-full max-w-[720px] flex-col overflow-hidden border-white/[0.1] bg-[var(--surface-panel)] shadow-[0_40px_120px_rgba(0,0,0,.6)] outline-none sm:h-auto sm:max-h-full sm:rounded-2xl sm:border"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-white/[0.07] px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.07] px-4 py-4 sm:px-6">
           <h2 className="text-body-lg font-semibold tracking-[-.01em] text-zinc-100">Settings</h2>
           <button
             type="button"
@@ -377,7 +377,7 @@ export function SettingsDialog({
           </button>
         </div>
 
-        <div role="tablist" aria-label="Settings sections" className="flex gap-1 overflow-x-auto border-b border-white/[0.07] px-4">
+        <div role="tablist" aria-label="Settings sections" className="flex shrink-0 gap-1 overflow-x-auto border-b border-white/[0.07] px-4">
           {TABS.map((name) => (
             <button
               key={name}

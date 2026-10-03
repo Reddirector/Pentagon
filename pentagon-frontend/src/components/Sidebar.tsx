@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Check, MessageSquarePlus, Pencil, Search, Settings2, Trash2, X } from 'lucide-react'
 import { LogomarkBadge } from './Logomark'
 import { getPreferences, subscribePreferences } from '../lib/preferences'
@@ -33,6 +33,8 @@ export function Sidebar({
   onDelete,
   onOpenPalette,
   onOpenSettings,
+  open = false,
+  onClose,
 }: {
   conversations: Conversation[]
   activeId: string | null
@@ -44,6 +46,10 @@ export function Sidebar({
   onDelete: (id: string) => void
   onOpenPalette?: () => void
   onOpenSettings?: () => void
+  /** Drawer state. Only meaningful below the md breakpoint, where the sidebar
+      becomes an overlay instead of a column. */
+  open?: boolean
+  onClose?: () => void
 }) {
   const groups = useMemo(() => recencyGroups(conversations.filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase()))), [conversations, query])
   const workspaceName = useSyncExternalStore(subscribePreferences, getPreferences).workspaceName
@@ -51,6 +57,15 @@ export function Sidebar({
   // being edited re-renders its input state.
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
+
+  useEffect(() => {
+    if (!open || !onClose) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose])
 
   function beginRename(id: string, title: string) {
     setEditingId(id)
@@ -62,8 +77,21 @@ export function Sidebar({
     setEditingId(null)
     if (next && next !== originalTitle) onRename(id, next)
   }
-  return <aside className="flex h-full w-[270px] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] px-4 py-5 backdrop-blur-2xl backdrop-saturate-150 max-lg:w-[230px] max-md:hidden">
+  return <aside
+    aria-label="Threads"
+    // Below md this is a fixed drawer that slides in over the conversation;
+    // from md up it is a plain flex column and the transform is neutralised.
+    className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(86vw,300px)] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] px-4 py-5 shadow-[0_0_60px_rgba(0,0,0,.6)] backdrop-blur-2xl backdrop-saturate-150 transition-transform duration-200 ease-out md:static md:z-auto md:w-[270px] md:translate-x-0 md:shadow-none lg:w-[230px] xl:w-[270px] ${open ? 'translate-x-0' : '-translate-x-full'}`}
+  >
     <div className="mb-8 flex items-center gap-3 px-2">
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close navigation"
+        className="-ml-2 grid size-8 shrink-0 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-100 md:hidden"
+      >
+        <X size={16} />
+      </button>
       <LogomarkBadge size={32} label="Pentagon" />
       <div><div className="text-body font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 truncate text-caption uppercase tracking-[.18em] text-zinc-600">{workspaceName}</div></div>
     </div>

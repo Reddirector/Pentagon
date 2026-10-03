@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
-import { Activity, ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Mic, Paperclip, Plus, Square, Video, X } from 'lucide-react'
+import { Activity, ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, Mic, Paperclip, Plus, Square, Video, X } from 'lucide-react'
 import { apiRequest, ApiError, getLocalUserId, pcmToWavUrl } from './api'
 import { AssistantDetails } from './components/MessageContent'
 import { Sidebar } from './components/Sidebar'
@@ -62,6 +62,7 @@ function App() {
   const [search, setSearch] = useState('')
   const [draft, setDraft] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [transcriptInfo, setTranscriptInfo] = useState<TranscriptInfo | null>(null)
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
@@ -719,10 +720,26 @@ function App() {
 
   return <div className="flex h-dvh min-h-[620px] overflow-hidden bg-transparent text-zinc-100 selection:bg-emerald-300/30">
     <AmbientLayer />
+    {sidebarOpen ? (
+      <button
+        type="button"
+        aria-label="Close navigation"
+        onClick={() => setSidebarOpen(false)}
+        className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden"
+      />
+    ) : null}
     <Sidebar
       conversations={sidebarThreads}
-      onOpenPalette={() => setPaletteOpen(true)}
-      onOpenSettings={() => setSettingsOpen(true)}
+      onOpenPalette={() => {
+        setPaletteOpen(true)
+        setSidebarOpen(false)
+      }}
+      onOpenSettings={() => {
+        setSettingsOpen(true)
+        setSidebarOpen(false)
+      }}
+      open={sidebarOpen}
+      onClose={() => setSidebarOpen(false)}
       activeId={activeId}
       query={search}
       onQueryChange={setSearch}
@@ -731,17 +748,27 @@ function App() {
       onDelete={(id) => void deleteThread(id)}
       onSelect={(id) => {
         if (isDraftThread && active?.id === id) return
+        setSidebarOpen(false)
         void openThread(id)
       }}
     />
     <main className="relative flex min-w-0 flex-1 flex-col">
-      <header className="z-20 flex min-h-[66px] items-center justify-between gap-4 border-b border-white/[0.065] bg-[#000000]/90 px-7 backdrop-blur-xl max-sm:px-4">
-        <div className="flex min-w-0 items-center gap-3">
+      <header className="z-20 flex min-h-[66px] items-center justify-between gap-2 border-b border-white/[0.065] bg-[#000000]/90 px-3 backdrop-blur-xl sm:gap-3 sm:px-5 lg:px-7">
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open navigation"
+            aria-expanded={sidebarOpen}
+            className="grid size-9 shrink-0 place-items-center rounded-lg border border-white/[0.07] text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-100 md:hidden"
+          >
+            <Menu size={16} />
+          </button>
           <div className="flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.12] bg-black px-3 py-2">
             <Logomark size={16} />
             {/* Native <select>: the popup is drawn by the OS, so the options carry
                 explicit black/white rather than inheriting the panel's greys. */}
-            <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="max-w-[min(34vw,360px)] min-w-0 appearance-none bg-black text-small font-medium text-white outline-none disabled:text-zinc-500">
+            <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="max-w-[min(58vw,360px)] min-w-0 appearance-none bg-black text-small font-medium text-white outline-none disabled:text-zinc-500 sm:max-w-[min(38vw,360px)] lg:max-w-[min(34vw,360px)]">
               {!models.length && <option value="" className="bg-black text-white">No models available</option>}
               {models.map((model) => <option value={model.id} key={model.id} className="bg-black text-white">{model.id}{model.supports_vision ? ' · Vision' : ''}</option>)}
             </select>
@@ -753,7 +780,7 @@ function App() {
         <div className="flex shrink-0 items-center gap-2 max-sm:gap-1.5">
           <div className="relative">
             <button onClick={() => setShowDocuments((current) => !current)} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-micro transition-colors duration-200 ease-out ${documents.length ? 'border-sky-300/15 bg-sky-300/[0.055] text-sky-200' : 'border-white/[0.07] text-zinc-500 hover:text-zinc-300'}`} aria-expanded={showDocuments}>
-              <FileText size={12} />{documents.length} docs active
+              <FileText size={12} /><span className="max-sm:sr-only">{documents.length} docs active</span>
             </button>
             <div aria-hidden={!showDocuments} className={`absolute right-0 top-10 z-30 w-64 origin-top-right rounded-xl border border-white/10 bg-[#0f0f0f] p-2 shadow-2xl transition-[opacity,transform,visibility] duration-200 ease-out ${showDocuments ? 'visible translate-y-0 scale-100 opacity-100' : 'invisible pointer-events-none translate-y-1 scale-[.98] opacity-0'}`}>
               <div className="px-2 py-1.5 text-caption font-medium uppercase tracking-[.15em] text-zinc-600">Thread documents</div>
@@ -772,7 +799,7 @@ function App() {
           <ChevronDown size={12} className="rotate-180" />Jump to latest
         </button> : null}
         <div ref={conversationViewport} onScroll={handleConversationScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[850px] flex-1 flex-col px-7 pb-5 pt-8 max-sm:px-4 max-sm:pt-5">
+          <div className="mx-auto flex w-full max-w-[850px] flex-1 flex-col px-4 pb-5 pt-5 sm:px-7 sm:pt-8">
             {notice && <div className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-small text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
             {error && <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-small leading-5 text-rose-200"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></div>}
             {messages.length ? <div className="space-y-8">
@@ -791,7 +818,7 @@ function App() {
         </div>
 
         <div
-          className={`relative mx-auto w-full max-w-[850px] px-7 pb-5 pt-2 max-sm:px-3 max-sm:pb-3 ${dragging ? 'after:pointer-events-none after:absolute after:inset-x-7 after:top-0 after:bottom-5 after:rounded-2xl after:border after:border-dashed after:border-emerald-300/60 after:bg-emerald-300/[0.04] after:content-["Drop_files_to_attach"] after:grid after:place-items-center after:text-body after:text-emerald-100' : ''}`}
+          className={`relative mx-auto w-full max-w-[850px] px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 sm:px-7 sm:pb-5 ${dragging ? 'after:pointer-events-none after:absolute after:inset-x-7 after:top-0 after:bottom-5 after:rounded-2xl after:border after:border-dashed after:border-emerald-300/60 after:bg-emerald-300/[0.04] after:content-["Drop_files_to_attach"] after:grid after:place-items-center after:text-body after:text-emerald-100' : ''}`}
           onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false) }}
           onDrop={(event) => { event.preventDefault(); setDragging(false); void acceptFiles(Array.from(event.dataTransfer.files)) }}
