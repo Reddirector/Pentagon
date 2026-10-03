@@ -394,15 +394,15 @@ export function SettingsDialog({
 
               <Section
                 title="Cloud account"
-                hint="Optional. Signing in keeps threads on a Supabase project instead of this browser's workspace id."
+                hint="Optional. Signing in verifies who you are with Supabase. Threads still live in this browser's workspace until sync is turned on."
               >
                 {!isSupabaseConfigured ? (
                   <p className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-3 text-[11px] leading-[1.6] text-zinc-600">
                     Not configured. Set <code className="text-zinc-400">VITE_SUPABASE_URL</code> and{' '}
                     <code className="text-zinc-400">VITE_SUPABASE_ANON_KEY</code> in{' '}
-                    <code className="text-zinc-400">pentagon-frontend/.env</code>, apply{' '}
-                    <code className="text-zinc-400">supabase/schema.sql</code>, then restart the dev server. Everything
-                    else on this page works without it.
+                    <code className="text-zinc-400">pentagon-frontend/.env</code>, then restart the dev server. Sign-in
+                    needs no tables; the <code className="text-zinc-400">supabase/schema.sql</code> tables are only for
+                    future sync. Everything else on this page works without it.
                   </p>
                 ) : sessionEmail ? (
                   <div className="flex items-center gap-3">
