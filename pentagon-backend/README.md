@@ -4,13 +4,13 @@ Backend phases 1 through 7 for Pentagon, a bring-your-own-key NVIDIA NIM chat
 workspace. NVIDIA keys are encrypted before they are stored. Chat is
 orchestrated by LangGraph, can understand images and video, retrieve
 conversation-scoped documents, search the web through Tavily, and handle
-speech input/output. The `desktop/` folder contains the React + TypeScript UI
-and Electron packaging shell.
+speech input/output. The React + TypeScript interface and the Electron
+packaging shell live in the sibling `pentagon-frontend/` directory.
 
 ## Requirements
 
 - Python 3.11 or newer
-- Node.js 22.12 or newer for the desktop app
+- Node.js 22.12 or newer for the frontend and desktop app
 - `ffmpeg` and `ffprobe` on `PATH` for video uploads
 - An NVIDIA NIM API key beginning with `nvapi-` for chat
 - A Tavily API key for live web search
@@ -190,11 +190,13 @@ the key and conversations.
 
 ## Desktop app
 
-The React + TypeScript interface calls the FastAPI endpoints directly through
-the Vite development proxy. Packaged Electron builds use a small Express
-server to serve the static UI and forward `/api/*` requests unchanged to
-FastAPI; it contains no model or business logic. Keep the Python backend
-running separately while using the desktop app.
+The interface lives in the sibling `pentagon-frontend/` directory, which is
+also the Electron package — there is no separate desktop copy of the UI. It
+calls the FastAPI endpoints directly through the Vite development proxy.
+Packaged Electron builds use a small Express server to serve the static UI and
+forward `/api/*` requests unchanged to FastAPI; it contains no model or
+business logic. Keep the Python backend running separately while using the
+desktop app.
 
 Terminal 1, from `/home/aditya/Desktop/Pentagon`:
 
@@ -207,7 +209,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 Terminal 2:
 
 ```bash
-cd /home/aditya/Desktop/Pentagon/pentagon-backend/desktop
+cd /home/aditya/Desktop/Pentagon/pentagon-frontend
 npm ci
 npm run electron:dev
 ```

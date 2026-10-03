@@ -51,9 +51,9 @@ hosted service you did not choose.
 
 ## Quick start
 
-Requires **Python 3.10+** (developed on 3.14) and **Node 22.12+** — both the
-frontend and the desktop package declare that engine floor. Builds do succeed
-on Node 20, which is below the declared minimum.
+Requires **Python 3.10+** (developed on 3.14) and **Node 22.12+** — the
+frontend, which also packages the desktop app, declares that engine floor.
+Builds do succeed on Node 20, which is below the declared minimum.
 
 ```bash
 # 1. Backend
@@ -212,18 +212,21 @@ real `pentagon.db`.
 
 ## Desktop app
 
-`pentagon-backend/desktop/` packages the app with Electron:
+The desktop app **is** the frontend — `pentagon-frontend/` ships the Electron
+main process (`electron/`), the electron-builder configuration, and the same
+`src/` the web app uses. There is one UI, not two.
 
 ```bash
-cd pentagon-backend/desktop
+cd pentagon-frontend
 npm install
 npm run electron:dev      # window against the dev server
 npm run package:linux     # or :mac / :win
 ```
 
-Requires **Node 22.12+**, matching the frontend's declared engine. See
-[`docs/DECISIONS.md`](docs/DECISIONS.md) for how this copy relates to the web
-frontend — and why the two have not been merged yet.
+`npm run package:linux` writes `pentagon-frontend/release/Pentagon-0.1.0.AppImage`.
+Requires **Node 22.12+** per the declared engine; builds do succeed on Node 20.
+See [`docs/DECISIONS.md`](docs/DECISIONS.md) for why a second Electron package
+under `pentagon-backend/desktop/` was removed rather than kept in sync.
 
 ---
 

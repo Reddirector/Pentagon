@@ -39,17 +39,34 @@ even if the API returns. That is a deliberate trade — retrieval that never bre
 is worth more than the last increment of retrieval quality, and the migration is
 reversible by re-uploading if a user prefers.
 
-## Desktop packaging keeps its own UI copy
+## One UI, packaged once
 
-`pentagon-backend/desktop/` is an Electron package with its own `src/`, its own
-React dependencies and its own Vite build. It therefore holds a **second copy**
-of the interface, which has already fallen behind the web frontend.
+There was a second Electron package at `pentagon-backend/desktop/` with its own
+`src/`, its own React dependencies and its own Vite build. It had already fallen
+behind the web frontend: its `App.tsx` was 547 lines against the frontend's 929,
+and its `index.css` was 10 lines against 291. Any fix made to the interface had
+to be made twice, and nothing stopped the two from drifting apart again.
 
-It was left in place rather than pointed at the shared frontend because
-electron-builder packaging cannot be verified in this environment (Node 20 here,
-the package requires 22.12+). Rather than ship a packaging change that nobody
-had run, the duplication is documented here instead. Consolidating them is the
-obvious next step and should be done on a machine that can actually package.
+It was originally left in place because electron-builder packaging could not be
+verified in this environment (Node 20 here; the package declares 22.12+), and an
+unverified packaging change is worse than documented duplication. That reason
+turned out to be wrong on both counts:
+
+- The assumption was backwards. `pentagon-frontend/` already *was* a complete
+  Electron application — same `electron/main.cjs`, same `electron/uiServer.cjs`,
+  same electron-builder `appId` — and had already produced a working AppImage.
+  There was never a need to repoint anything; the duplicate was simply a fork
+  that had been left behind.
+- Packaging does run here. `npm run package:linux` in `pentagon-frontend`
+  completes on Node 20 and produces `release/Pentagon-0.1.0.AppImage`.
+
+So the directory was deleted rather than synchronised. The two files that had
+no counterpart in the frontend were checked first: `src/App.css` was imported
+by nothing, and `public/favicon.svg` was a leftover the frontend had already
+replaced with `pentagon-logo.png`. Nothing was lost but the duplication.
+
+`npm run electron:dev` and the four `npm run package:*` scripts are unchanged,
+and now build the same interface the browser serves.
 
 ## Tests run against a throwaway database
 

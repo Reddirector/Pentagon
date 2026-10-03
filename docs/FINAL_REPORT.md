@@ -86,9 +86,6 @@ five of them fail against the previous implementation.
 
 - Supabase sign-in is implemented but never exercised: no project is configured.
   The schema is delivered as SQL and has not been applied anywhere.
-- `pentagon-backend/desktop/` is an Electron package carrying its **own copy**
-  of the UI, which has fallen behind the web frontend. It builds and is
-  tracked, but it is a second source of truth. See DECISIONS.md.
 - The first local re-embedding of a large collection runs on CPU and is slow;
   measured only on small collections.
 - One conversation was lost during earlier manual testing and the cause was
