@@ -4,7 +4,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { AlertCircle, Check, CheckCircle2, ChevronDown, CircleDashed, Copy, ExternalLink, FileText, Layers, Video, X } from 'lucide-react'
+import { AlertCircle, Check, CheckCircle2, ChevronDown, CircleDashed, Copy, ExternalLink, FileText, Image as ImageIcon, Layers, Video, X } from 'lucide-react'
 import type { ChatMessage, ExecutionTrace, SourcesUsed, TraceEntry } from '../types'
 
 function textFromNode(node: ReactNode): string {
@@ -164,6 +164,7 @@ function TracePanel({ trace }: { trace: ExecutionTrace }) {
 }
 
 type SourceItem = { key: string; title: string; url: string | null; subtitle: string }
+type MediaItem = SourceItem & { kind: 'image' | 'video' }
 
 /** Every source, grouped and counted, ready for the floating panel. */
 function collectSources(sources: SourcesUsed) {
@@ -177,10 +178,11 @@ function collectSources(sources: SourcesUsed) {
     url: null,
     subtitle: `${source.chunk_ids.length} passage${source.chunk_ids.length === 1 ? '' : 's'} referenced`,
   }))
-  const media: SourceItem[] = []
+  const media: MediaItem[] = []
   if (sources.image) {
     media.push({
       key: 'image',
+      kind: 'image',
       title: `Image · ${sources.image.model_used}`,
       url: null,
       subtitle: sources.image.description_summary,
@@ -189,6 +191,7 @@ function collectSources(sources: SourcesUsed) {
   if (sources.video) {
     media.push({
       key: 'video',
+      kind: 'video',
       title: `Video · ${sources.video.frames_sent} frames`,
       url: null,
       subtitle: sources.video.description_summary,
@@ -306,7 +309,9 @@ function SourcesButton({ sources }: { sources: SourcesUsed }) {
               <ul className="space-y-0.5">
                 {media.map((item) => (
                   <li key={item.key} className="flex items-start gap-2.5 rounded-lg px-2.5 py-2">
-                    <Video size={12} className="mt-0.5 shrink-0 text-violet-300/80" />
+                    {item.kind === 'image'
+                      ? <ImageIcon size={12} className="mt-0.5 shrink-0 text-violet-300/80" />
+                      : <Video size={12} className="mt-0.5 shrink-0 text-violet-300/80" />}
                     <span className="min-w-0">
                       <span className="block truncate text-small text-zinc-200">{item.title}</span>
                       <span className="block text-micro leading-5 text-zinc-500">{item.subtitle}</span>
