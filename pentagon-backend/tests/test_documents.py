@@ -147,3 +147,50 @@ def test_pdf_upload_chunks_are_retrieved_by_followup_chat(monkeypatch, tmp_path)
 
 async def _no_search(_query: str):
     raise AssertionError("web search should be disabled for this document retrieval test")
+
+
+def test_undecryptable_key_reports_a_clean_error_instead_of_crashing(monkeypatch, tmp_path):
+    """A stored key that no longer decrypts must not escape as a 500 traceback.
+
+    The route used to catch exception classes it had never imported, so this
+    failure surfaced as a NameError rather than the intended HTTP error.
+    """
+    initialize_database()
+    user_id = f"docs-keyerror-{uuid4()}"
+    monkeypatch.setattr(settings, "chroma_persist_directory", str(tmp_path / "chroma"))
+    monkeypatch.setattr(settings, "key_encryption_secret", SecretStr(Fernet.generate_key().decode()))
+    document_store._client.cache_clear()
+
+    with SessionLocal() as db:
+        db.add(User(id=user_id))
+        db.add(
+            ApiKey(
+                user_id=user_id,
+                # Valid Fernet token, but encrypted under a different key, so
+                # decryption fails the way it would after a secret rotation.
+                encrypted_key=Fernet(Fernet.generate_key()).encrypt(b"nvapi-test-key").decode(),
+                masked_key="nvapi-...t-key",
+            )
+        )
+        db.commit()
+
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            created = client.post("/api/conversations", json={"user_id": user_id, "title": "Zephyr"})
+            assert created.status_code == 201
+            uploaded = client.post(
+                "/api/documents/upload",
+                data={"user_id": user_id, "conversation_id": created.json()["id"]},
+                files={"file": ("zephyr.pdf", _pdf_bytes(CONTENT), "application/pdf")},
+            )
+
+        assert uploaded.status_code == 500
+        assert "could not be decrypted" in uploaded.json()["detail"]
+        assert "NameError" not in uploaded.text
+    finally:
+        document_store._client.cache_clear()
+        with SessionLocal() as db:
+            db.query(ApiKey).filter(ApiKey.user_id == user_id).delete(synchronize_session=False)
+            db.query(Conversation).filter(Conversation.user_id == user_id).delete(synchronize_session=False)
+            db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
+            db.commit()

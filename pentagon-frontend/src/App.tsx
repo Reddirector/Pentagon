@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
 import { Activity, ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, Mic, Paperclip, Plus, Square, Video, X } from 'lucide-react'
 import { apiRequest, ApiError, getLocalUserId, pcmToWavUrl } from './api'
@@ -76,6 +76,7 @@ function App() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [composerFocused, setComposerFocused] = useState(false)
   const [streaming, setStreaming] = useState(false)
+  const [stoppedReply, setStoppedReply] = useState(false)
   const [switching, setSwitching] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -88,6 +89,7 @@ function App() {
   const currentAssistantIndex = useRef(0)
   const conversationViewport = useRef<HTMLDivElement>(null)
   const followConversation = useRef(true)
+  const openThreadToken = useRef(0)
   const scrollFrame = useRef<number | null>(null)
 
   const activeModel = models.find((item) => item.id === selectedModel)
@@ -97,6 +99,15 @@ function App() {
   const contextLabel = summaryActive
     ? `Summary + ${Math.min(messages.length, 6)} recent`
     : `${messages.length} ${messages.length === 1 ? 'message' : 'messages'}`
+  const conversationAnnouncement = useMemo(() => {
+    if (transcribing) return 'Transcribing your recording.'
+    if (uploading) return 'Uploading a document.'
+    if (switching) return 'Switching model.'
+    if (streaming) return stoppedReply ? 'Stopping the reply.' : 'Pentagon is replying.'
+    const last = messages[messages.length - 1]
+    if (last?.role !== 'assistant' || !last.content) return ''
+    return stoppedReply ? 'Reply stopped.' : 'Reply finished.'
+  }, [streaming, transcribing, uploading, switching, messages, stoppedReply])
 
   useEffect(() => {
     let cancelled = false
@@ -382,6 +393,8 @@ function App() {
   function startThread() {
     if (streaming) return
     followConversation.current = true
+    // Abandon any thread still loading, so it cannot overwrite this new draft.
+    openThreadToken.current += 1
     setError('')
     setNotice('')
     setActive({
@@ -407,11 +420,16 @@ function App() {
     if (streaming || switching) return
     setError('')
     setNotice('')
+    // Clicking through threads quickly starts overlapping loads. Only the most
+    // recent click may write to state, otherwise a slow earlier response can
+    // land last and show the wrong conversation.
+    const token = ++openThreadToken.current
     try {
       const [detail, docs] = await Promise.all([
         apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}?user_id=${encodeURIComponent(userId)}`),
         apiRequest<DocumentInfo[]>(`/api/documents?user_id=${encodeURIComponent(userId)}&conversation_id=${encodeURIComponent(id)}`),
       ])
+      if (token !== openThreadToken.current) return
       followConversation.current = true
       setActive(detail)
       setMessages(detail.messages)
@@ -422,7 +440,10 @@ function App() {
       setMedia(null)
       setDraft('')
       setTranscriptInfo(null)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load this thread.') }
+    } catch (cause) {
+      if (token !== openThreadToken.current) return
+      setError(cause instanceof Error ? cause.message : 'Could not load this thread.')
+    }
   }
 
   async function createRemoteThread(firstMessage: string): Promise<ConversationDetail> {
@@ -522,6 +543,7 @@ function App() {
     setError('')
     setNotice('')
     setStreaming(true)
+    setStoppedReply(false)
     setDraft('')
     setTranscriptInfo(null)
     try {
@@ -560,6 +582,7 @@ function App() {
   }
 
   function stopStreaming() {
+    setStoppedReply(true)
     streamAbort.current?.abort()
   }
 
@@ -824,10 +847,16 @@ function App() {
         {(!atBottom && messages.length > 0) ? <button type="button" onClick={jumpToLatest} className="panel-enter absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/[0.1] bg-[#0f0f0f]/95 px-3 py-1.5 text-micro text-zinc-300 shadow-[0_10px_30px_rgba(0,0,0,.45)] backdrop-blur transition hover:border-emerald-300/30 hover:text-zinc-100">
           <ChevronDown size={12} className="rotate-180" />Jump to latest
         </button> : null}
-        <div ref={conversationViewport} onScroll={handleConversationScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div ref={conversationViewport} onScroll={handleConversationScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="Conversation" role="log" aria-live="off">
           <div className="mx-auto flex w-full max-w-[850px] flex-1 flex-col px-4 pb-5 pt-5 sm:px-7 sm:pt-8">
-            {notice && <div className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-small text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
-            {error && <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-small leading-5 text-rose-200"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></div>}
+            {notice && <div role="status" className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-small text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
+            {error && <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-small leading-5 text-rose-200"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></div>}
+            {/*
+              The token stream itself is deliberately not a live region: it fires
+              many times a second and would drown a screen reader in fragments.
+              This announces only the transitions that matter.
+            */}
+            <p role="status" aria-live="polite" className="sr-only">{conversationAnnouncement}</p>
             {messages.length ? <div className="space-y-8">
               {messages.map((message, index) => <MessageRow key={message.id} message={message} isStreaming={streaming && index === messages.length - 1} copied={copiedId === message.id} onCopy={() => void copyMessage(message)} />)}
             </div> : <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-16 text-center">

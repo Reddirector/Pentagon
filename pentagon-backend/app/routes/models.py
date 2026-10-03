@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.session import get_db
 from app.schemas import ModelsResponse
-from app.security.keys import NoKeyAvailableError, resolve_api_key
+from app.security.keys import resolve_api_key_or_http
 from app.services.nvidia_client import NvidiaApiError, list_models_for_user
 
 
@@ -31,10 +31,7 @@ async def get_models(
     user_id: str = Query(min_length=1, max_length=128),
     db: Session = Depends(get_db),
 ) -> dict:
-    try:
-        api_key = resolve_api_key(db, user_id)
-    except NoKeyAvailableError:
-        raise HTTPException(status_code=404, detail="No API key is stored for this user.") from None
+    api_key = resolve_api_key_or_http(db, user_id)
 
     try:
         models = await list_models_for_user(user_id, api_key)

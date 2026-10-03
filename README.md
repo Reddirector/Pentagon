@@ -203,7 +203,7 @@ control.
 ## Testing
 
 ```bash
-# Backend — 52 tests
+# Backend — 90 tests
 cd pentagon-backend
 python -m pytest -q
 

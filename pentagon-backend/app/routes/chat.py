@@ -27,7 +27,7 @@ from app.schemas import (
     SwitchConversationModelRequest,
     SwitchConversationModelResponse,
 )
-from app.security.keys import NoKeyAvailableError, resolve_api_key
+from app.security.keys import resolve_api_key_or_http
 from app.services.chat_graph import (
     build_chat_graph,
     initial_chat_state,
@@ -56,10 +56,7 @@ async def chat(
     elif not message_content and video is not None:
         message_content = "Describe what's happening in this video with timestamps."
 
-    try:
-        api_key = resolve_api_key(db, payload.user_id)
-    except NoKeyAvailableError:
-        raise HTTPException(status_code=404, detail="No API key is stored for this user.") from None
+    api_key = resolve_api_key_or_http(db, payload.user_id)
 
     conversation = db.scalar(
         select(Conversation).where(
@@ -282,10 +279,7 @@ async def switch_conversation_model(
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
-    try:
-        api_key = resolve_api_key(db, conversation.user_id)
-    except NoKeyAvailableError:
-        raise HTTPException(status_code=404, detail="No API key is stored for this user.") from None
+    api_key = resolve_api_key_or_http(db, conversation.user_id)
 
     try:
         models = await list_models_for_user(conversation.user_id, api_key)

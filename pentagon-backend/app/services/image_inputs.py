@@ -57,7 +57,15 @@ def _validate_image_bytes(
         with Image.open(io.BytesIO(content)) as image:
             detected_format = image.format
             image.verify()
-    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+    except (
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        SyntaxError,
+        Image.DecompressionBombError,
+    ):
+        # Pillow reports corrupt payloads as SyntaxError (e.g. a bad PNG chunk
+        # checksum), so it has to be caught here or it escapes as a 500.
         raise HTTPException(
             status_code=400,
             detail="Image data is invalid or does not match jpg, png, or webp format.",

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Conversation, Document, User
 from app.db.session import get_db
 from app.schemas import DocumentResponse
-from app.security.keys import NoKeyAvailableError, resolve_api_key
+from app.security.keys import resolve_api_key_or_http
 from app.services.document_store import delete_document_chunks, store_chunks
 
 
@@ -62,15 +62,15 @@ async def upload_document(
         raise HTTPException(status_code=422, detail="This document contains no extractable text.")
 
     try:
-        api_key = resolve_api_key(db, user_id)
-    except NoKeyAvailableError:
+        api_key: str | None = resolve_api_key_or_http(db, user_id)
+    except HTTPException as exc:
+        # Unlike chat, an upload can still be indexed without a user key: the
+        # server-side fallback (or a keyless embedding provider) may cover it.
+        if exc.status_code != 404:
+            raise
         if db.get(User, user_id) is None:
             raise HTTPException(status_code=404, detail="User not found. Store an API key first.") from None
         api_key = None
-    except EncryptionConfigurationError:
-        raise HTTPException(status_code=503, detail="Key decryption is not configured on the server.") from None
-    except EncryptedKeyError:
-        raise HTTPException(status_code=500, detail="The stored API key could not be decrypted.") from None
 
     document_id = str(uuid4())
     try:

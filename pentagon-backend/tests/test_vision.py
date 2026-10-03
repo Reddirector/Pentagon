@@ -25,6 +25,18 @@ def _png_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def _corrupt_png_bytes() -> bytes:
+    """A structurally valid PNG whose IDAT checksum is wrong.
+
+    Pillow reports this as SyntaxError rather than OSError, so it needs its own
+    guard or the upload turns into a 500 instead of a 400.
+    """
+    data = bytearray(_png_bytes())
+    start = data.find(b"IDAT")
+    data[start + 8:start + 12] = b"\x00\x00\x00\x00"
+    return bytes(data)
+
+
 class FakeChatModel:
     def __init__(self):
         self.messages = []
@@ -157,7 +169,9 @@ def test_base64_data_uri_image_only_uses_default_question(chat_setup):
     [
         ("large.png", b"x" * (10 * 1024 * 1024), "image/png", "smaller than 10 MB"),
         ("animation.gif", b"GIF89a", "image/gif", "jpg, png, or webp"),
+        ("broken.png", _corrupt_png_bytes(), "image/png", "Image data is invalid"),
     ],
+    ids=["too-large", "unsupported-format", "corrupt-png"],
 )
 def test_rejected_image_does_not_invoke_graph(
     chat_setup, monkeypatch, filename, content, content_type, detail
@@ -175,6 +189,22 @@ def test_rejected_image_does_not_invoke_graph(
 
     assert response.status_code == 400
     assert detail in response.json()["detail"]
+
+
+def test_corrupt_png_data_uri_is_rejected_as_a_bad_request(chat_setup):
+    """The JSON data-URI path shares the validator, so it must not 500 either."""
+    encoded = base64.b64encode(_corrupt_png_bytes()).decode("ascii")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat",
+            json={
+                **_chat_form(chat_setup),
+                "image": f"data:image/png;base64,{encoded}",
+            },
+        )
+
+    assert response.status_code == 400
+    assert "Image data is invalid" in response.json()["detail"]
 
 
 def test_vision_failure_keeps_chat_response_alive(chat_setup, monkeypatch):

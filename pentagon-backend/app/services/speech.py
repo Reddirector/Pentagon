@@ -278,9 +278,3 @@ async def stream_speech(
         logger.info("NVIDIA Riva TTS unavailable for this key; using local Piper: %s", _LOCAL_TTS_REASON)
     async for chunk in _local_audio_chunks(text, voice):
         yield chunk
-
-
-async def iter_local_speech(text: str, voice: str | None) -> AsyncIterator[AudioChunk]:
-    """Synthesize locally for users who request audio without a stored NVIDIA key."""
-    async for chunk in _local_audio_chunks(text, voice):
-        yield chunk
