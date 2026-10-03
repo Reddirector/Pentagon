@@ -65,24 +65,24 @@ export function Sidebar({
   return <aside className="flex h-full w-[270px] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] px-4 py-5 backdrop-blur-2xl backdrop-saturate-150 max-lg:w-[230px] max-md:hidden">
     <div className="mb-8 flex items-center gap-3 px-2">
       <LogomarkBadge size={32} label="Pentagon" />
-      <div><div className="text-[12px] font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 truncate text-[9px] uppercase tracking-[.18em] text-zinc-600">{workspaceName}</div></div>
+      <div><div className="text-body font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 truncate text-caption uppercase tracking-[.18em] text-zinc-600">{workspaceName}</div></div>
     </div>
 
     <div className="mb-5 flex items-center gap-1.5">
-      <button onClick={onNewThread} className="flex h-10 flex-1 items-center gap-2.5 rounded-xl border border-white/[0.09] bg-white/[0.035] px-3 text-left text-[12px] font-medium text-zinc-200 transition-[background-color,border-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-emerald-300/30 hover:bg-emerald-300/[0.07] hover:text-white active:translate-y-0 active:scale-[.99]">
+      <button onClick={onNewThread} className="flex h-10 flex-1 items-center gap-2.5 rounded-xl border border-white/[0.09] bg-white/[0.035] px-3 text-left text-body font-medium text-zinc-200 transition-[background-color,border-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-emerald-300/30 hover:bg-emerald-300/[0.07] hover:text-white active:translate-y-0 active:scale-[.99]">
         <MessageSquarePlus size={15} className="text-emerald-300" />New Thread
       </button>
-      <button type="button" onClick={onOpenPalette} className="grid h-10 w-9 shrink-0 place-items-center rounded-xl border border-white/[0.07] text-[9px] text-zinc-600 transition hover:border-emerald-300/25 hover:text-zinc-300" title="Open command palette" aria-label="Open command palette">⌘K</button>
+      <button type="button" onClick={onOpenPalette} className="grid h-10 w-9 shrink-0 place-items-center rounded-xl border border-white/[0.07] text-caption text-zinc-600 transition hover:border-emerald-300/25 hover:text-zinc-300" title="Open command palette" aria-label="Open command palette">⌘K</button>
     </div>
 
     <div className="relative mb-6">
       <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
-      <input aria-label="Search conversations" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search threads" className="h-9 w-full rounded-lg border border-white/[0.06] bg-white/[0.025] pl-9 pr-3 text-[11px] text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-emerald-300/30" />
+      <input aria-label="Search conversations" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search threads" className="h-9 w-full rounded-lg border border-white/[0.06] bg-white/[0.025] pl-9 pr-3 text-small text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-emerald-300/30" />
     </div>
 
     <nav aria-label="Conversations" className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
       {groups.map((group) => <section key={group.title}>
-        <h2 className="mb-2 px-2 text-[9px] font-medium uppercase tracking-[.18em] text-zinc-600">{group.title}</h2>
+        <h2 className="mb-2 px-2 text-caption font-medium uppercase tracking-[.18em] text-zinc-600">{group.title}</h2>
         <div className="space-y-0.5">
           {group.conversations.map((conversation) => (
             <div key={conversation.id} className="group relative">
@@ -98,7 +98,7 @@ export function Sidebar({
                       if (event.key === 'Enter') commitRename(conversation.id, conversation.title || 'New thread')
                       if (event.key === 'Escape') setEditingId(null)
                     }}
-                    className="min-w-0 flex-1 bg-transparent text-[11px] text-zinc-100 outline-none"
+                    className="min-w-0 flex-1 bg-transparent text-small text-zinc-100 outline-none"
                   />
                   <button type="button" onClick={() => commitRename(conversation.id, conversation.title || 'New thread')} aria-label="Save name" className="shrink-0 rounded p-0.5 text-zinc-400 transition hover:text-zinc-100">
                     <Check size={12} />
@@ -112,7 +112,7 @@ export function Sidebar({
                   <button
                     onClick={() => onSelect(conversation.id)}
                     title={conversation.title || 'New thread'}
-                    className={`block w-full truncate rounded-lg py-2.5 pl-2.5 pr-14 text-left text-[11px] transition-[background-color,color,box-shadow] duration-200 ease-out ${activeId === conversation.id ? 'bg-emerald-300/[0.09] font-medium text-emerald-100 shadow-[inset_2px_0_0_#ffffff]' : 'text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200'}`}
+                    className={`block w-full truncate rounded-lg py-2.5 pl-2.5 pr-14 text-left text-small transition-[background-color,color,box-shadow] duration-200 ease-out ${activeId === conversation.id ? 'bg-emerald-300/[0.09] font-medium text-emerald-100 shadow-[inset_2px_0_0_#ffffff]' : 'text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200'}`}
                   >
                     {conversation.title || 'New thread'}
                   </button>
@@ -146,13 +146,13 @@ export function Sidebar({
           ))}
         </div>
       </section>)}
-      {groups.length === 0 && <p className="px-2 text-[11px] leading-6 text-zinc-600">{query ? 'No matching threads.' : 'Your threads will appear here.'}</p>}
+      {groups.length === 0 && <p className="px-2 text-small leading-6 text-zinc-600">{query ? 'No matching threads.' : 'Your threads will appear here.'}</p>}
     </nav>
 
     <div className="mt-4 border-t border-white/[0.06] pt-3">
       <button type="button" onClick={onOpenSettings} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-white/[0.045]">
         <Settings2 size={14} className="shrink-0 text-zinc-500" />
-        <span className="text-[10px] text-zinc-400">Settings</span>
+        <span className="text-micro text-zinc-400">Settings</span>
       </button>
     </div>
   </aside>

@@ -107,9 +107,9 @@ export function CommandPalette({
             }}
             placeholder="Type a command…"
             aria-label="Command palette input"
-            className="h-12 w-full bg-transparent text-[13px] text-zinc-100 outline-none focus-visible:outline-none placeholder:text-zinc-600"
+            className="h-12 w-full bg-transparent text-body-lg text-zinc-100 outline-none focus-visible:outline-none placeholder:text-zinc-600"
           />
-          <kbd className="shrink-0 rounded-md border border-white/[0.09] px-1.5 py-0.5 text-[9px] text-zinc-500">
+          <kbd className="shrink-0 rounded-md border border-white/[0.09] px-1.5 py-0.5 text-caption text-zinc-500">
             esc
           </kbd>
         </div>
@@ -131,7 +131,7 @@ export function CommandPalette({
                   type="button"
                   onMouseEnter={() => setHighlight(index)}
                   onClick={() => runCommand(command)}
-                  className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-[12px] transition ${
+                  className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-body transition ${
                     index === activeIndex
                       ? 'bg-emerald-300/[0.09] text-zinc-100'
                       : 'text-zinc-400 hover:bg-white/[0.04]'
@@ -140,7 +140,7 @@ export function CommandPalette({
                   <Icon size={14} className="shrink-0 text-zinc-500" />
                   <span className="flex-1 truncate">{command.label}</span>
                   {command.hint ? (
-                    <span className="shrink-0 text-[9px] uppercase tracking-[.16em] text-emerald-300/70">
+                    <span className="shrink-0 text-caption uppercase tracking-[.16em] text-emerald-300/70">
                       {command.hint}
                     </span>
                   ) : null}
@@ -149,7 +149,7 @@ export function CommandPalette({
             )
           })}
           {results.length === 0 ? (
-            <li className="px-4 py-6 text-center text-[11px] text-zinc-600">No matching command.</li>
+            <li className="px-4 py-6 text-center text-small text-zinc-600">No matching command.</li>
           ) : null}
         </ul>
       </div>

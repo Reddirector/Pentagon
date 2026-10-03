@@ -25,7 +25,7 @@ export function ThinkingIndicator({ model, label = 'Thinking' }: { model: string
   const slow = elapsed >= 20
 
   return (
-    <div className="flex items-center gap-2.5 py-1 text-[11px] text-zinc-500" aria-live="polite">
+    <div className="flex items-center gap-2.5 py-1 text-small text-zinc-500" aria-live="polite">
       <span className="flex shrink-0 gap-1" aria-hidden="true">
         <i className="size-1 animate-pulse rounded-full bg-emerald-300/80" />
         <i className="size-1 animate-pulse rounded-full bg-emerald-300/55 [animation-delay:100ms]" />

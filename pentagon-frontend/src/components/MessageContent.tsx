@@ -23,13 +23,13 @@ function CodePanel({ code, language, children }: { code: string; language: strin
     window.setTimeout(() => setCopied(false), 1500)
   }
   return <div className="group relative my-4 overflow-hidden rounded-xl border border-white/[0.09] bg-[#000000]">
-    <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2 text-[10px] uppercase tracking-[.16em] text-zinc-500">
+    <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2 text-micro uppercase tracking-[.16em] text-zinc-500">
       <span>{language || 'Code'}</span>
       <button onClick={() => void copy()} className="flex items-center gap-1.5 rounded-md px-2 py-1 normal-case tracking-normal text-zinc-400 transition hover:bg-white/[0.07] hover:text-white" aria-label="Copy code">
         {copied ? <Check size={12} /> : <Copy size={12} />}{copied ? 'Copied' : 'Copy'}
       </button>
     </div>
-    <pre className="overflow-x-auto px-4 py-3 text-[12px] leading-6 text-[#d4d8df]"><code>{children}</code></pre>
+    <pre className="overflow-x-auto px-4 py-3 text-body leading-6 text-[#d4d8df]"><code>{children}</code></pre>
   </div>
 }
 
@@ -69,7 +69,7 @@ function safeExternalUrl(value: string | undefined): string | null {
 }
 
 export function MarkdownAnswer({ content }: { content: string }) {
-  return <div className="markdown-content min-w-0 break-words text-[14px] leading-[1.8] text-[#d8d9dc]">
+  return <div className="markdown-content min-w-0 break-words text-title leading-[1.8] text-[#d8d9dc]">
     <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={markdownComponents}>{content}</ReactMarkdown>
   </div>
 }
@@ -131,10 +131,10 @@ function TracePanel({ trace }: { trace: ExecutionTrace }) {
   if (!rows.length) return null
   const ran = rows.filter(([, row]) => row.status !== 'skipped').length
   return <section className={`trace-panel panel-enter mb-3 overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.018] ${expanded ? 'trace-panel-open' : ''}`}>
-    <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded((open) => !open)} className="flex w-full cursor-pointer list-none items-center gap-2.5 border-0 bg-transparent px-3.5 py-3 text-left text-[11px] text-zinc-400 transition-colors duration-200 hover:text-zinc-200">
+    <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded((open) => !open)} className="flex w-full cursor-pointer list-none items-center gap-2.5 border-0 bg-transparent px-3.5 py-3 text-left text-small text-zinc-400 transition-colors duration-200 hover:text-zinc-200">
       <span className="grid size-5 place-items-center rounded-full border border-emerald-400/20 bg-emerald-400/[0.08] text-emerald-300"><CheckCircle2 size={12} /></span>
       <span className="font-medium text-zinc-300">Reasoning steps</span>
-      <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[9px] text-zinc-500">{ran} of {rows.length} active</span>
+      <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-caption text-zinc-500">{ran} of {rows.length} active</span>
       <ChevronDown size={13} className={`ml-auto transition-transform duration-200 ease-out ${expanded ? 'rotate-180' : ''}`} />
     </button>
     <div id={panelId} aria-hidden={!expanded} className={`trace-panel-body ${expanded ? 'trace-panel-body-open' : ''}`}>
@@ -150,10 +150,10 @@ function TracePanel({ trace }: { trace: ExecutionTrace }) {
               <Icon size={14} className={`mt-0.5 shrink-0 ${failed ? 'text-rose-400' : skipped ? 'text-zinc-600' : 'text-emerald-400'}`} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className={`text-[11px] font-medium ${skipped ? 'text-zinc-500' : 'text-zinc-300'}`}>{TRACE_TITLES[name] || name.replaceAll('_', ' ')}</span>
-                  {duration && <span className="shrink-0 font-mono text-[9px] text-zinc-600">{duration}</span>}
+                  <span className={`text-small font-medium ${skipped ? 'text-zinc-500' : 'text-zinc-300'}`}>{TRACE_TITLES[name] || name.replaceAll('_', ' ')}</span>
+                  {duration && <span className="shrink-0 font-mono text-caption text-zinc-600">{duration}</span>}
                 </div>
-                <p className="mt-0.5 truncate text-[10px] text-zinc-500">{traceSummary(name, row)}</p>
+                <p className="mt-0.5 truncate text-micro text-zinc-500">{traceSummary(name, row)}</p>
               </div>
             </div>
           })}
@@ -171,11 +171,11 @@ function SourceChips({ sources }: { sources: SourcesUsed }) {
   return <div className="panel-enter mt-3 flex flex-wrap gap-1.5">
     {web.map((source, index) => {
       const url = safeExternalUrl(source.url)
-      return url ? <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" title={url} className="inline-flex max-w-[230px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-[10px] text-zinc-400 transition-colors duration-200 hover:border-emerald-300/25 hover:text-emerald-200"><ExternalLink size={10} className="shrink-0" />{source.title || new URL(url).hostname}</a> : null
+      return url ? <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" title={url} className="inline-flex max-w-[230px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-micro text-zinc-400 transition-colors duration-200 hover:border-emerald-300/25 hover:text-emerald-200"><ExternalLink size={10} className="shrink-0" />{source.title || new URL(url).hostname}</a> : null
     })}
-    {documents.map((source) => <span key={source.document_id} title={`${source.chunk_ids.length} passages referenced`} className="inline-flex max-w-[230px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-[10px] text-zinc-400"><FileText size={10} className="shrink-0 text-sky-300" />{source.filename}</span>)}
-    {sources.image && <span title={sources.image.description_summary} className="inline-flex max-w-[240px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-[10px] text-zinc-400"><ImageIcon size={10} className="shrink-0 text-violet-300" />Image · {sources.image.model_used}</span>}
-    {sources.video && <span title={`${sources.video.description_summary} · ${sources.video.frames_sent} frames`} className="inline-flex max-w-[240px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-[10px] text-zinc-400"><Video size={10} className="shrink-0 text-violet-300" />Video · {sources.video.frames_sent} frames</span>}
+    {documents.map((source) => <span key={source.document_id} title={`${source.chunk_ids.length} passages referenced`} className="inline-flex max-w-[230px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-micro text-zinc-400"><FileText size={10} className="shrink-0 text-sky-300" />{source.filename}</span>)}
+    {sources.image && <span title={sources.image.description_summary} className="inline-flex max-w-[240px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-micro text-zinc-400"><ImageIcon size={10} className="shrink-0 text-violet-300" />Image · {sources.image.model_used}</span>}
+    {sources.video && <span title={`${sources.video.description_summary} · ${sources.video.frames_sent} frames`} className="inline-flex max-w-[240px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-micro text-zinc-400"><Video size={10} className="shrink-0 text-violet-300" />Video · {sources.video.frames_sent} frames</span>}
   </div>
 }
 
@@ -185,8 +185,8 @@ function SourceStats({ sources }: { sources: SourcesUsed }) {
   const total = webCount + documents.length
   if (!total) return null
   return <div className="panel-enter mt-3 flex flex-wrap gap-2">
-    <div className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2"><strong className="mr-1.5 text-[12px] font-semibold text-zinc-200">{total}</strong><span className="text-[10px] text-zinc-500">{total === 1 ? 'source used' : 'sources used'}</span></div>
-    {documents.length > 0 && <div className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2"><strong className="mr-1.5 text-[12px] font-semibold text-zinc-200">{documents.length}</strong><span className="text-[10px] text-zinc-500">{documents.length === 1 ? 'document referenced' : 'documents referenced'}</span></div>}
+    <div className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2"><strong className="mr-1.5 text-body font-semibold text-zinc-200">{total}</strong><span className="text-micro text-zinc-500">{total === 1 ? 'source used' : 'sources used'}</span></div>
+    {documents.length > 0 && <div className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2"><strong className="mr-1.5 text-body font-semibold text-zinc-200">{documents.length}</strong><span className="text-micro text-zinc-500">{documents.length === 1 ? 'document referenced' : 'documents referenced'}</span></div>}
   </div>
 }
 

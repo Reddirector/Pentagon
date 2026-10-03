@@ -741,26 +741,26 @@ function App() {
             <Logomark size={16} />
             {/* Native <select>: the popup is drawn by the OS, so the options carry
                 explicit black/white rather than inheriting the panel's greys. */}
-            <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="max-w-[min(34vw,360px)] min-w-0 appearance-none bg-black text-[11px] font-medium text-white outline-none disabled:text-zinc-500">
+            <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="max-w-[min(34vw,360px)] min-w-0 appearance-none bg-black text-small font-medium text-white outline-none disabled:text-zinc-500">
               {!models.length && <option value="" className="bg-black text-white">No models available</option>}
               {models.map((model) => <option value={model.id} key={model.id} className="bg-black text-white">{model.id}{model.supports_vision ? ' · Vision' : ''}</option>)}
             </select>
             <ChevronDown size={12} className="shrink-0 text-zinc-400" />
           </div>
           
-          {activeModel?.supports_vision && <span className="hidden items-center gap-1.5 rounded-full border border-violet-300/15 bg-violet-300/[0.06] px-2.5 py-1.5 text-[10px] text-violet-200 md:inline-flex"><ImageIcon size={11} />Vision ready</span>}
+          {activeModel?.supports_vision && <span className="hidden items-center gap-1.5 rounded-full border border-violet-300/15 bg-violet-300/[0.06] px-2.5 py-1.5 text-micro text-violet-200 md:inline-flex"><ImageIcon size={11} />Vision ready</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2 max-sm:gap-1.5">
           <div className="relative">
-            <button onClick={() => setShowDocuments((current) => !current)} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] transition-colors duration-200 ease-out ${documents.length ? 'border-sky-300/15 bg-sky-300/[0.055] text-sky-200' : 'border-white/[0.07] text-zinc-500 hover:text-zinc-300'}`} aria-expanded={showDocuments}>
+            <button onClick={() => setShowDocuments((current) => !current)} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-micro transition-colors duration-200 ease-out ${documents.length ? 'border-sky-300/15 bg-sky-300/[0.055] text-sky-200' : 'border-white/[0.07] text-zinc-500 hover:text-zinc-300'}`} aria-expanded={showDocuments}>
               <FileText size={12} />{documents.length} docs active
             </button>
             <div aria-hidden={!showDocuments} className={`absolute right-0 top-10 z-30 w-64 origin-top-right rounded-xl border border-white/10 bg-[#0f0f0f] p-2 shadow-2xl transition-[opacity,transform,visibility] duration-200 ease-out ${showDocuments ? 'visible translate-y-0 scale-100 opacity-100' : 'invisible pointer-events-none translate-y-1 scale-[.98] opacity-0'}`}>
-              <div className="px-2 py-1.5 text-[9px] font-medium uppercase tracking-[.15em] text-zinc-600">Thread documents</div>
-              {documents.length ? documents.map((doc) => <div key={doc.document_id} className="flex items-center gap-2 rounded-lg px-2 py-2 text-[11px] text-zinc-300"><FileText size={12} className="text-sky-300" /><span className="min-w-0 flex-1 truncate">{doc.filename}</span><span className="font-mono text-[9px] text-zinc-600">{doc.chunks_stored}</span></div>) : <div className="px-2 py-3 text-[10px] text-zinc-500">No documents in this thread yet.</div>}
+              <div className="px-2 py-1.5 text-caption font-medium uppercase tracking-[.15em] text-zinc-600">Thread documents</div>
+              {documents.length ? documents.map((doc) => <div key={doc.document_id} className="flex items-center gap-2 rounded-lg px-2 py-2 text-small text-zinc-300"><FileText size={12} className="text-sky-300" /><span className="min-w-0 flex-1 truncate">{doc.filename}</span><span className="font-mono text-caption text-zinc-600">{doc.chunks_stored}</span></div>) : <div className="px-2 py-3 text-micro text-zinc-500">No documents in this thread yet.</div>}
             </div>
           </div>
-          <div className="hidden items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.02] px-2.5 py-1.5 text-[10px] text-zinc-500 sm:flex" title="Message count from the loaded backend history; token totals are not returned by the API.">
+          <div className="hidden items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.02] px-2.5 py-1.5 text-micro text-zinc-500 sm:flex" title="Message count from the loaded backend history; token totals are not returned by the API.">
             <Activity size={12} className="text-zinc-600" /><span className="text-zinc-600">Context</span><span className="text-zinc-300">{contextLabel}</span>
           </div>
           <button onClick={startThread} className="grid size-8 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.06] hover:text-white md:hidden" title="New thread"><Plus size={16} /></button>
@@ -768,44 +768,44 @@ function App() {
       </header>
 
       <section className="relative flex min-h-0 flex-1 flex-col">
-        {(!atBottom && messages.length > 0) ? <button type="button" onClick={jumpToLatest} className="panel-enter absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/[0.1] bg-[#0f0f0f]/95 px-3 py-1.5 text-[10px] text-zinc-300 shadow-[0_10px_30px_rgba(0,0,0,.45)] backdrop-blur transition hover:border-emerald-300/30 hover:text-zinc-100">
+        {(!atBottom && messages.length > 0) ? <button type="button" onClick={jumpToLatest} className="panel-enter absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/[0.1] bg-[#0f0f0f]/95 px-3 py-1.5 text-micro text-zinc-300 shadow-[0_10px_30px_rgba(0,0,0,.45)] backdrop-blur transition hover:border-emerald-300/30 hover:text-zinc-100">
           <ChevronDown size={12} className="rotate-180" />Jump to latest
         </button> : null}
         <div ref={conversationViewport} onScroll={handleConversationScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div className="mx-auto flex w-full max-w-[850px] flex-1 flex-col px-7 pb-5 pt-8 max-sm:px-4 max-sm:pt-5">
-            {notice && <div className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-[11px] text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
-            {error && <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-[11px] leading-5 text-rose-200"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></div>}
+            {notice && <div className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-small text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
+            {error && <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-small leading-5 text-rose-200"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></div>}
             {messages.length ? <div className="space-y-8">
               {messages.map((message, index) => <MessageRow key={message.id} message={message} isStreaming={streaming && index === messages.length - 1} copied={copiedId === message.id} onCopy={() => void copyMessage(message)} />)}
             </div> : <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-16 text-center">
               <div className="relative mb-7 grid size-[66px] place-items-center"><Logomark size={60} /><span className="absolute -right-1 -top-1 size-2 rounded-full bg-white/70" /></div>
-              <p className="mb-3 text-[9px] font-medium uppercase tracking-[.23em] text-emerald-200/70">A focused place to think</p>
-              <h1 className="max-w-xl text-balance text-[clamp(30px,4vw,47px)] font-medium leading-[1.12] tracking-[-.045em] text-zinc-100">{active ? 'What should we explore?' : 'A clear space for your next idea.'}</h1>
-              <p className="mt-4 max-w-md text-[12px] leading-6 text-zinc-500">Bring a question, a document, or a moment from a video. Pentagon will show the sources and work behind each reply.</p>
-              {!active && <button onClick={startThread} className="mt-7 flex items-center gap-2 rounded-full bg-emerald-300 px-4 py-2.5 text-[11px] font-semibold text-[#000000] transition hover:bg-emerald-200"><Plus size={14} />Start a new thread</button>}
+              <p className="mb-3 text-caption font-medium uppercase tracking-[.23em] text-emerald-200/70">A focused place to think</p>
+              <h1 className="max-w-xl text-balance text-hero-fluid font-medium leading-[1.12] tracking-[-.045em] text-zinc-100">{active ? 'What should we explore?' : 'A clear space for your next idea.'}</h1>
+              <p className="mt-4 max-w-md text-body leading-6 text-zinc-500">Bring a question, a document, or a moment from a video. Pentagon will show the sources and work behind each reply.</p>
+              {!active && <button onClick={startThread} className="mt-7 flex items-center gap-2 rounded-full bg-emerald-300 px-4 py-2.5 text-small font-semibold text-[#000000] transition hover:bg-emerald-200"><Plus size={14} />Start a new thread</button>}
               {active && <div className="mt-8 grid w-full max-w-lg grid-cols-2 gap-2.5 max-sm:grid-cols-1">
-                {['Summarize the key points in my documents', 'Explain this code and show an example', 'Compare the main ideas in this topic', 'Describe what happens in an attached video'].map((suggestion) => <button key={suggestion} onClick={() => setDraft(suggestion)} className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-3 text-left text-[10px] text-zinc-400 transition hover:border-emerald-300/20 hover:bg-emerald-300/[0.04] hover:text-zinc-200">{suggestion}</button>)}
+                {['Summarize the key points in my documents', 'Explain this code and show an example', 'Compare the main ideas in this topic', 'Describe what happens in an attached video'].map((suggestion) => <button key={suggestion} onClick={() => setDraft(suggestion)} className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-3 text-left text-micro text-zinc-400 transition hover:border-emerald-300/20 hover:bg-emerald-300/[0.04] hover:text-zinc-200">{suggestion}</button>)}
               </div>}
             </div>}
           </div>
         </div>
 
         <div
-          className={`relative mx-auto w-full max-w-[850px] px-7 pb-5 pt-2 max-sm:px-3 max-sm:pb-3 ${dragging ? 'after:pointer-events-none after:absolute after:inset-x-7 after:top-0 after:bottom-5 after:rounded-2xl after:border after:border-dashed after:border-emerald-300/60 after:bg-emerald-300/[0.04] after:content-["Drop_files_to_attach"] after:grid after:place-items-center after:text-[12px] after:text-emerald-100' : ''}`}
+          className={`relative mx-auto w-full max-w-[850px] px-7 pb-5 pt-2 max-sm:px-3 max-sm:pb-3 ${dragging ? 'after:pointer-events-none after:absolute after:inset-x-7 after:top-0 after:bottom-5 after:rounded-2xl after:border after:border-dashed after:border-emerald-300/60 after:bg-emerald-300/[0.04] after:content-["Drop_files_to_attach"] after:grid after:place-items-center after:text-body after:text-emerald-100' : ''}`}
           onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false) }}
           onDrop={(event) => { event.preventDefault(); setDragging(false); void acceptFiles(Array.from(event.dataTransfer.files)) }}
         >
           {/* Fade the last message into the composer instead of hard-cutting it. */}
           <div aria-hidden="true" className="pointer-events-none -mt-12 h-12 bg-gradient-to-t from-[#000000] via-[#000000]/70 to-transparent" />
-          {media && <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-[10px] text-zinc-300"><span className="text-emerald-200">{isVideo(media) ? <Video size={13} /> : <ImageIcon size={13} />}</span><span className="min-w-0 flex-1 truncate">{media.name}</span><span className="text-zinc-600">{isVideo(media) ? 'Video' : 'Image'}</span><button onClick={() => setMedia(null)} aria-label="Remove attachment" className="text-zinc-500 hover:text-white"><X size={13} /></button></div>}
-          {queuedDocuments.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{queuedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className="panel-enter inline-flex max-w-full items-center gap-1.5 rounded-lg border border-sky-300/10 bg-sky-300/[0.045] px-2 py-1.5 text-[9px] text-sky-100/80"><FileText size={11} /><span className="max-w-[180px] truncate">{file.name}</span><span className="text-sky-100/40">queued</span><button onClick={() => setQueuedDocuments((items) => items.filter((_, current) => current !== index))} aria-label={`Remove ${file.name}`}><X size={11} /></button></span>)}</div>}
+          {media && <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-micro text-zinc-300"><span className="text-emerald-200">{isVideo(media) ? <Video size={13} /> : <ImageIcon size={13} />}</span><span className="min-w-0 flex-1 truncate">{media.name}</span><span className="text-zinc-600">{isVideo(media) ? 'Video' : 'Image'}</span><button onClick={() => setMedia(null)} aria-label="Remove attachment" className="text-zinc-500 hover:text-white"><X size={13} /></button></div>}
+          {queuedDocuments.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{queuedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className="panel-enter inline-flex max-w-full items-center gap-1.5 rounded-lg border border-sky-300/10 bg-sky-300/[0.045] px-2 py-1.5 text-caption text-sky-100/80"><FileText size={11} /><span className="max-w-[180px] truncate">{file.name}</span><span className="text-sky-100/40">queued</span><button onClick={() => setQueuedDocuments((items) => items.filter((_, current) => current !== index))} aria-label={`Remove ${file.name}`}><X size={11} /></button></span>)}</div>}
           <form onSubmit={(event) => void handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#0f0f0f] p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition-[border-color,box-shadow] duration-200 ease-out focus-within:border-emerald-300/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,.045),0_20px_90px_rgba(0,0,0,.28)]">
-            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKey} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} rows={2} disabled={!active || streaming || transcribing} placeholder={active ? 'Message Pentagon…' : 'Start a new thread to begin'} className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-[13px] leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed" aria-label="Write a message" />
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKey} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} rows={2} disabled={!active || streaming || transcribing} placeholder={active ? 'Message Pentagon…' : 'Start a new thread to begin'} className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-body-lg leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed" aria-label="Write a message" />
             <div className="flex items-center justify-between gap-2 px-1 pb-0.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.txt" multiple hidden onChange={(event) => void handleAttachmentChange(event)} />
-                <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, or document"><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
+                <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, or document"><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
                 <button type="button" onClick={() => void toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
               </div>
               {streaming
@@ -814,7 +814,7 @@ function App() {
               <span className="sr-only">{queuedDocuments.length ? `${queuedDocuments.length} documents queued` : uploading ? 'Uploading document' : ''}</span>
             </div>
           </form>
-          <div className="flex items-center justify-between gap-3 px-2 pt-2 text-[9px] text-zinc-600 max-sm:text-[8px]">
+          <div className="flex items-center justify-between gap-3 px-2 pt-2 text-caption text-zinc-600 max-sm:text-caption-xs">
             <span className="truncate">Drop files to upload · Markdown supported</span>
             {(transcribing || uploading) && (
               <span className="max-w-[50%] truncate text-right">{transcribing ? 'Transcribing…' : 'Uploading…'}</span>
@@ -854,18 +854,18 @@ function MessageRow({ message, isStreaming = false, copied = false, onCopy }: { 
   return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
     {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center"><Logomark size={20} /></div>}
     <div className={`min-w-0 ${user ? 'max-w-[78%]' : 'w-full max-w-[calc(100%-40px)]'}`}>
-      <div className={`mb-2 flex items-center gap-2 text-[10px] ${user ? 'justify-end pr-1 text-zinc-500' : 'text-zinc-500'}`}><span className="font-medium text-zinc-300">{user ? 'You' : 'Pentagon'}</span></div>
-      {user ? <div className="rounded-2xl rounded-tr-md border border-white/[0.07] bg-[#171717] px-4 py-3 text-[13px] leading-6 text-zinc-100">
+      <div className={`mb-2 flex items-center gap-2 text-micro ${user ? 'justify-end pr-1 text-zinc-500' : 'text-zinc-500'}`}><span className="font-medium text-zinc-300">{user ? 'You' : 'Pentagon'}</span></div>
+      {user ? <div className="rounded-2xl rounded-tr-md border border-white/[0.07] bg-[#171717] px-4 py-3 text-body-lg leading-6 text-zinc-100">
         <div className="whitespace-pre-wrap break-words">{message.content}</div>
-        {message.attachmentName && <div className="mt-2 flex items-center gap-1.5 text-[9px] text-zinc-500"><Paperclip size={11} />{message.attachmentName}</div>}
+        {message.attachmentName && <div className="mt-2 flex items-center gap-1.5 text-caption text-zinc-500"><Paperclip size={11} />{message.attachmentName}</div>}
       </div> : <div className="min-w-0 pt-0.5">
         {message.content ? <div className={isStreaming ? 'streaming-answer' : undefined}><AssistantDetails message={message} /></div> : <ThinkingIndicator model={message.model_used} />}
       {!user && message.content ? <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
-        <button type="button" onClick={onCopy} className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] text-zinc-600 transition hover:bg-white/[0.05] hover:text-zinc-300" aria-label="Copy answer">{copied ? <Check size={11} className="text-emerald-300" /> : <Copy size={11} />}{copied ? 'Copied' : 'Copy'}</button>
+        <button type="button" onClick={onCopy} className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-micro text-zinc-600 transition hover:bg-white/[0.05] hover:text-zinc-300" aria-label="Copy answer">{copied ? <Check size={11} className="text-emerald-300" /> : <Copy size={11} />}{copied ? 'Copied' : 'Copy'}</button>
       </div> : null}
       </div>}
     </div>
-    {user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-white/[0.08] bg-white/[0.04] text-[9px] text-zinc-400">Y</div>}
+    {user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-white/[0.08] bg-white/[0.04] text-caption text-zinc-400">Y</div>}
   </article>
 }
 
@@ -882,20 +882,20 @@ function KeyGate({ value, validation, validationMessage, saving, error, onChange
   return <main className="relative grid min-h-screen place-items-center overflow-hidden bg-[#000000] px-5 py-10 text-zinc-100">
     <div className="pointer-events-none absolute left-1/2 top-0 size-[500px] -translate-x-1/2 rounded-full bg-emerald-300/[0.04] blur-[100px]" />
     <section className="relative w-full max-w-[440px] rounded-[24px] border border-white/[0.09] bg-[#0b0b0b]/95 p-8 shadow-[0_32px_100px_rgba(0,0,0,.48)] max-sm:p-6">
-      <div className="mb-9 flex items-center gap-3"><LogomarkBadge size={36} /><span className="text-[12px] font-semibold tracking-[.2em]">PENTAGON</span></div>
-      <p className="mb-3 text-[9px] font-medium uppercase tracking-[.22em] text-emerald-200/70">Your models · Your key</p>
-      <h1 className="text-[30px] font-medium leading-[1.12] tracking-[-.04em]">Bring your NVIDIA models into focus.</h1>
-      <p className="mt-3 text-[12px] leading-6 text-zinc-500">Pentagon checks your key with NVIDIA, then sends it to the backend for encrypted storage. It is never saved in this browser.</p>
-      {error && <div role="alert" className="mt-5 rounded-lg border border-rose-400/15 bg-rose-400/[0.06] px-3 py-2 text-[11px] text-rose-200">{error}</div>}
+      <div className="mb-9 flex items-center gap-3"><LogomarkBadge size={36} /><span className="text-body font-semibold tracking-[.2em]">PENTAGON</span></div>
+      <p className="mb-3 text-caption font-medium uppercase tracking-[.22em] text-emerald-200/70">Your models · Your key</p>
+      <h1 className="text-display font-medium leading-[1.12] tracking-[-.04em]">Bring your NVIDIA models into focus.</h1>
+      <p className="mt-3 text-body leading-6 text-zinc-500">Pentagon checks your key with NVIDIA, then sends it to the backend for encrypted storage. It is never saved in this browser.</p>
+      {error && <div role="alert" className="mt-5 rounded-lg border border-rose-400/15 bg-rose-400/[0.06] px-3 py-2 text-small text-rose-200">{error}</div>}
       <form onSubmit={onSubmit} className="mt-7">
-        <label htmlFor="nvidia-key" className="mb-2 block text-[10px] font-medium text-zinc-300">NVIDIA API key</label>
-        <input id="nvidia-key" type="password" autoComplete="off" spellCheck={false} value={value} onChange={(event) => onChange(event.target.value)} placeholder="nvapi-••••••••••••••••" className="h-11 w-full rounded-xl border border-white/[0.1] bg-[#000000] px-3.5 text-[12px] text-zinc-100 outline-none placeholder:text-zinc-700 focus:border-emerald-300/40" />
-        <div className={`mt-2.5 flex min-h-4 items-center gap-2 text-[10px] ${tone}`} aria-live="polite"><span className={`size-1.5 rounded-full ${validation === 'valid' ? 'bg-emerald-300' : validation === 'invalid' ? 'bg-rose-300' : validation === 'checking' ? 'animate-pulse bg-amber-200' : 'bg-zinc-700'}`} />{validationMessage}</div>
-        <button type="submit" disabled={validation !== 'valid' || saving} className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-[11px] font-semibold text-[#000000] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-zinc-600">{saving ? <LoaderCircle size={14} className="animate-spin" /> : <LockKeyhole size={13} />}{saving ? 'Saving securely…' : 'Store key and continue'}</button>
+        <label htmlFor="nvidia-key" className="mb-2 block text-micro font-medium text-zinc-300">NVIDIA API key</label>
+        <input id="nvidia-key" type="password" autoComplete="off" spellCheck={false} value={value} onChange={(event) => onChange(event.target.value)} placeholder="nvapi-••••••••••••••••" className="h-11 w-full rounded-xl border border-white/[0.1] bg-[#000000] px-3.5 text-body text-zinc-100 outline-none placeholder:text-zinc-700 focus:border-emerald-300/40" />
+        <div className={`mt-2.5 flex min-h-4 items-center gap-2 text-micro ${tone}`} aria-live="polite"><span className={`size-1.5 rounded-full ${validation === 'valid' ? 'bg-emerald-300' : validation === 'invalid' ? 'bg-rose-300' : validation === 'checking' ? 'animate-pulse bg-amber-200' : 'bg-zinc-700'}`} />{validationMessage}</div>
+        <button type="submit" disabled={validation !== 'valid' || saving} className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-small font-semibold text-[#000000] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-zinc-600">{saving ? <LoaderCircle size={14} className="animate-spin" /> : <LockKeyhole size={13} />}{saving ? 'Saving securely…' : 'Store key and continue'}</button>
       </form>
-      <div className="mt-7 flex items-center gap-2 border-t border-white/[0.06] pt-5 text-[9px] leading-5 text-zinc-600"><LockKeyhole size={12} className="shrink-0" />Only the local user ID is kept in browser storage.</div>
+      <div className="mt-7 flex items-center gap-2 border-t border-white/[0.06] pt-5 text-caption leading-5 text-zinc-600"><LockKeyhole size={12} className="shrink-0" />Only the local user ID is kept in browser storage.</div>
     </section>
-    <div className="absolute bottom-5 text-[8px] uppercase tracking-[.2em] text-zinc-700">FastAPI · NVIDIA NIM · Local workspace</div>
+    <div className="absolute bottom-5 text-caption-xs uppercase tracking-[.2em] text-zinc-700">FastAPI · NVIDIA NIM · Local workspace</div>
   </main>
 }
 

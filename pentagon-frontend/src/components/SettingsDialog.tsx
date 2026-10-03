@@ -4,15 +4,19 @@ import { getAmbientMode, setAmbientMode, subscribeAmbient } from '../lib/ambient
 import type { AmbientMode } from '../lib/ambient'
 import {
   APPEARANCES,
+  DENSITIES,
   getPreferences,
   resetPreferences,
   setAppearance,
   setContrast,
   setDefaultModel,
+  setDensity,
+  setTextSize,
   setWorkspaceName,
   subscribePreferences,
+  TEXT_SIZES,
 } from '../lib/preferences'
-import type { Appearance, Contrast } from '../lib/preferences'
+import type { Appearance, Contrast, Density, TextSize } from '../lib/preferences'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { apiRequest } from '../api'
 import type { Conversation, DocumentInfo, ModelInfo } from '../types'
@@ -37,8 +41,8 @@ type Tab = (typeof TABS)[number]
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section className="border-b border-white/[0.06] px-6 py-5 last:border-b-0">
-      <h3 className="text-[10px] font-medium uppercase tracking-[.16em] text-zinc-500">{title}</h3>
-      {hint && <p className="mt-1.5 text-[11px] leading-5 text-zinc-600">{hint}</p>}
+      <h3 className="text-micro font-medium uppercase tracking-[.16em] text-zinc-500">{title}</h3>
+      {hint && <p className="mt-1.5 text-small leading-5 text-zinc-600">{hint}</p>}
       <div className="mt-4">{children}</div>
     </section>
   )
@@ -77,8 +81,8 @@ function Choice({
         ) : null}
       </span>
       <span className="min-w-0">
-        <span className="block text-[12px] font-medium text-zinc-100">{label}</span>
-        <span className="mt-0.5 block text-[10.5px] leading-[1.55] text-zinc-600">{note}</span>
+        <span className="block text-body font-medium text-zinc-100">{label}</span>
+        <span className="mt-0.5 block text-micro-sm leading-[1.55] text-zinc-600">{note}</span>
       </span>
       {selected && <Check size={14} className="ml-auto mt-0.5 shrink-0 text-zinc-100" />}
     </button>
@@ -123,7 +127,7 @@ function ThreadRow({
               if (event.key === 'Enter') save()
               if (event.key === 'Escape') cancel()
             }}
-            className="min-w-0 flex-1 bg-transparent text-[11.5px] text-zinc-100 outline-none"
+            className="min-w-0 flex-1 bg-transparent text-small-lg text-zinc-100 outline-none"
           />
           <button type="button" onClick={save} aria-label="Save name" className="shrink-0 rounded p-1 text-zinc-400 transition hover:text-zinc-100">
             <Check size={12} />
@@ -134,7 +138,7 @@ function ThreadRow({
         </>
       ) : (
         <>
-          <span className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-300">{label}</span>
+          <span className="min-w-0 flex-1 truncate text-small-lg text-zinc-300">{label}</span>
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -162,13 +166,13 @@ function ThreadRow({
 }
 
 const inputClass =
-  'h-9 w-full rounded-lg border border-white/[0.09] bg-white/[0.03] px-3 text-[12px] text-zinc-100 outline-none transition placeholder:text-zinc-700 focus:border-white/30'
+  'h-9 w-full rounded-lg border border-white/[0.09] bg-white/[0.03] px-3 text-body text-zinc-100 outline-none transition placeholder:text-zinc-700 focus:border-white/30'
 
 // Kept separate from inputClass on purpose: adding bg-black/text-white on top of
 // the input utilities would lose to them in the generated stylesheet, where
 // source order decides, not the order written in the attribute.
 const selectClass =
-  'h-9 w-full cursor-pointer rounded-lg border border-white/[0.12] bg-black px-3 text-[12px] text-white outline-none transition focus:border-white/30'
+  'h-9 w-full cursor-pointer rounded-lg border border-white/[0.12] bg-black px-3 text-body text-white outline-none transition focus:border-white/30'
 
 export function SettingsDialog({
   userId,
@@ -362,7 +366,7 @@ export function SettingsDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-white/[0.07] px-6 py-4">
-          <h2 className="text-[13px] font-semibold tracking-[-.01em] text-zinc-100">Settings</h2>
+          <h2 className="text-body-lg font-semibold tracking-[-.01em] text-zinc-100">Settings</h2>
           <button
             type="button"
             onClick={onClose}
@@ -381,7 +385,7 @@ export function SettingsDialog({
               role="tab"
               aria-selected={tab === name}
               onClick={() => setTab(name)}
-              className={`relative shrink-0 px-3 py-2.5 text-[11.5px] font-medium transition ${
+              className={`relative shrink-0 px-3 py-2.5 text-small-lg font-medium transition ${
                 tab === name ? 'text-zinc-100' : 'text-zinc-600 hover:text-zinc-300'
               }`}
             >
@@ -397,7 +401,7 @@ export function SettingsDialog({
               <Section title="Workspace" hint="Threads and documents are scoped to this id. It is generated in this browser and sent with every request.">
                 <div className="space-y-3">
                   <label className="block">
-                    <span className="mb-1.5 block text-[10.5px] text-zinc-500">Name</span>
+                    <span className="mb-1.5 block text-micro-sm text-zinc-500">Name</span>
                     <input
                       value={prefs.workspaceName}
                       onChange={(event) => setWorkspaceName(event.target.value)}
@@ -407,13 +411,13 @@ export function SettingsDialog({
                     />
                   </label>
                   <div className="flex items-center gap-2">
-                    <code className="min-w-0 flex-1 truncate rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[11px] text-zinc-500">
+                    <code className="min-w-0 flex-1 truncate rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-small text-zinc-500">
                       {userId}
                     </code>
                     <button
                       type="button"
                       onClick={copyId}
-                      className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.09] px-3 text-[11px] text-zinc-400 transition hover:bg-white/[0.05] hover:text-zinc-200"
+                      className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-white/[0.09] px-3 text-small text-zinc-400 transition hover:bg-white/[0.05] hover:text-zinc-200"
                     >
                       {copied ? <Check size={13} /> : <Copy size={13} />}
                       {copied ? 'Copied' : 'Copy'}
@@ -422,7 +426,7 @@ export function SettingsDialog({
                   <button
                     type="button"
                     onClick={newWorkspace}
-                    className="flex items-center gap-1.5 text-[11px] text-zinc-600 transition hover:text-zinc-300"
+                    className="flex items-center gap-1.5 text-small text-zinc-600 transition hover:text-zinc-300"
                   >
                     <AlertTriangle size={12} /> Start a new workspace
                   </button>
@@ -453,7 +457,7 @@ export function SettingsDialog({
                       type="button"
                       onClick={checkKey}
                       disabled={!keyInput.trim() || keyState === 'checking'}
-                      className="h-9 rounded-lg border border-white/[0.09] px-3.5 text-[11px] text-zinc-300 transition hover:bg-white/[0.05] disabled:opacity-40"
+                      className="h-9 rounded-lg border border-white/[0.09] px-3.5 text-small text-zinc-300 transition hover:bg-white/[0.05] disabled:opacity-40"
                     >
                       {keyState === 'checking' ? 'Checking…' : 'Validate'}
                     </button>
@@ -461,12 +465,12 @@ export function SettingsDialog({
                       type="button"
                       onClick={saveKey}
                       disabled={keyState !== 'valid' || savingKey}
-                      className="h-9 rounded-lg bg-white px-3.5 text-[11px] font-medium text-black transition hover:bg-zinc-200 disabled:opacity-40"
+                      className="h-9 rounded-lg bg-white px-3.5 text-small font-medium text-black transition hover:bg-zinc-200 disabled:opacity-40"
                     >
                       {savingKey ? 'Saving…' : 'Save key'}
                     </button>
                     {keyMessage && (
-                      <span className={`text-[11px] ${keyState === 'invalid' ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                      <span className={`text-small ${keyState === 'invalid' ? 'text-zinc-400' : 'text-zinc-500'}`}>
                         {keyMessage}
                       </span>
                     )}
@@ -479,7 +483,7 @@ export function SettingsDialog({
                 hint="Optional. Signing in verifies who you are with Supabase. Threads still live in this browser's workspace until sync is turned on."
               >
                 {!isSupabaseConfigured ? (
-                  <p className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-3 text-[11px] leading-[1.6] text-zinc-600">
+                  <p className="rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-3 text-small leading-[1.6] text-zinc-600">
                     Not configured. Set <code className="text-zinc-400">VITE_SUPABASE_URL</code> and{' '}
                     <code className="text-zinc-400">VITE_SUPABASE_ANON_KEY</code> in{' '}
                     <code className="text-zinc-400">pentagon-frontend/.env</code>, then restart the dev server. Sign-in
@@ -488,12 +492,12 @@ export function SettingsDialog({
                   </p>
                 ) : sessionEmail ? (
                   <div className="flex items-center gap-3">
-                    <span className="min-w-0 flex-1 truncate text-[12px] text-zinc-200">{sessionEmail}</span>
+                    <span className="min-w-0 flex-1 truncate text-body text-zinc-200">{sessionEmail}</span>
                     <button
                       type="button"
                       onClick={signOut}
                       disabled={authBusy}
-                      className="h-9 shrink-0 rounded-lg border border-white/[0.09] px-3.5 text-[11px] text-zinc-300 transition hover:bg-white/[0.05] disabled:opacity-40"
+                      className="h-9 shrink-0 rounded-lg border border-white/[0.09] px-3.5 text-small text-zinc-300 transition hover:bg-white/[0.05] disabled:opacity-40"
                     >
                       Sign out
                     </button>
@@ -527,7 +531,7 @@ export function SettingsDialog({
                       <button
                         type="submit"
                         disabled={authBusy}
-                        className="h-9 rounded-lg bg-white px-3.5 text-[11px] font-medium text-black transition hover:bg-zinc-200 disabled:opacity-40"
+                        className="h-9 rounded-lg bg-white px-3.5 text-small font-medium text-black transition hover:bg-zinc-200 disabled:opacity-40"
                       >
                         {authBusy ? 'Working…' : authMode === 'signin' ? 'Sign in' : 'Create account'}
                       </button>
@@ -537,11 +541,11 @@ export function SettingsDialog({
                           setAuthMode(authMode === 'signin' ? 'signup' : 'signin')
                           setAuthMessage('')
                         }}
-                        className="text-[11px] text-zinc-600 transition hover:text-zinc-300"
+                        className="text-small text-zinc-600 transition hover:text-zinc-300"
                       >
                         {authMode === 'signin' ? 'Need an account?' : 'Already registered?'}
                       </button>
-                      {authMessage && <span className="text-[11px] text-zinc-500">{authMessage}</span>}
+                      {authMessage && <span className="text-small text-zinc-500">{authMessage}</span>}
                     </div>
                   </form>
                 )}
@@ -583,6 +587,34 @@ export function SettingsDialog({
                 </div>
               </Section>
 
+              <Section title="Text size" hint="Rescales the whole type scale, from thread titles to body copy.">
+                <div role="radiogroup" aria-label="Text size" className="grid gap-2 sm:grid-cols-3">
+                  {TEXT_SIZES.map((option) => (
+                    <Choice
+                      key={option.value}
+                      selected={prefs.textSize === option.value}
+                      onSelect={() => setTextSize(option.value as TextSize)}
+                      label={option.label}
+                      note={option.note}
+                    />
+                  ))}
+                </div>
+              </Section>
+
+              <Section title="Density" hint="Tightens or loosens every gap and inset in the interface.">
+                <div role="radiogroup" aria-label="Density" className="grid gap-2 sm:grid-cols-3">
+                  {DENSITIES.map((option) => (
+                    <Choice
+                      key={option.value}
+                      selected={prefs.density === option.value}
+                      onSelect={() => setDensity(option.value as Density)}
+                      label={option.label}
+                      note={option.note}
+                    />
+                  ))}
+                </div>
+              </Section>
+
               <Section title="Ambient effects" hint="The animated backdrop behind the conversation.">
                 <div role="radiogroup" aria-label="Ambient background intensity" className="grid gap-2">
                   {AMBIENT_OPTIONS.map((option) => (
@@ -621,7 +653,7 @@ export function SettingsDialog({
                     </option>
                   ))}
                 </select>
-                <p className="text-[11px] leading-[1.6] text-zinc-600">
+                <p className="text-small leading-[1.6] text-zinc-600">
                   {models.length} model{models.length === 1 ? '' : 's'} available on this server. Reasoning models can take
                   a couple of minutes before the first token.
                 </p>
@@ -633,13 +665,13 @@ export function SettingsDialog({
             <>
               <Section title="Documents" hint={`${documents.length} attached to this thread. Removing one deletes its stored chunks.`}>
                 {documents.length === 0 ? (
-                  <p className="text-[11px] text-zinc-600">Nothing attached.</p>
+                  <p className="text-small text-zinc-600">Nothing attached.</p>
                 ) : (
                   <ul className="space-y-1.5">
                     {documents.map((document) => (
                       <li key={document.document_id} className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                        <span className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-300">{document.filename}</span>
-                        <span className="shrink-0 text-[10px] text-zinc-600">{document.chunks_stored} chunks</span>
+                        <span className="min-w-0 flex-1 truncate text-small-lg text-zinc-300">{document.filename}</span>
+                        <span className="shrink-0 text-micro text-zinc-600">{document.chunks_stored} chunks</span>
                         <button
                           type="button"
                           onClick={() => removeDocument(document.document_id)}
@@ -659,7 +691,7 @@ export function SettingsDialog({
                 hint={`${threadCount} thread${threadCount === 1 ? '' : 's'} in this workspace. Renaming updates the sidebar; deleting removes the thread and its messages from the server.`}
               >
                 {threads.length === 0 ? (
-                  <p className="text-[11px] text-zinc-600">No threads yet.</p>
+                  <p className="text-small text-zinc-600">No threads yet.</p>
                 ) : (
                   <ul className="space-y-1.5">
                     {threads.map((thread) => (
@@ -674,14 +706,14 @@ export function SettingsDialog({
                 )}
               </Section>
 
-              <Section title="This browser" hint="Appearance, contrast, ambient mode and the default model.">
+              <Section title="This browser" hint="Appearance, contrast, text size, density, ambient mode and the default model.">
                 <button
                   type="button"
                   onClick={() => {
                     resetPreferences()
                     setTab('Appearance')
                   }}
-                  className="h-9 rounded-lg border border-white/[0.09] px-3.5 text-[11px] text-zinc-300 transition hover:bg-white/[0.05]"
+                  className="h-9 rounded-lg border border-white/[0.09] px-3.5 text-small text-zinc-300 transition hover:bg-white/[0.05]"
                 >
                   Reset appearance and defaults
                 </button>
@@ -692,7 +724,7 @@ export function SettingsDialog({
           {tab === 'About' && (
             <>
               <Section title="Pentagon">
-                <p className="text-[11.5px] leading-[1.7] text-zinc-500">
+                <p className="text-small-lg leading-[1.7] text-zinc-500">
                   A personal AI workspace. FastAPI and LangGraph on the server, React and Vite in the browser, models
                   served by NVIDIA NIM. Your key, documents and threads stay on your own machine and server.
                 </p>
@@ -702,10 +734,10 @@ export function SettingsDialog({
                 <dl className="grid gap-2 sm:grid-cols-2">
                   {SHORTCUTS.map(([keys, description]) => (
                     <div key={keys} className="flex items-center gap-2.5">
-                      <dt className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                      <dt className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 font-mono text-micro text-zinc-400">
                         {keys}
                       </dt>
-                      <dd className="min-w-0 truncate text-[11px] text-zinc-600">{description}</dd>
+                      <dd className="min-w-0 truncate text-small text-zinc-600">{description}</dd>
                     </div>
                   ))}
                 </dl>

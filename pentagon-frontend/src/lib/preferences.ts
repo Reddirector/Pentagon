@@ -5,13 +5,29 @@
 
 export type Appearance = 'pitch' | 'graphite' | 'dusk'
 export type Contrast = 'standard' | 'high'
+export type Density = 'compact' | 'default' | 'relaxed'
+export type TextSize = 'small' | 'default' | 'large'
 
 export interface Preferences {
   appearance: Appearance
   contrast: Contrast
+  density: Density
+  textSize: TextSize
   workspaceName: string
   defaultModel: string
 }
+
+export const DENSITIES: { value: Density; label: string; note: string }[] = [
+  { value: 'compact', label: 'Compact', note: 'Tighter rows and gaps. More threads per screen.' },
+  { value: 'default', label: 'Default', note: 'The spacing this interface was designed around.' },
+  { value: 'relaxed', label: 'Relaxed', note: 'More breathing room in lists, panels and controls.' },
+]
+
+export const TEXT_SIZES: { value: TextSize; label: string; note: string }[] = [
+  { value: 'small', label: 'Small', note: 'Everything a little tighter, for dense screens.' },
+  { value: 'default', label: 'Default', note: 'The size scale this interface was designed around.' },
+  { value: 'large', label: 'Large', note: 'Bigger type throughout. Useful when the panel is small.' },
+]
 
 export const APPEARANCES: { value: Appearance; label: string; swatch: string; note: string }[] = [
   { value: 'pitch', label: 'Pitch', swatch: '#000000', note: 'True black. Maximum contrast with white type.' },
@@ -22,11 +38,21 @@ export const APPEARANCES: { value: Appearance; label: string; swatch: string; no
 const DEFAULTS: Preferences = {
   appearance: 'pitch',
   contrast: 'standard',
+  density: 'default',
+  textSize: 'default',
   workspaceName: 'Personal workspace',
   defaultModel: '',
 }
 
 const STORE_KEY = 'pentagon.preferences'
+
+function isDensity(value: unknown): value is Density {
+  return value === 'compact' || value === 'default' || value === 'relaxed'
+}
+
+function isTextSize(value: unknown): value is TextSize {
+  return value === 'small' || value === 'default' || value === 'large'
+}
 
 function isAppearance(value: unknown): value is Appearance {
   return value === 'pitch' || value === 'graphite' || value === 'dusk'
@@ -40,6 +66,8 @@ function read(): Preferences {
     return {
       appearance: isAppearance(parsed.appearance) ? parsed.appearance : DEFAULTS.appearance,
       contrast: parsed.contrast === 'high' ? 'high' : 'standard',
+      density: isDensity(parsed.density) ? parsed.density : DEFAULTS.density,
+      textSize: isTextSize(parsed.textSize) ? parsed.textSize : DEFAULTS.textSize,
       workspaceName: typeof parsed.workspaceName === 'string' && parsed.workspaceName.trim()
         ? parsed.workspaceName.trim().slice(0, 40)
         : DEFAULTS.workspaceName,
@@ -69,6 +97,8 @@ function applyToDocument() {
   const root = document.documentElement
   root.dataset.appearance = current.appearance
   root.dataset.contrast = current.contrast
+  root.dataset.density = current.density
+  root.dataset.textSize = current.textSize
 }
 
 function commit(next: Partial<Preferences>) {
@@ -77,6 +107,8 @@ function commit(next: Partial<Preferences>) {
   if (
     merged.appearance === current.appearance &&
     merged.contrast === current.contrast &&
+    merged.density === current.density &&
+    merged.textSize === current.textSize &&
     merged.workspaceName === current.workspaceName &&
     merged.defaultModel === current.defaultModel
   ) return
@@ -103,6 +135,14 @@ export function setAppearance(appearance: Appearance) {
 
 export function setContrast(contrast: Contrast) {
   commit({ contrast })
+}
+
+export function setDensity(density: Density) {
+  commit({ density })
+}
+
+export function setTextSize(textSize: TextSize) {
+  commit({ textSize })
 }
 
 export function setWorkspaceName(workspaceName: string) {
