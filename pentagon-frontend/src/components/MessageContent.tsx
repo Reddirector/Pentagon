@@ -1,10 +1,10 @@
-import { Children, isValidElement, useId, useState } from 'react'
+import { Children, isValidElement, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { AlertCircle, Check, CheckCircle2, ChevronDown, CircleDashed, Copy, ExternalLink, FileText, Image as ImageIcon, Video } from 'lucide-react'
+import { AlertCircle, Check, CheckCircle2, ChevronDown, CircleDashed, Copy, ExternalLink, FileText, Layers, Video, X } from 'lucide-react'
 import type { ChatMessage, ExecutionTrace, SourcesUsed, TraceEntry } from '../types'
 
 function textFromNode(node: ReactNode): string {
@@ -163,30 +163,162 @@ function TracePanel({ trace }: { trace: ExecutionTrace }) {
   </section>
 }
 
-function SourceChips({ sources }: { sources: SourcesUsed }) {
-  const web = sources.web || []
-  const documents = sources.documents || []
-  const hasMedia = Boolean(sources.image || sources.video)
-  if (!web.length && !documents.length && !hasMedia) return null
-  return <div className="panel-enter mt-3 flex flex-wrap gap-1.5">
-    {web.map((source, index) => {
-      const url = safeExternalUrl(source.url)
-      return url ? <a key={`${url}-${index}`} href={url} target="_blank" rel="noreferrer" title={url} className="inline-flex max-w-[230px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-micro text-zinc-400 transition-colors duration-200 hover:border-emerald-300/25 hover:text-emerald-200"><ExternalLink size={10} className="shrink-0" />{source.title || new URL(url).hostname}</a> : null
-    })}
-    {documents.map((source) => <span key={source.document_id} title={`${source.chunk_ids.length} passages referenced`} className="inline-flex max-w-[230px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-micro text-zinc-400"><FileText size={10} className="shrink-0 text-sky-300" />{source.filename}</span>)}
-    {sources.image && <span title={sources.image.description_summary} className="inline-flex max-w-[240px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-micro text-zinc-400"><ImageIcon size={10} className="shrink-0 text-violet-300" />Image · {sources.image.model_used}</span>}
-    {sources.video && <span title={`${sources.video.description_summary} · ${sources.video.frames_sent} frames`} className="inline-flex max-w-[240px] items-center gap-1.5 truncate rounded-full border border-white/[0.08] bg-white/[0.025] px-2.5 py-1 text-micro text-zinc-400"><Video size={10} className="shrink-0 text-violet-300" />Video · {sources.video.frames_sent} frames</span>}
-  </div>
+type SourceItem = { key: string; title: string; url: string | null; subtitle: string }
+
+/** Every source, grouped and counted, ready for the floating panel. */
+function collectSources(sources: SourcesUsed) {
+  const web: SourceItem[] = (sources.web || []).flatMap((source) => {
+    const url = safeExternalUrl(source.url)
+    return url ? [{ key: url, title: source.title || safeHost(url), url, subtitle: safeHost(url) }] : []
+  })
+  const documents: SourceItem[] = (sources.documents || []).map((source) => ({
+    key: source.document_id,
+    title: source.filename,
+    url: null,
+    subtitle: `${source.chunk_ids.length} passage${source.chunk_ids.length === 1 ? '' : 's'} referenced`,
+  }))
+  const media: SourceItem[] = []
+  if (sources.image) {
+    media.push({
+      key: 'image',
+      title: `Image · ${sources.image.model_used}`,
+      url: null,
+      subtitle: sources.image.description_summary,
+    })
+  }
+  if (sources.video) {
+    media.push({
+      key: 'video',
+      title: `Video · ${sources.video.frames_sent} frames`,
+      url: null,
+      subtitle: sources.video.description_summary,
+    })
+  }
+  return { web, documents, media }
 }
 
-function SourceStats({ sources }: { sources: SourcesUsed }) {
-  const webCount = sources.web?.length || 0
-  const documents = sources.documents || []
-  const total = webCount + documents.length
+function safeHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
+
+/**
+ * Sources collapse to a single trigger. Everything is behind one click in a
+ * floating panel, so a long citation list never competes with the answer for
+ * attention or pushes the conversation around as it arrives.
+ */
+function SourcesButton({ sources }: { sources: SourcesUsed }) {
+  const { web, documents, media } = useMemo(() => collectSources(sources), [sources])
+  const total = web.length + documents.length + media.length
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [open])
+
   if (!total) return null
-  return <div className="panel-enter mt-3 flex flex-wrap gap-2">
-    <div className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2"><strong className="mr-1.5 text-body font-semibold text-zinc-200">{total}</strong><span className="text-micro text-zinc-500">{total === 1 ? 'source used' : 'sources used'}</span></div>
-    {documents.length > 0 && <div className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2"><strong className="mr-1.5 text-body font-semibold text-zinc-200">{documents.length}</strong><span className="text-micro text-zinc-500">{documents.length === 1 ? 'document referenced' : 'documents referenced'}</span></div>}
+
+  return <div ref={wrapRef} className="relative mt-3 w-full">
+    <button
+      type="button"
+      onClick={() => setOpen((value) => !value)}
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.09] bg-white/[0.025] px-2.5 py-1.5 text-micro text-zinc-300 transition-colors duration-200 hover:border-white/20 hover:bg-white/[0.06] hover:text-zinc-100"
+    >
+      <Layers size={11} className="shrink-0 text-zinc-500" />
+      Sources
+      <span className="rounded-full bg-white/[0.08] px-1.5 text-[10px] tabular-nums text-zinc-400">{total}</span>
+    </button>
+    {open ? (
+      <div
+        role="dialog"
+        aria-label="Sources"
+        // Anchored to the right edge on a phone, where a left-anchored panel
+        // would run past the viewport, and to the trigger from sm up.
+        className="panel-enter absolute bottom-full right-0 z-30 mb-2 w-[min(calc(100vw-2rem),420px)] overflow-hidden rounded-xl border border-white/[0.1] bg-[#0b0b0b]/97 shadow-[0_18px_50px_rgba(0,0,0,.75)] backdrop-blur-xl sm:left-0 sm:right-auto sm:w-[min(92vw,420px)]"
+      >
+        <div className="flex items-center justify-between border-b border-white/[0.07] px-3.5 py-2.5">
+          <span className="text-caption font-medium uppercase tracking-[.16em] text-zinc-500">Sources</span>
+          <button type="button" onClick={() => setOpen(false)} aria-label="Close sources" className="grid size-6 place-items-center rounded-md text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200">
+            <X size={12} />
+          </button>
+        </div>
+        <div className="max-h-[min(60vh,380px)] overflow-y-auto overscroll-contain p-1.5">
+          {web.length > 0 && (
+            <section>
+              <h3 className="px-2.5 pb-1 pt-2 text-micro uppercase tracking-[.16em] text-zinc-600">Web</h3>
+              <ul className="space-y-0.5">
+                {web.map((item) => (
+                  <li key={item.key}>
+                    <a
+                      href={item.url ?? '#'}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-150 hover:bg-white/[0.05]"
+                    >
+                      <ExternalLink size={12} className="mt-0.5 shrink-0 text-zinc-500" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-small text-zinc-200">{item.title}</span>
+                        <span className="block truncate text-micro text-zinc-500">{item.subtitle}</span>
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {documents.length > 0 && (
+            <section>
+              <h3 className="px-2.5 pb-1 pt-2 text-micro uppercase tracking-[.16em] text-zinc-600">Documents</h3>
+              <ul className="space-y-0.5">
+                {documents.map((item) => (
+                  <li key={item.key} className="flex items-start gap-2.5 rounded-lg px-2.5 py-2">
+                    <FileText size={12} className="mt-0.5 shrink-0 text-sky-300/80" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-small text-zinc-200">{item.title}</span>
+                      <span className="block truncate text-micro text-zinc-500">{item.subtitle}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {media.length > 0 && (
+            <section>
+              <h3 className="px-2.5 pb-1 pt-2 text-micro uppercase tracking-[.16em] text-zinc-600">Media</h3>
+              <ul className="space-y-0.5">
+                {media.map((item) => (
+                  <li key={item.key} className="flex items-start gap-2.5 rounded-lg px-2.5 py-2">
+                    <Video size={12} className="mt-0.5 shrink-0 text-violet-300/80" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-small text-zinc-200">{item.title}</span>
+                      <span className="block text-micro leading-5 text-zinc-500">{item.subtitle}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+      </div>
+    ) : null}
   </div>
 }
 
@@ -194,10 +326,7 @@ export function AssistantDetails({ message }: { message: ChatMessage }) {
   return <>
     {message.execution_trace && <TracePanel trace={message.execution_trace} />}
     <MarkdownAnswer content={message.content} />
-    {message.sources_used && <>
-      <SourceStats sources={message.sources_used} />
-      <SourceChips sources={message.sources_used} />
-    </>}
+    {message.sources_used && <SourcesButton sources={message.sources_used} />}
     {message.audioUrl && <audio className="panel-enter mt-4 h-9 w-full max-w-sm" controls preload="metadata" src={message.audioUrl} aria-label="Assistant audio reply" />}
   </>
 }

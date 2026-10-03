@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
 import { Activity, ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, Mic, Paperclip, Plus, Square, Video, X } from 'lucide-react'
 import { apiRequest, ApiError, getLocalUserId, pcmToWavUrl } from './api'
@@ -16,6 +16,11 @@ import type { ChatMessage, Conversation, DocumentInfo, ExecutionTrace, ModelInfo
 type ConversationDetail = Conversation & { messages: ChatMessage[]; summary_at_switch: string | null }
 type TranscriptInfo = { durationMs: number; provider: string }
 type Validation = 'idle' | 'checking' | 'valid' | 'invalid'
+
+/** How often streamed text is committed to the message list. Each commit re-parses
+    the answer through react-markdown, so this trades a little latency for a
+    steady, inexpensive update rate. */
+const STREAM_FLUSH_MS = 45
 
 function titleFor(message: string) {
   const normalized = message.trim().replace(/\s+/g, ' ')
@@ -584,19 +589,30 @@ function App() {
     let sampleRate = 22050
     let channels = 1
     let bufferedText = ''
-    let textFrame: number | null = null
+    let flushTimer: number | null = null
+    let lastFlushAt = 0
     const update = (changes: Partial<ChatMessage>) => setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, ...changes } : item))
     const flushText = () => {
-      if (textFrame !== null) cancelAnimationFrame(textFrame)
-      textFrame = null
+      if (flushTimer !== null) {
+        window.clearTimeout(flushTimer)
+        flushTimer = null
+      }
+      lastFlushAt = performance.now()
       if (!bufferedText) return
       const content = bufferedText
       bufferedText = ''
       setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, content: item.content + content } : item))
     }
+    // Every flush re-parses the whole answer through react-markdown, so the
+    // cost of a flush grows with the answer. Flushing on each animation frame
+    // therefore produced an uneven cadence -- fine at first, then visibly
+    // stuttering as the response got longer. A fixed window keeps the text
+    // advancing steadily and cuts the number of parses to roughly a third.
     const queueText = (content: string) => {
       bufferedText += content
-      if (textFrame === null) textFrame = requestAnimationFrame(flushText)
+      if (flushTimer !== null) return
+      const wait = Math.max(0, STREAM_FLUSH_MS - (performance.now() - lastFlushAt))
+      flushTimer = window.setTimeout(flushText, wait)
     }
     const dispatch = (block: string) => {
       const lines = block.split('\n')
@@ -886,7 +902,7 @@ function App() {
   </div>
 }
 
-function MessageRow({ message, isStreaming = false, copied = false, onCopy }: { message: ChatMessage; isStreaming?: boolean; copied?: boolean; onCopy?: () => void }) {
+function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy }: { message: ChatMessage; isStreaming?: boolean; copied?: boolean; onCopy?: () => void }) {
   const user = message.role === 'user'
   return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
     {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center"><Logomark size={20} /></div>}
@@ -905,6 +921,17 @@ function MessageRow({ message, isStreaming = false, copied = false, onCopy }: { 
     {user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-white/[0.08] bg-white/[0.04] text-caption text-zinc-400">Y</div>}
   </article>
 }
+
+// Memoised so a streaming token only re-renders the message being written.
+// Without this, every token re-parsed the markdown of every message in the
+// thread, which is what made long answers stutter. The comparator ignores
+// onCopy because it is a fresh closure each render, yet it closes over exactly
+// the `message` the other three props already pin down.
+const MessageRow = memo(MessageRowImpl, (previous, next) =>
+  previous.message === next.message &&
+  previous.isStreaming === next.isStreaming &&
+  previous.copied === next.copied
+)
 
 function KeyGate({ value, validation, validationMessage, saving, error, onChange, onSubmit }: {
   value: string

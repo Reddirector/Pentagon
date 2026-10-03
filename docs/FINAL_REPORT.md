@@ -88,6 +88,11 @@ five of them fail against the previous implementation.
   The schema is delivered as SQL and has not been applied anywhere.
 - The first local re-embedding of a large collection runs on CPU and is slow;
   measured only on small collections.
+- **Sources are not persisted.** `sources_used` is only streamed as an SSE
+  `metadata` event and never written to the `messages` table, so the Sources
+  button disappears when a conversation is reloaded. Persisting them means a
+  nullable JSON column on `Message` plus an `ALTER TABLE` for existing
+  databases; the panel UI is already built to render whatever it is given.
 - One conversation was lost during earlier manual testing and the cause was
   never identified. Delete behaviour is verified correct, but back up
   `pentagon.db` before relying on it.
