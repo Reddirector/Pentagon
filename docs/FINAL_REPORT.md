@@ -10,7 +10,7 @@ driven end-to-end by the supplied NVIDIA key + `z-ai/glm-5.3-flash`.
 - **Default model `z-ai/glm-5.3-flash`**: verified **present in the live catalog** (80 models listed for the key). Backend exposes `default_model`; frontend uses it for new threads and for the key-gate heuristic.
 - **Supabase**: `supabase/schema.sql` (all tables + RLS + `feedback`), frontend `src/lib/supabase.ts` client module, backend `Settings` supabase fields, env templates updated.
 - **Web search is automatic and keyless**: `ddgs` (DuckDuckGo) is the primary provider, Tavily only a fallback when a key is set. The router fires on freshness/date questions with no client toggle. Top results are fetched concurrently and their **extracted page text** replaces the snippet, so answers cite real content. An SSRF guard refuses private, loopback, link-local and non-http(s) targets, **including after redirects**. Verified live: "latest news from NVIDIA" -> `web_search: ran`, 2 sources, answer grounded in page text.
-- **Existing feature set unregressed**: document RAG, web-search RAG, image/video understanding, voice STT/TTS — all exercises green (pytest 90/90; frontend tsc + oxlint + vite build).
+- **Existing feature set unregressed**: document RAG, web-search RAG, image/video understanding, voice STT/TTS — all exercises green (pytest 95/95; frontend tsc + oxlint + vite build).
 
 ## Key status (important)
 
@@ -76,7 +76,7 @@ five of them fail against the previous implementation.
 
 ### Verification
 
-- Backend: **90 passed**. The suite now runs against a throwaway database
+- Backend: **95 passed**. The suite now runs against a throwaway database
   (`tests/conftest.py`); a full run leaves the real `pentagon.db` byte-identical.
 - Frontend: `tsc`, `oxlint` (0 warnings) and `vite build` all clean.
 - Verified live in Chromium at 320/390/768/1024/1280/1440px, and RAG verified

@@ -19,7 +19,7 @@ import {
 } from '../lib/preferences'
 import type { Appearance, Contrast, Density, TextSize } from '../lib/preferences'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
-import { apiRequest, getLocalUserId } from '../api'
+import { apiRequest, getApiBase, getLocalUserId, setApiBase } from '../api'
 import type { Conversation, DocumentInfo, ModelInfo } from '../types'
 
 const AMBIENT_OPTIONS: { mode: AmbientMode; label: string; description: string; icon: typeof Sun }[] = [
@@ -217,6 +217,34 @@ export function SettingsDialog({
   }, [onClose])
 
   const [copied, setCopied] = useState(false)
+
+  const [apiBaseDraft, setApiBaseDraft] = useState(() => getApiBase())
+  const [testingApi, setTestingApi] = useState(false)
+  const [apiBaseTest, setApiBaseTest] = useState<{ ok: boolean; message: string } | null>(null)
+
+  // The value has to be saved before probing it, otherwise the request would
+  // still go to the old origin. Reloading afterwards is deliberate: every
+  // request the app makes is rooted at this value from first paint.
+  async function saveApiBase(): Promise<void> {
+    setApiBase(apiBaseDraft)
+    window.location.reload()
+  }
+
+  async function testApiBase(): Promise<void> {
+    setTestingApi(true)
+    setApiBaseTest(null)
+    const candidate = apiBaseDraft.trim().replace(/\/+$/, '')
+    try {
+      const response = await fetch(`${candidate}/api/models?user_id=${encodeURIComponent(userId)}`)
+      if (response.ok) setApiBaseTest({ ok: true, message: 'Reachable.' })
+      else if (response.status === 404) setApiBaseTest({ ok: true, message: 'Reachable (no key stored yet).' })
+      else setApiBaseTest({ ok: false, message: `Answered ${response.status}.` })
+    } catch {
+      setApiBaseTest({ ok: false, message: 'Could not reach that address.' })
+    } finally {
+      setTestingApi(false)
+    }
+  }
   async function copyId() {
     try {
       await navigator.clipboard.writeText(userId)
@@ -443,6 +471,51 @@ export function SettingsDialog({
                   >
                     <AlertTriangle size={12} /> Start a new workspace
                   </button>
+                </div>
+              </Section>
+
+              <Section
+                title="Backend"
+                hint="Where this app sends its requests. Leave empty to use this same origin, which is what the desktop app and the dev server do. Phones and tablets need the full address of your Pentagon backend, for example http://192.168.1.20:8000."
+              >
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className="mb-1.5 block text-micro-sm text-zinc-500">Server address</span>
+                    <input
+                      type="url"
+                      inputMode="url"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      value={apiBaseDraft}
+                      onChange={(event) => setApiBaseDraft(event.target.value)}
+                      placeholder={import.meta.env.VITE_PENTAGON_API_BASE || 'Same origin'}
+                      className={inputClass}
+                      aria-label="Backend server address"
+                    />
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={saveApiBase}
+                      className="flex h-9 items-center rounded-lg border border-white/[0.09] px-3 text-small text-zinc-300 transition hover:bg-white/[0.05]"
+                    >
+                      Save &amp; reload
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => testApiBase()}
+                      disabled={testingApi}
+                      className="flex h-9 items-center rounded-lg border border-white/[0.09] px-3 text-small text-zinc-400 transition hover:bg-white/[0.05] disabled:opacity-50"
+                    >
+                      Test connection
+                    </button>
+                    {apiBaseTest && (
+                      <span className={apiBaseTest.ok ? 'text-small text-emerald-300' : 'text-small text-rose-300'}>
+                        {apiBaseTest.message}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </Section>
 

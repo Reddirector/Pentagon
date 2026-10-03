@@ -19,9 +19,17 @@
     "package": "npm run build && electron-builder",
     "package:linux": "npm run build && electron-builder --linux",
     "package:mac": "npm run build && electron-builder --mac",
-    "package:win": "npm run build && electron-builder --win"
+    "package:win": "npm run build && electron-builder --win",
+    "mobile:sync": "npm run build && cap sync",
+    "mobile:android": "npm run mobile:sync && cap open android",
+    "mobile:ios": "npm run mobile:sync && cap open ios",
+    "mobile:android:apk": "npm run mobile:sync && cd android && ./gradlew assembleDebug",
+    "mobile:ios:ipa": "npm run mobile:sync && cd ios/App && xcodebuild -scheme App -configuration Release -sdk iphoneos build"
   },
   "dependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/ios": "^7.6.9",
     "@supabase/supabase-js": "^2.109.0",
     "express": "^5.2.1",
     "http-proxy-middleware": "^3.0.7",
@@ -35,6 +43,7 @@
     "remark-math": "^6.0.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.6.9",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",

@@ -203,7 +203,7 @@ control.
 ## Testing
 
 ```bash
-# Backend — 90 tests
+# Backend — 95 tests
 cd pentagon-backend
 python -m pytest -q
 
@@ -237,6 +237,49 @@ npm run package:linux     # or :mac / :win
 Requires **Node 22.12+** per the declared engine; builds do succeed on Node 20.
 See [`docs/DECISIONS.md`](docs/DECISIONS.md) for why a second Electron package
 under `pentagon-backend/desktop/` was removed rather than kept in sync.
+
+---
+
+## Mobile apps (iOS and Android)
+
+The same `src/` ships as a native app. [Capacitor](https://capacitorjs.com)
+wraps the built web bundle in a real iOS and Android shell, so there is still
+one UI, not a second implementation.
+
+```bash
+cd pentagon-frontend
+npm install
+npm run mobile:sync        # build the web bundle, then copy it into both shells
+
+npm run mobile:android     # open in Android Studio
+npm run mobile:ios         # open in Xcode (macOS only)
+npm run mobile:android:apk # assemble a debug APK from the command line
+npm run mobile:ios:ipa     # release build from the command line (macOS only)
+```
+
+`android/` and `ios/` are committed; the copied web bundle inside them is not,
+because `npm run mobile:sync` regenerates it.
+
+### Pointing a phone at your backend
+
+A phone cannot reach `127.0.0.1`, and a native WebView is a different origin
+from the API. Two things therefore have to line up:
+
+1. **The backend must be listening on the network**, not just loopback. Start
+   it with `uvicorn app.main:app --host 0.0.0.0 --port 8000` and open the port
+   in your firewall. `CORS_ORIGINS` already allows the shells' own origins.
+2. **The app needs that address.** Set it once in **Settings → Backend**, or
+   bake a default in with `VITE_PENTAGON_API_BASE` before building. The same
+   screen has a **Test connection** button.
+
+Do not point `VITE_API_BASE_URL` at the phone: that variable names where the
+*dev server proxies to*, and reading it in the browser would bypass the proxy
+and fail on CORS.
+
+Store builds need the usual signing setup — a keystore for Android, an Apple
+Developer certificate and provisioning profile for iOS. Neither can be produced
+on Linux, so this repository ships the projects and scripts but no signed
+artefact.
 
 ---
 

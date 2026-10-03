@@ -3,8 +3,10 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.config import cors_origin_list
 from app.db.session import initialize_database
 from app.routes import chat, documents, keys, models, voice
 
@@ -20,6 +22,20 @@ app = FastAPI(
     description="A bring-your-own-key NVIDIA NIM chat API.",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+# The iOS and Android shells run the same bundle inside a native WebView, which
+# makes them a different origin from this API. Without this the phone build
+# fails every request at the preflight, before a route ever sees it.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origin_list(),
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    # The chat route streams, and the browser hides a cross-origin response
+    # from fetch unless it is told to expose the headers it needs.
+    expose_headers=["Content-Disposition", "X-Audio-Format", "X-Audio-Sample-Rate", "X-Audio-Channels"],
 )
 
 

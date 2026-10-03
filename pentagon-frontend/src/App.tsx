@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
 import { ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, Mic, Paperclip, Plus, Square, Video, X } from 'lucide-react'
-import { apiRequest, ApiError, getLocalUserId, pcmToWavUrl } from './api'
+import { apiRequest, ApiError, apiUrl, getLocalUserId, pcmToWavUrl } from './api'
 import { AssistantDetails } from './components/MessageContent'
 import { Sidebar } from './components/Sidebar'
 import { Logomark, LogomarkBadge } from './components/Logomark'
@@ -592,7 +592,7 @@ function App() {
   async function streamResponse(form: FormData, assistantId: string) {
     const controller = new AbortController()
     streamAbort.current = controller
-    const response = await fetch('/api/chat', {
+    const response = await fetch(apiUrl('/api/chat'), {
       method: 'POST',
       body: form,
       headers: { Accept: 'text/event-stream' },
@@ -801,7 +801,7 @@ function App() {
       }}
     />
     <main className="relative flex min-w-0 flex-1 flex-col">
-      <header className="z-20 flex min-h-[66px] items-center justify-between gap-2 border-b border-white/[0.065] bg-[#000000]/90 px-3 backdrop-blur-xl sm:gap-3 sm:px-5 lg:px-7">
+      <header className="z-20 flex min-h-[66px] items-center justify-between gap-2 border-b border-white/[0.065] bg-[#000000]/90 px-3 pt-[env(safe-area-inset-top)] backdrop-blur-xl sm:gap-3 sm:px-5 lg:px-7">
         <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
           <button
             type="button"
@@ -816,7 +816,7 @@ function App() {
             <Logomark size={16} />
             {/* Native <select>: the popup is drawn by the OS, so the options carry
                 explicit black/white rather than inheriting the panel's greys. */}
-            <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="max-w-[min(58vw,360px)] min-w-0 appearance-none bg-black text-small font-medium text-white outline-none disabled:text-zinc-500 sm:max-w-[min(38vw,360px)] lg:max-w-[min(34vw,360px)]">
+            <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="h-7 max-w-[min(58vw,360px)] min-w-0 appearance-none bg-black text-small font-medium text-white outline-none disabled:text-zinc-500 sm:max-w-[min(38vw,360px)] lg:max-w-[min(34vw,360px)]">
               {!models.length && <option value="" className="bg-black text-white">No models available</option>}
               {models.map((model) => <option value={model.id} key={model.id} className="bg-black text-white">{model.id}{model.supports_vision ? ' · Vision' : ''}</option>)}
             </select>
@@ -888,7 +888,7 @@ function App() {
             <div className="flex items-center justify-between gap-2 px-1 pb-0.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.txt" multiple hidden onChange={(event) => void handleAttachmentChange(event)} />
-                <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, or document"><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
+                <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, or document"><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
                 <button type="button" onClick={() => void toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
               </div>
               {streaming
@@ -944,7 +944,7 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy }
       </div> : <div className="min-w-0 pt-0.5">
         {message.content ? <div className={isStreaming ? 'streaming-answer' : undefined}><AssistantDetails message={message} /></div> : <ThinkingIndicator model={message.model_used} />}
       {!user && message.content ? <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
-        <button type="button" onClick={onCopy} className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-micro text-zinc-600 transition hover:bg-white/[0.05] hover:text-zinc-300" aria-label="Copy answer">{copied ? <Check size={11} className="text-emerald-300" /> : <Copy size={11} />}{copied ? 'Copied' : 'Copy'}</button>
+        <button type="button" onClick={onCopy} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2 py-1 text-micro text-zinc-600 transition hover:bg-white/[0.05] hover:text-zinc-300" aria-label="Copy answer">{copied ? <Check size={11} className="text-emerald-300" /> : <Copy size={11} />}{copied ? 'Copied' : 'Copy'}</button>
       </div> : null}
       </div>}
     </div>

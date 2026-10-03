@@ -385,7 +385,11 @@ export function Sidebar({
                     type="button"
                     onClick={() => beginRename(conversation.id, conversation.title)}
                     aria-label={`Rename ${conversation.title || 'thread'}`}
-                    className="rounded p-1 text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
+                    // A bare 11px icon in p-1 is about 19px, which is well under
+                    // a usable touch target. The drawer is the main way a phone
+                    // reaches these, so the hit area grows there and the tight
+                    // desktop row is left alone.
+                    className="grid size-9 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200 md:size-auto md:p-1"
                   >
                     <Pencil size={11} />
                   </button>
@@ -397,7 +401,7 @@ export function Sidebar({
                       }
                     }}
                     aria-label={`Delete ${conversation.title || 'thread'}`}
-                    className="rounded p-1 text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
+                    className="grid size-9 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200 md:size-auto md:p-1"
                   >
                     <Trash2 size={11} />
                   </button>
@@ -413,7 +417,7 @@ export function Sidebar({
   )}
 
   <div className={`mt-4 border-t border-white/[0.06] pt-3 ${collapsed ? 'flex justify-center' : ''}`}>
-    <button type="button" onClick={onOpenSettings} title="Settings" className={`flex items-center rounded-lg text-zinc-400 transition hover:bg-white/[0.045] ${collapsed ? 'size-9 justify-center' : 'w-full gap-2.5 px-2 py-2 text-left'}`}>
+    <button type="button" onClick={onOpenSettings} title="Settings" className={`flex items-center rounded-lg text-zinc-400 transition hover:bg-white/[0.045] ${collapsed ? 'size-9 justify-center' : 'min-h-9 w-full gap-2.5 px-2 py-2 text-left'}`}>
       <Settings2 size={14} className={`shrink-0 text-zinc-500 ${collapsed ? '' : ''}`} />
       {collapsed ? <span className="sr-only">Settings</span> : <span className="text-micro">Settings</span>}
     </button>

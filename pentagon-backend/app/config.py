@@ -36,5 +36,17 @@ class Settings(BaseSettings):
     nvidia_server_api_key: SecretStr | None = None
     default_chat_model: str | None = None
 
+    # Origins allowed to call this API from a browser or a native WebView. The
+    # web and Electron builds are same-origin, so they need nothing here; the
+    # iOS and Android shells load from their own bundled origin and therefore
+    # dial this server cross-origin, which the browser engine blocks without an
+    # explicit allowance. Add any extra origins (a hosted frontend, a Tailscale
+    # or LAN address) as a comma-separated list.
+    cors_origins: str = "capacitor://localhost,http://localhost,https://localhost"
+
+
+def cors_origin_list() -> list[str]:
+    return [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+
 
 settings = Settings()

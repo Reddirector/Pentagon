@@ -7,8 +7,42 @@ export class ApiError extends Error {
   }
 }
 
+const API_BASE_KEY = 'pentagon.apiBase'
+
+/**
+ * The backend origin to talk to.
+ *
+ * Every request is a same-origin `/api/...` path, which the Vite dev server
+ * proxies and the Electron main process forwards. The iOS and Android shells
+ * have neither: their WebView loads from the bundle itself, so a relative path
+ * would resolve to the device. Those builds therefore need an absolute origin,
+ * set here from the saved preference or from the build-time default.
+ */
+export function getApiBase(): string {
+  // Deliberately NOT VITE_API_BASE_URL: that names the address the dev server
+  // proxies /api *to*, so reading it here would make the browser bypass the
+  // proxy and call the backend cross-origin, which fails on CORS. This is the
+  // origin the client itself dials, which only the packaged mobile shells need.
+  //
+  // `?.` collapses both "no key" and "empty string" to undefined, so clearing
+  // the field restores the packaged default rather than pinning an empty origin.
+  const saved = localStorage.getItem(API_BASE_KEY)?.trim()
+  const fallback = String(import.meta.env.VITE_PENTAGON_API_BASE ?? '').trim()
+  return (saved || fallback).replace(/\/+$/, '')
+}
+
+export function setApiBase(value: string): void {
+  const trimmed = value.trim().replace(/\/+$/, '')
+  if (trimmed) localStorage.setItem(API_BASE_KEY, trimmed)
+  else localStorage.removeItem(API_BASE_KEY)
+}
+
+export function apiUrl(path: string): string {
+  return `${getApiBase()}${path}`
+}
+
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init)
+  const response = await fetch(apiUrl(path), init)
   if (!response.ok) {
     let message = `Request failed (${response.status})`
     try {
