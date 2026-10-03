@@ -668,7 +668,7 @@ function App() {
       <header className="z-20 flex min-h-[66px] items-center justify-between gap-4 border-b border-white/[0.065] bg-[#000000]/90 px-7 backdrop-blur-xl max-sm:px-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2">
-            <Logomark size={13} className="shrink-0 text-emerald-300" />
+            <Logomark size={16} />
             <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="max-w-[min(34vw,360px)] min-w-0 appearance-none bg-transparent pr-1 text-[11px] font-medium text-zinc-200 outline-none disabled:text-zinc-500">
               {!models.length && <option value="">No models available</option>}
               {models.map((model) => <option value={model.id} key={model.id} className="bg-[#0f0f0f]">{model.id}{model.supports_vision ? ' · Vision' : ''}</option>)}
@@ -706,7 +706,7 @@ function App() {
             {messages.length ? <div className="space-y-8">
               {messages.map((message, index) => <MessageRow key={message.id} message={message} isStreaming={streaming && index === messages.length - 1} copied={copiedId === message.id} onCopy={() => void copyMessage(message)} />)}
             </div> : <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-16 text-center">
-              <div className="relative mb-7 grid size-[66px] place-items-center rounded-[22px] border border-emerald-300/10 bg-emerald-300/[0.045] text-emerald-200 shadow-[0_0_70px_rgba(52,211,153,.08)]"><Logomark size={30} /><span className="absolute -right-1 -top-1 size-2 rounded-full bg-emerald-300/70" /></div>
+              <div className="relative mb-7 grid size-[66px] place-items-center"><Logomark size={60} /><span className="absolute -right-1 -top-1 size-2 rounded-full bg-white/70" /></div>
               <p className="mb-3 text-[9px] font-medium uppercase tracking-[.23em] text-emerald-200/70">A focused place to think</p>
               <h1 className="max-w-xl text-balance text-[clamp(30px,4vw,47px)] font-medium leading-[1.12] tracking-[-.045em] text-zinc-100">{active ? 'What should we explore?' : 'A clear space for your next idea.'}</h1>
               <p className="mt-4 max-w-md text-[12px] leading-6 text-zinc-500">Bring a question, a document, or a moment from a video. Pentagon will show the sources and work behind each reply.</p>
@@ -762,7 +762,7 @@ function App() {
 function MessageRow({ message, isStreaming = false, copied = false, onCopy }: { message: ChatMessage; isStreaming?: boolean; copied?: boolean; onCopy?: () => void }) {
   const user = message.role === 'user'
   return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
-    {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-[10px] border border-emerald-300/12 bg-emerald-300/[0.055] text-emerald-200"><Logomark size={14} /></div>}
+    {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center"><Logomark size={20} /></div>}
     <div className={`min-w-0 ${user ? 'max-w-[78%]' : 'w-full max-w-[calc(100%-40px)]'}`}>
       <div className={`mb-2 flex items-center gap-2 text-[10px] ${user ? 'justify-end pr-1 text-zinc-500' : 'text-zinc-500'}`}><span className="font-medium text-zinc-300">{user ? 'You' : 'Pentagon'}</span>{!user && <span className="truncate font-mono text-[9px] text-zinc-700">{message.model_used}</span>}</div>
       {user ? <div className="rounded-2xl rounded-tr-md border border-white/[0.07] bg-[#171717] px-4 py-3 text-[13px] leading-6 text-zinc-100">
