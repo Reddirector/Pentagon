@@ -19,8 +19,8 @@ export class ErrorBoundary extends Component<Props, State> {
     const { error } = this.state
     if (!error) return this.props.children
     return (
-      <main className="grid min-h-dvh place-items-center bg-[#0c0d0f] px-6 text-zinc-100">
-        <section className="w-full max-w-[460px] rounded-2xl border border-white/[0.08] bg-[#131417] p-7 shadow-[0_24px_70px_rgba(0,0,0,.5)]">
+      <main className="grid min-h-dvh place-items-center bg-[#000000] px-6 text-zinc-100">
+        <section className="w-full max-w-[460px] rounded-2xl border border-white/[0.08] bg-[#101010] p-7 shadow-[0_24px_70px_rgba(0,0,0,.5)]">
           <p className="mb-2 text-[9px] font-medium uppercase tracking-[.2em] text-zinc-600">
             Something went wrong
           </p>
@@ -39,7 +39,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             onClick={() => this.setState({ error: null })}
-            className="mt-5 h-10 rounded-xl bg-emerald-300 px-4 text-[11px] font-semibold text-[#102016] transition hover:bg-emerald-200"
+            className="mt-5 h-10 rounded-xl bg-emerald-300 px-4 text-[11px] font-semibold text-[#000000] transition hover:bg-emerald-200"
           >
             Reload Pentagon
           </button>

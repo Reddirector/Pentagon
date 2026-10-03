@@ -22,7 +22,7 @@ function CodePanel({ code, language, children }: { code: string; language: strin
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1500)
   }
-  return <div className="group relative my-4 overflow-hidden rounded-xl border border-white/[0.09] bg-[#0b0c0f]">
+  return <div className="group relative my-4 overflow-hidden rounded-xl border border-white/[0.09] bg-[#000000]">
     <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2 text-[10px] uppercase tracking-[.16em] text-zinc-500">
       <span>{language || 'Code'}</span>
       <button onClick={() => void copy()} className="flex items-center gap-1.5 rounded-md px-2 py-1 normal-case tracking-normal text-zinc-400 transition hover:bg-white/[0.07] hover:text-white" aria-label="Copy code">

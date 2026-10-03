@@ -40,7 +40,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        className="panel-enter w-full max-w-[480px] overflow-hidden rounded-2xl border border-white/[0.1] bg-[#14161a]/97 shadow-[0_40px_120px_rgba(0,0,0,.6)] outline-none"
+        className="panel-enter w-full max-w-[480px] overflow-hidden rounded-2xl border border-white/[0.1] bg-[#101010]/97 shadow-[0_40px_120px_rgba(0,0,0,.6)] outline-none"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4">

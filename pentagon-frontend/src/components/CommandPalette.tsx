@@ -79,7 +79,7 @@ export function CommandPalette({
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="panel-enter w-full max-w-[520px] overflow-hidden rounded-2xl border border-white/[0.1] bg-[#14161a]/97 shadow-[0_40px_120px_rgba(0,0,0,.6)] focus-within:border-emerald-300/25"
+        className="panel-enter w-full max-w-[520px] overflow-hidden rounded-2xl border border-white/[0.1] bg-[#101010]/97 shadow-[0_40px_120px_rgba(0,0,0,.6)] focus-within:border-emerald-300/25"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center gap-2.5 border-b border-white/[0.07] px-4">

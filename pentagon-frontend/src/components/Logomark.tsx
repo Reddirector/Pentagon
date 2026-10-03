@@ -1,19 +1,21 @@
-// Orbit mark: a thin ring with one small filled dot resting on the ring.
-// Deliberately not a pentagon — the brief forbids five-sided shapes.
+// Brand mark: a faceted space sphere with a compass star and moon above it.
+// Deliberately not a pentagon - the brief forbids five-sided shapes.
+// Two assets: the full logo reads well from ~24px up, the sphere-only mark
+// stays legible at 12-14px where the compass detail turns to noise.
+const LOGO_SRC = '/pentagon-logo.png'
+const MARK_SRC = '/pentagon-mark.png'
+
 export function Logomark({ size = 18, className = '' }: { size?: number; className?: string }) {
+  const src = size < 22 ? MARK_SRC : LOGO_SRC
   return (
-    <svg
+    <img
+      src={src}
       width={size}
       height={size}
-      viewBox="0 0 200 200"
-      fill="none"
+      alt=""
       aria-hidden="true"
-      focusable="false"
-      className={className}
-    >
-      <circle cx="100" cy="100" r="66" stroke="currentColor" strokeWidth="7" opacity=".62" />
-      <circle cx="166" cy="100" r="13" fill="currentColor" />
-    </svg>
+      className={`shrink-0 select-none object-contain ${className}`}
+    />
   )
 }
 
@@ -28,10 +30,10 @@ export function LogomarkBadge({
 }) {
   return (
     <span
-      className={`grid shrink-0 place-items-center rounded-[12px] bg-emerald-300 text-[#142017] shadow-[0_0_0_1px_rgba(110,231,183,.28),0_6px_18px_rgba(110,231,183,.14)] ${className}`}
+      className={`grid shrink-0 place-items-center overflow-hidden rounded-[12px] border border-white/[0.08] bg-white/[0.03] ${className}`}
       style={{ width: size, height: size }}
     >
-      <Logomark size={Math.round(size * 0.56)} />
+      <Logomark size={Math.round(size * 0.92)} />
       {label ? <span className="sr-only">{label}</span> : null}
     </span>
   )

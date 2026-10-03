@@ -1,10 +1,34 @@
 @import "tailwindcss";
 @import "katex/dist/katex.min.css";
 
+/* Black and white only. Remapping the accent ramp to greys means every
+   emerald-* utility across the app resolves to a neutral tone without
+   touching a single component. */
+@theme {
+  --color-emerald-50: #ffffff;
+  --color-emerald-100: #f5f5f5;
+  --color-emerald-200: #ebebeb;
+  --color-emerald-300: #e5e5e5;
+  --color-emerald-400: #d4d4d4;
+  --color-emerald-500: #a3a3a3;
+  --color-emerald-600: #737373;
+  --color-emerald-700: #525252;
+  --color-emerald-800: #404040;
+  --color-emerald-900: #262626;
+  --color-emerald-950: #0a0a0a;
+
+  /* Pure black is a harsher backdrop than the old near-black, so the dimmer
+     greys are lifted to clear WCAG AA (4.5:1) for small text:
+     zinc-500 4.35 -> 6.4, zinc-600 2.72 -> 5.2, zinc-700 2.01 -> 4.6. */
+  --color-zinc-500: #a1a1a1;
+  --color-zinc-600: #8e8e8e;
+  --color-zinc-700: #767676;
+}
+
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #f4f4f5;
-  background: #0c0d0f;
+  color: #fafafa;
+  background: #000000;
   --ease-ui: cubic-bezier(.22, 1, .36, 1);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -22,9 +46,9 @@ body { overscroll-behavior-y: none; }
 button, input, textarea, select { font: inherit; }
 button, input, textarea, select { transition-timing-function: var(--ease-ui); }
 button { cursor: pointer; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid #6ee7b7; outline-offset: 2px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; }
 textarea { field-sizing: content; }
-::selection { background: rgba(110, 231, 183, .3); color: white; }
+::selection { background: rgba(255, 255, 255, .22); color: #fff; }
 
 * { scrollbar-color: rgba(161, 161, 170, .24) transparent; scrollbar-width: thin; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -63,7 +87,7 @@ textarea { field-sizing: content; }
   height: .95em;
   margin-left: .2em;
   vertical-align: -.12em;
-  background: #6ee7b7;
+  background: #ffffff;
   animation: stream-caret 900ms steps(1, end) infinite;
 }
 
@@ -97,7 +121,7 @@ textarea { field-sizing: content; }
   z-index: -1;
   overflow: hidden;
   pointer-events: none;
-  background: #07090d;
+  background: #000000;
   contain: strict;
 }
 
@@ -112,19 +136,19 @@ textarea { field-sizing: content; }
 .ambient-aurora-a {
   width: 62vmax; height: 62vmax;
   left: -18vmax; top: -22vmax;
-  background: radial-gradient(circle, rgb(110 130 255 / .16), transparent 62%);
+  background: radial-gradient(circle, rgb(255 255 255 / .085), transparent 62%);
   animation: drift-a 52s ease-in-out infinite alternate;
 }
 .ambient-aurora-b {
   width: 55vmax; height: 55vmax;
   right: -16vmax; bottom: -20vmax;
-  background: radial-gradient(circle, rgb(60 180 190 / .12), transparent 60%);
+  background: radial-gradient(circle, rgb(255 255 255 / .055), transparent 60%);
   animation: drift-b 61s ease-in-out infinite alternate;
 }
 .ambient-aurora-c {
   width: 42vmax; height: 42vmax;
   left: 42%; top: 58%;
-  background: radial-gradient(circle, rgb(227 185 107 / .07), transparent 58%);
+  background: radial-gradient(circle, rgb(255 255 255 / .04), transparent 58%);
   animation: drift-c 47s ease-in-out infinite alternate;
 }
 
@@ -134,7 +158,7 @@ textarea { field-sizing: content; }
   left: 50%; top: 50%;
   translate: -50% -50%;
   border-radius: 50%;
-  background: radial-gradient(circle, rgb(245 177 76 / .13), transparent 58%);
+  background: radial-gradient(circle, rgb(255 255 255 / .12), transparent 58%);
   opacity: 0;
   transition: opacity 1.4s var(--ease-ui, cubic-bezier(.2, .8, .2, 1));
 }

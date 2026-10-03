@@ -88,7 +88,7 @@ function Constellation() {
           const dy = dots[i].y - dots[j].y
           const distance = Math.hypot(dx, dy)
           if (distance > linkDistance) continue
-          context.strokeStyle = `rgba(150, 170, 255, ${(1 - distance / linkDistance) * 0.09})`
+          context.strokeStyle = `rgba(255, 255, 255, ${(1 - distance / linkDistance) * 0.1})`
           context.beginPath()
           context.moveTo(dots[i].x, dots[i].y)
           context.lineTo(dots[j].x, dots[j].y)
@@ -98,7 +98,7 @@ function Constellation() {
 
       for (const dot of dots) {
         const twinkle = 0.28 + Math.sin(frame / 22 + dot.phase) * 0.18
-        context.fillStyle = `rgba(186, 200, 255, ${Math.max(0.05, twinkle)})`
+        context.fillStyle = `rgba(255, 255, 255, ${Math.max(0.06, twinkle)})`
         context.beginPath()
         context.arc(dot.x, dot.y, calm ? 1 : 1.4, 0, Math.PI * 2)
         context.fill()
@@ -144,9 +144,9 @@ export function AmbientLayer() {
 
       {/* L3 orbits: concentric circles partly off-screen. Never polygons. */}
       <svg className="ambient-orbits" viewBox="0 0 1000 700" fill="none" preserveAspectRatio="xMidYMid slice">
-        <circle cx="500" cy="350" r="420" stroke="rgb(150 170 255 / 0.055)" strokeWidth="1" />
-        <circle cx="500" cy="350" r="610" stroke="rgb(150 170 255 / 0.04)" strokeWidth="1" />
-        {calm ? null : <circle cx="500" cy="350" r="820" stroke="rgb(227 185 107 / 0.028)" strokeWidth="1" />}
+        <circle cx="500" cy="350" r="420" stroke="rgb(255 255 255 / 0.05)" strokeWidth="1" />
+        <circle cx="500" cy="350" r="610" stroke="rgb(255 255 255 / 0.035)" strokeWidth="1" />
+        {calm ? null : <circle cx="500" cy="350" r="820" stroke="rgb(255 255 255 / 0.022)" strokeWidth="1" />}
       </svg>
 
       <Constellation />

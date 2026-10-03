@@ -43,7 +43,7 @@ export function Sidebar({
   onOpenSettings?: () => void
 }) {
   const groups = useMemo(() => recencyGroups(conversations.filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase()))), [conversations, query])
-  return <aside className="flex h-full w-[270px] shrink-0 flex-col border-r border-white/[0.07] bg-[#0d1016]/72 px-4 py-5 backdrop-blur-2xl backdrop-saturate-150 max-lg:w-[230px] max-md:hidden">
+  return <aside className="flex h-full w-[270px] shrink-0 flex-col border-r border-white/[0.07] bg-[#0a0a0a]/72 px-4 py-5 backdrop-blur-2xl backdrop-saturate-150 max-lg:w-[230px] max-md:hidden">
     <div className="mb-8 flex items-center gap-3 px-2">
       <LogomarkBadge size={32} label="Pentagon" />
       <div><div className="text-[12px] font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 text-[9px] uppercase tracking-[.18em] text-zinc-600">Personal workspace</div></div>
@@ -65,7 +65,7 @@ export function Sidebar({
       {groups.map((group) => <section key={group.title}>
         <h2 className="mb-2 px-2 text-[9px] font-medium uppercase tracking-[.18em] text-zinc-600">{group.title}</h2>
         <div className="space-y-0.5">
-          {group.conversations.map((conversation) => <button key={conversation.id} onClick={() => onSelect(conversation.id)} title={conversation.title} className={`block w-full truncate rounded-lg px-2.5 py-2.5 text-left text-[11px] transition-[background-color,color,box-shadow] duration-200 ease-out ${activeId === conversation.id ? 'bg-emerald-300/[0.09] font-medium text-emerald-100 shadow-[inset_2px_0_0_#6ee7b7]' : 'text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200'}`}>
+          {group.conversations.map((conversation) => <button key={conversation.id} onClick={() => onSelect(conversation.id)} title={conversation.title} className={`block w-full truncate rounded-lg px-2.5 py-2.5 text-left text-[11px] transition-[background-color,color,box-shadow] duration-200 ease-out ${activeId === conversation.id ? 'bg-emerald-300/[0.09] font-medium text-emerald-100 shadow-[inset_2px_0_0_#ffffff]' : 'text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200'}`}>
             {conversation.title || 'New thread'}
           </button>)}
         </div>
@@ -77,7 +77,7 @@ export function Sidebar({
       <div className="flex items-center gap-2.5 px-2">
         <div className="grid size-7 place-items-center rounded-full border border-white/10 bg-white/[0.045] font-mono text-[10px] text-zinc-300">{userId.slice(-1).toUpperCase()}</div>
         <div className="min-w-0"><div className="text-[10px] font-medium text-zinc-300">Local session</div><div className="truncate text-[9px] text-zinc-600">{userId}</div></div>
-        <span className="ml-auto size-1.5 rounded-full bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,.7)]" title="Backend connected" />
+        <span className="ml-auto size-1.5 rounded-full bg-emerald-300 shadow-[0_0_8px_rgba(255,255,255,.7)]" title="Backend connected" />
       </div>
       <button type="button" onClick={onOpenSettings} className="mt-2 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-white/[0.045]" title="Settings">
         <Settings2 size={14} className="shrink-0 text-zinc-500" />
