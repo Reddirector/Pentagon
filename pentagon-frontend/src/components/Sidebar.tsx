@@ -98,12 +98,16 @@ export function Sidebar({
     const startWidth = asideRef.current?.getBoundingClientRect().width ?? SIDEBAR_DEFAULT_WIDTH
     setResizing(true)
 
-    const onMove = (move: PointerEvent) => setDraftWidth(clamp(startWidth + (move.clientX - startX)))
+    // The live width is mirrored in a ref so the commit on release never has to
+    // happen inside a state updater, which React runs during render.
+    const latest = { value: null as number | null }
+    const onMove = (move: PointerEvent) => {
+      latest.value = clamp(startWidth + (move.clientX - startX))
+      setDraftWidth(latest.value)
+    }
     const finish = () => {
-      setDraftWidth((current) => {
-        if (current !== null) persistSidebarWidth(current)
-        return null
-      })
+      if (latest.value !== null) persistSidebarWidth(latest.value)
+      setDraftWidth(null)
       setResizing(false)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', finish)
