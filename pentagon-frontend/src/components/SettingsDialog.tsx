@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { AlertTriangle, Check, Copy, MoonStar, Sun, Trash2, Waves, X } from 'lucide-react'
+import { AlertTriangle, Check, Copy, MoonStar, Pencil, Sun, Trash2, Waves, X } from 'lucide-react'
 import { getAmbientMode, setAmbientMode, subscribeAmbient } from '../lib/ambient'
 import type { AmbientMode } from '../lib/ambient'
 import {
@@ -15,7 +15,7 @@ import {
 import type { Appearance, Contrast } from '../lib/preferences'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { apiRequest } from '../api'
-import type { DocumentInfo, ModelInfo } from '../types'
+import type { Conversation, DocumentInfo, ModelInfo } from '../types'
 
 const AMBIENT_OPTIONS: { mode: AmbientMode; label: string; description: string; icon: typeof Sun }[] = [
   { mode: 'full', label: 'Full', description: 'Aurora, orbit rings, a twinkling constellation, grain and a vignette.', icon: Sun },
@@ -85,6 +85,82 @@ function Choice({
   )
 }
 
+function ThreadRow({
+  thread,
+  onRename,
+  onDelete,
+}: {
+  thread: Conversation
+  onRename: (id: string, title: string) => void
+  onDelete: (id: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(thread.title || 'New thread')
+  const label = thread.title || 'New thread'
+
+  function save() {
+    const next = draft.trim()
+    setEditing(false)
+    if (next && next !== thread.title) onRename(thread.id, next)
+  }
+
+  function cancel() {
+    setDraft(label)
+    setEditing(false)
+  }
+
+  return (
+    <li className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+      {editing ? (
+        <>
+          <input
+            autoFocus
+            value={draft}
+            maxLength={120}
+            aria-label={`Rename ${label}`}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') save()
+              if (event.key === 'Escape') cancel()
+            }}
+            className="min-w-0 flex-1 bg-transparent text-[11.5px] text-zinc-100 outline-none"
+          />
+          <button type="button" onClick={save} aria-label="Save name" className="shrink-0 rounded p-1 text-zinc-400 transition hover:text-zinc-100">
+            <Check size={12} />
+          </button>
+          <button type="button" onClick={cancel} aria-label="Cancel rename" className="shrink-0 rounded p-1 text-zinc-400 transition hover:text-zinc-100">
+            <X size={12} />
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="min-w-0 flex-1 truncate text-[11.5px] text-zinc-300">{label}</span>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            aria-label={`Rename ${label}`}
+            className="shrink-0 rounded p-1 text-zinc-600 transition hover:bg-white/[0.06] hover:text-zinc-200"
+          >
+            <Pencil size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm(`Delete "${label}"?\n\nThis removes the thread and its messages from the server. It cannot be undone.`)) {
+                onDelete(thread.id)
+              }
+            }}
+            aria-label={`Delete ${label}`}
+            className="shrink-0 rounded p-1 text-zinc-600 transition hover:bg-white/[0.06] hover:text-zinc-200"
+          >
+            <Trash2 size={12} />
+          </button>
+        </>
+      )}
+    </li>
+  )
+}
+
 const inputClass =
   'h-9 w-full rounded-lg border border-white/[0.09] bg-white/[0.03] px-3 text-[12px] text-zinc-100 outline-none transition placeholder:text-zinc-700 focus:border-white/30'
 
@@ -99,19 +175,25 @@ export function SettingsDialog({
   models,
   serverDefaultModel,
   documents,
+  threads,
   threadCount,
   onClose,
   onKeySaved,
   onDocumentDeleted,
+  onRenameThread,
+  onDeleteThread,
 }: {
   userId: string
   models: ModelInfo[]
   serverDefaultModel: string
   documents: DocumentInfo[]
+  threads: Conversation[]
   threadCount: number
   onClose: () => void
   onKeySaved: () => void
   onDocumentDeleted: (documentId: string) => void
+  onRenameThread: (id: string, title: string) => void
+  onDeleteThread: (id: string) => void
 }) {
   const [tab, setTab] = useState<Tab>('Account')
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -572,7 +654,27 @@ export function SettingsDialog({
                 )}
               </Section>
 
-              <Section title="This browser" hint={`${threadCount} thread${threadCount === 1 ? '' : 's'} in this workspace.`}>
+              <Section
+                title="Threads"
+                hint={`${threadCount} thread${threadCount === 1 ? '' : 's'} in this workspace. Renaming updates the sidebar; deleting removes the thread and its messages from the server.`}
+              >
+                {threads.length === 0 ? (
+                  <p className="text-[11px] text-zinc-600">No threads yet.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {threads.map((thread) => (
+                      <ThreadRow
+                        key={thread.id}
+                        thread={thread}
+                        onRename={onRenameThread}
+                        onDelete={onDeleteThread}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </Section>
+
+              <Section title="This browser" hint="Appearance, contrast, ambient mode and the default model.">
                 <button
                   type="button"
                   onClick={() => {

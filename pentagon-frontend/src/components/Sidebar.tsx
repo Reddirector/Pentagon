@@ -1,5 +1,5 @@
-import { useMemo, useSyncExternalStore } from 'react'
-import { MessageSquarePlus, Search, Settings2 } from 'lucide-react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
+import { Check, MessageSquarePlus, Pencil, Search, Settings2, Trash2, X } from 'lucide-react'
 import { LogomarkBadge } from './Logomark'
 import { getPreferences, subscribePreferences } from '../lib/preferences'
 import type { Conversation } from '../types'
@@ -29,6 +29,8 @@ export function Sidebar({
   onQueryChange,
   onNewThread,
   onSelect,
+  onRename,
+  onDelete,
   onOpenPalette,
   onOpenSettings,
 }: {
@@ -38,11 +40,28 @@ export function Sidebar({
   onQueryChange: (value: string) => void
   onNewThread: () => void
   onSelect: (id: string) => void
+  onRename: (id: string, title: string) => void
+  onDelete: (id: string) => void
   onOpenPalette?: () => void
   onOpenSettings?: () => void
 }) {
   const groups = useMemo(() => recencyGroups(conversations.filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase()))), [conversations, query])
   const workspaceName = useSyncExternalStore(subscribePreferences, getPreferences).workspaceName
+  // Inline rename state. Kept as an id rather than a map so that only the row
+  // being edited re-renders its input state.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draftTitle, setDraftTitle] = useState('')
+
+  function beginRename(id: string, title: string) {
+    setEditingId(id)
+    setDraftTitle(title || 'New thread')
+  }
+
+  function commitRename(id: string, originalTitle: string) {
+    const next = draftTitle.trim()
+    setEditingId(null)
+    if (next && next !== originalTitle) onRename(id, next)
+  }
   return <aside className="flex h-full w-[270px] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] px-4 py-5 backdrop-blur-2xl backdrop-saturate-150 max-lg:w-[230px] max-md:hidden">
     <div className="mb-8 flex items-center gap-3 px-2">
       <LogomarkBadge size={32} label="Pentagon" />
@@ -65,9 +84,66 @@ export function Sidebar({
       {groups.map((group) => <section key={group.title}>
         <h2 className="mb-2 px-2 text-[9px] font-medium uppercase tracking-[.18em] text-zinc-600">{group.title}</h2>
         <div className="space-y-0.5">
-          {group.conversations.map((conversation) => <button key={conversation.id} onClick={() => onSelect(conversation.id)} title={conversation.title} className={`block w-full truncate rounded-lg px-2.5 py-2.5 text-left text-[11px] transition-[background-color,color,box-shadow] duration-200 ease-out ${activeId === conversation.id ? 'bg-emerald-300/[0.09] font-medium text-emerald-100 shadow-[inset_2px_0_0_#ffffff]' : 'text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200'}`}>
-            {conversation.title || 'New thread'}
-          </button>)}
+          {group.conversations.map((conversation) => (
+            <div key={conversation.id} className="group relative">
+              {editingId === conversation.id ? (
+                <div className="flex items-center gap-1 rounded-lg bg-white/[0.06] px-2 py-1.5">
+                  <input
+                    autoFocus
+                    value={draftTitle}
+                    maxLength={120}
+                    aria-label={`Rename ${conversation.title || 'thread'}`}
+                    onChange={(event) => setDraftTitle(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') commitRename(conversation.id, conversation.title || 'New thread')
+                      if (event.key === 'Escape') setEditingId(null)
+                    }}
+                    className="min-w-0 flex-1 bg-transparent text-[11px] text-zinc-100 outline-none"
+                  />
+                  <button type="button" onClick={() => commitRename(conversation.id, conversation.title || 'New thread')} aria-label="Save name" className="shrink-0 rounded p-0.5 text-zinc-400 transition hover:text-zinc-100">
+                    <Check size={12} />
+                  </button>
+                  <button type="button" onClick={() => setEditingId(null)} aria-label="Cancel rename" className="shrink-0 rounded p-0.5 text-zinc-400 transition hover:text-zinc-100">
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => onSelect(conversation.id)}
+                    title={conversation.title || 'New thread'}
+                    className={`block w-full truncate rounded-lg py-2.5 pl-2.5 pr-14 text-left text-[11px] transition-[background-color,color,box-shadow] duration-200 ease-out ${activeId === conversation.id ? 'bg-emerald-300/[0.09] font-medium text-emerald-100 shadow-[inset_2px_0_0_#ffffff]' : 'text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200'}`}
+                  >
+                    {conversation.title || 'New thread'}
+                  </button>
+                  {/* Actions stay hidden until hover or keyboard focus, so the
+                      list reads as titles first. */}
+                  <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => beginRename(conversation.id, conversation.title)}
+                      aria-label={`Rename ${conversation.title || 'thread'}`}
+                      className="rounded p-1 text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
+                    >
+                      <Pencil size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Delete "${conversation.title || 'New thread'}"?\n\nThis removes the thread and its messages from the server. It cannot be undone.`)) {
+                          onDelete(conversation.id)
+                        }
+                      }}
+                      aria-label={`Delete ${conversation.title || 'thread'}`}
+                      className="rounded p-1 text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
         </div>
       </section>)}
       {groups.length === 0 && <p className="px-2 text-[11px] leading-6 text-zinc-600">{query ? 'No matching threads.' : 'Your threads will appear here.'}</p>}

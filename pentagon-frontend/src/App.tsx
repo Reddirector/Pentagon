@@ -302,6 +302,53 @@ function App() {
     }
   }
 
+  async function renameThread(id: string, title: string) {
+    setError('')
+    try {
+      const updated = await apiRequest<Conversation>(
+        `/api/conversations/${encodeURIComponent(id)}/title`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title }),
+        },
+      )
+      setThreads((current) => current.map((thread) => (thread.id === id ? updated : thread)))
+      setActive((current) => (current && current.id === id ? { ...current, title: updated.title } : current))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not rename the thread.')
+    }
+  }
+
+  async function deleteThread(id: string) {
+    setError('')
+    try {
+      await apiRequest(`/api/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      const remaining = threads.filter((thread) => thread.id !== id)
+      setThreads(remaining)
+      if (active?.id === id) {
+        const next = remaining[0]
+        if (next) {
+          void openThread(next.id)
+        } else {
+          // Nothing left to show: fall back to an empty draft thread.
+          setActive({
+            id: `draft-${crypto.randomUUID()}`,
+            title: 'New Thread',
+            updated_at: new Date().toISOString(),
+            active_model: null,
+            isDraft: true,
+          })
+          setMessages([])
+          setDocuments([])
+          setSummaryActive(false)
+        }
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not delete the thread.')
+    }
+  }
+
   /** Re-reads the model list after the API key changes, without a reload. */
   async function refreshModels() {
     try {
@@ -680,6 +727,8 @@ function App() {
       query={search}
       onQueryChange={setSearch}
       onNewThread={startThread}
+      onRename={(id, title) => void renameThread(id, title)}
+      onDelete={(id) => void deleteThread(id)}
       onSelect={(id) => {
         if (isDraftThread && active?.id === id) return
         void openThread(id)
@@ -784,7 +833,10 @@ function App() {
         models={models}
         serverDefaultModel={defaultModel}
         documents={documents}
+        threads={threads}
         threadCount={threads.length}
+        onRenameThread={(id, title) => void renameThread(id, title)}
+        onDeleteThread={(id) => void deleteThread(id)}
         onClose={() => setSettingsOpen(false)}
         onKeySaved={() => void refreshModels()}
         onDocumentDeleted={(documentId) =>

@@ -11,7 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from langchain_core.messages import BaseMessage
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -23,6 +23,7 @@ from app.schemas import (
     ConversationResponse,
     ConversationSummary,
     CreateConversationRequest,
+    RenameConversationRequest,
     SwitchConversationModelRequest,
     SwitchConversationModelResponse,
 )
@@ -203,6 +204,48 @@ def create_conversation(
     db.commit()
     db.refresh(conversation)
     return conversation
+
+
+@router.patch(
+    "/conversations/{conversation_id}/title",
+    response_model=ConversationSummary,
+)
+def rename_conversation(
+    conversation_id: str,
+    payload: RenameConversationRequest,
+    db: Session = Depends(get_db),
+) -> Conversation:
+    conversation = db.get(Conversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    # A title of only whitespace would render as an empty row in the sidebar.
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Title cannot be empty.")
+
+    conversation.title = title
+    conversation.updated_at = utc_now()
+    db.commit()
+    db.refresh(conversation)
+    return conversation
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+def delete_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+) -> Response:
+    conversation = db.get(Conversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    # Messages cascade through the ORM relationship; documents cascade through
+    # the foreign key, since SQLite runs with PRAGMA foreign_keys=ON.
+    db.delete(conversation)
+    db.commit()
+    logger.info("conversation deleted conversation=%s", conversation_id)
+    return Response(status_code=204)
 
 
 @router.patch(
