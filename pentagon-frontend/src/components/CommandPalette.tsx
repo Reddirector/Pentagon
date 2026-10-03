@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Gauge, MoonStar, Plus, Search, Sun, Waves } from 'lucide-react'
+import { FileText, MoonStar, Plus, Search, Settings2, Sun, Waves } from 'lucide-react'
 import { getAmbientMode, setAmbientMode } from '../lib/ambient'
 import type { AmbientMode } from '../lib/ambient'
 
@@ -20,12 +20,12 @@ const AMBIENT_OPTIONS: { mode: AmbientMode; label: string; icon: typeof Sun }[] 
 export function CommandPalette({
   onNewThread,
   onFocusSearch,
-  onToggleWebSearch,
+  onOpenSettings,
   onClose,
 }: {
   onNewThread: () => void
   onFocusSearch: () => void
-  onToggleWebSearch: () => void
+  onOpenSettings: () => void
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')
@@ -43,10 +43,10 @@ export function CommandPalette({
     return [
       { id: 'new', label: 'New thread', keywords: 'chat conversation start', run: onNewThread },
       { id: 'search', label: 'Search conversations', keywords: 'find filter threads', run: onFocusSearch },
-      { id: 'web', label: 'Toggle web search', keywords: 'internet retrieval grounded', run: onToggleWebSearch },
+      { id: 'settings', label: 'Open settings', keywords: 'ambient effects preferences', run: onOpenSettings },
       ...ambient,
     ]
-  }, [onNewThread, onFocusSearch, onToggleWebSearch])
+  }, [onNewThread, onFocusSearch, onOpenSettings])
 
   const results = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -121,8 +121,8 @@ export function CommandPalette({
                 ? Plus
                 : command.id === 'search'
                   ? Search
-                  : command.id === 'web'
-                    ? Gauge
+                  : command.id === 'settings'
+                    ? Settings2
                     : AMBIENT_OPTIONS.find((option) => command.id === `ambient-${option.mode}`)?.icon ??
                       FileText
             return (

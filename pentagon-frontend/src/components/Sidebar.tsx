@@ -1,8 +1,6 @@
-import { useMemo, useSyncExternalStore } from 'react'
-import { MessageSquarePlus, Search, Waves } from 'lucide-react'
+import { useMemo } from 'react'
+import { MessageSquarePlus, Search, Settings2 } from 'lucide-react'
 import { LogomarkBadge } from './Logomark'
-import { getAmbientMode, setAmbientMode, subscribeAmbient } from '../lib/ambient'
-import type { AmbientMode } from '../lib/ambient'
 import type { Conversation } from '../types'
 
 type Group = { title: string; conversations: Conversation[] }
@@ -32,6 +30,7 @@ export function Sidebar({
   onNewThread,
   onSelect,
   onOpenPalette,
+  onOpenSettings,
 }: {
   conversations: Conversation[]
   activeId: string | null
@@ -41,15 +40,10 @@ export function Sidebar({
   onNewThread: () => void
   onSelect: (id: string) => void
   onOpenPalette?: () => void
+  onOpenSettings?: () => void
 }) {
-  const ambientMode = useSyncExternalStore(subscribeAmbient, getAmbientMode)
-  const ambientOptions: { mode: AmbientMode; label: string }[] = [
-    { mode: 'full', label: 'Full' },
-    { mode: 'calm', label: 'Calm' },
-    { mode: 'off', label: 'Off' },
-  ]
   const groups = useMemo(() => recencyGroups(conversations.filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase()))), [conversations, query])
-  return <aside className="flex h-full w-[270px] shrink-0 flex-col border-r border-white/[0.065] bg-[#101113] px-4 py-5 max-lg:w-[230px] max-md:hidden">
+  return <aside className="flex h-full w-[270px] shrink-0 flex-col border-r border-white/[0.07] bg-[#0d1016]/72 px-4 py-5 backdrop-blur-2xl backdrop-saturate-150 max-lg:w-[230px] max-md:hidden">
     <div className="mb-8 flex items-center gap-3 px-2">
       <LogomarkBadge size={32} label="Pentagon" />
       <div><div className="text-[12px] font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 text-[9px] uppercase tracking-[.18em] text-zinc-600">Personal workspace</div></div>
@@ -85,20 +79,11 @@ export function Sidebar({
         <div className="min-w-0"><div className="text-[10px] font-medium text-zinc-300">Local session</div><div className="truncate text-[9px] text-zinc-600">{userId}</div></div>
         <span className="ml-auto size-1.5 rounded-full bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,.7)]" title="Backend connected" />
       </div>
-      <div className="mt-3 flex items-center gap-2 px-2">
-        <Waves size={11} className="shrink-0 text-zinc-600" aria-hidden="true" />
-        <span className="text-[9px] uppercase tracking-[.16em] text-zinc-600">Ambient</span>
-        <div role="radiogroup" aria-label="Ambient background intensity" className="ml-auto flex overflow-hidden rounded-md border border-white/[0.07]">
-          {ambientOptions.map((option) => <button
-            key={option.mode}
-            type="button"
-            role="radio"
-            aria-checked={ambientMode === option.mode}
-            onClick={() => setAmbientMode(option.mode)}
-            className={`px-1.5 py-0.5 text-[9px] transition ${ambientMode === option.mode ? 'bg-emerald-300/[0.12] text-emerald-200' : 'text-zinc-600 hover:text-zinc-400'}`}
-          >{option.label}</button>)}
-        </div>
-      </div>
+      <button type="button" onClick={onOpenSettings} className="mt-2 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-white/[0.045]" title="Settings">
+        <Settings2 size={14} className="shrink-0 text-zinc-500" />
+        <span className="text-[10px] text-zinc-400">Settings</span>
+        <span className="ml-auto text-[9px] text-zinc-700">ambient, shortcuts</span>
+      </button>
     </div>
   </aside>
 }

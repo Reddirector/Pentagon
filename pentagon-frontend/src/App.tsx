@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode } from 'react'
-import { Activity, ArrowUp, AudioLines, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Mic, Paperclip, Plus, Search, Square, Video, X } from 'lucide-react'
+import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
+import { Activity, ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Mic, Paperclip, Plus, Search, Square, Video, X } from 'lucide-react'
 import { apiRequest, ApiError, getLocalUserId, pcmToWavUrl } from './api'
 import { AssistantDetails } from './components/MessageContent'
 import { Sidebar } from './components/Sidebar'
@@ -8,6 +8,7 @@ import { Logomark, LogomarkBadge } from './components/Logomark'
 import { ThinkingIndicator } from './components/ThinkingIndicator'
 import { AmbientLayer } from './components/AmbientLayer'
 import { CommandPalette } from './components/CommandPalette'
+import { SettingsDialog } from './components/SettingsDialog'
 import { setAmbientSignal } from './lib/ambient'
 import type { ChatMessage, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, SourcesUsed } from './types'
 
@@ -59,8 +60,7 @@ function App() {
   const [selectedModel, setSelectedModel] = useState('')
   const [search, setSearch] = useState('')
   const [draft, setDraft] = useState('')
-  const [webSearch, setWebSearch] = useState(false)
-  const [audioReply, setAudioReply] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [transcriptInfo, setTranscriptInfo] = useState<TranscriptInfo | null>(null)
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
@@ -450,8 +450,9 @@ function App() {
       form.set('conversation_id', thread.id)
       form.set('model', modelForMessage)
       form.set('message', question)
-      form.set('use_web_search', String(webSearch))
-      form.set('respond_with_audio', String(audioReply))
+      // Web search is not a user toggle: omitting the field lets the backend
+      // router decide when a question actually needs live results.
+      if (transcriptInfo) form.set('respond_with_audio', 'true')
       if (mediaForMessage) form.set(isVideo(mediaForMessage) ? 'video' : 'image', mediaForMessage)
       if (transcriptInfo) {
         form.set('transcription_duration_ms', String(transcriptInfo.durationMs))
@@ -652,6 +653,7 @@ function App() {
     <Sidebar
       conversations={sidebarThreads}
       onOpenPalette={() => setPaletteOpen(true)}
+      onOpenSettings={() => setSettingsOpen(true)}
       activeId={activeId}
       userId={userId}
       query={search}
@@ -673,8 +675,8 @@ function App() {
             </select>
             <ChevronDown size={12} className="shrink-0 text-zinc-600" />
           </div>
-          <span className={`hidden items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] sm:inline-flex ${webSearch ? 'border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-200' : 'border-white/[0.07] text-zinc-500'}`}>
-            <span className={`size-1.5 rounded-full ${webSearch ? 'bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,.6)]' : 'bg-zinc-700'}`} />Web Search {webSearch ? 'Active' : 'Off'}
+          <span className="hidden items-center gap-1.5 rounded-full border border-white/[0.07] px-2.5 py-1.5 text-[10px] text-zinc-500 sm:inline-flex" title="Web search runs automatically when a question needs it">
+            <span className="size-1.5 rounded-full bg-zinc-600" />Web search auto
           </span>
           {activeModel?.supports_vision && <span className="hidden items-center gap-1.5 rounded-full border border-violet-300/15 bg-violet-300/[0.06] px-2.5 py-1.5 text-[10px] text-violet-200 md:inline-flex"><ImageIcon size={11} />Vision ready</span>}
         </div>
@@ -735,9 +737,8 @@ function App() {
                 <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.txt" multiple hidden onChange={(event) => void handleAttachmentChange(event)} />
                 <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, or document"><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
                 <span className="mx-0.5 h-4 w-px bg-white/[0.08]" />
-                <TogglePill active={webSearch} onClick={() => setWebSearch((value) => !value)} icon={<Search size={12} />} label="Web Search" />
-                <TogglePill active={audioReply} onClick={() => setAudioReply((value) => !value)} icon={<AudioLines size={12} />} label="Audio reply" />
-                <button type="button" onClick={() => void toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
+                <span className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] text-zinc-600" title="Pentagon searches the web automatically when a question needs current information"><Search size={12} /><span className="max-sm:hidden">Searches when needed</span></span>
+                <button type="button" onClick={() => void toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
               </div>
               {streaming
                 ? <button type="button" onClick={stopStreaming} className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-zinc-200 transition-[background-color,transform] duration-200 ease-out hover:bg-white/[0.1] active:scale-95" aria-label="Stop generating" title="Stop generating"><Square size={13} fill="currentColor" /></button>
@@ -755,14 +756,11 @@ function App() {
     {paletteOpen ? <CommandPalette
       onNewThread={startThread}
       onFocusSearch={focusSearch}
-      onToggleWebSearch={() => setWebSearch((value) => !value)}
+      onOpenSettings={() => setSettingsOpen(true)}
       onClose={() => setPaletteOpen(false)}
     /> : null}
+    {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
   </div>
-}
-
-function TogglePill({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: ReactNode; label: string }) {
-  return <button type="button" onClick={onClick} aria-pressed={active} className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] transition-[background-color,border-color,color,transform] duration-200 ease-out active:scale-[.98] ${active ? 'border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-100' : 'border-transparent text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-300'}`}>{icon}<span className="max-sm:hidden">{label}</span></button>
 }
 
 function MessageRow({ message, isStreaming = false, copied = false, onCopy }: { message: ChatMessage; isStreaming?: boolean; copied?: boolean; onCopy?: () => void }) {
