@@ -86,6 +86,120 @@ textarea { field-sizing: content; }
 
 .tabular-nums { font-variant-numeric: tabular-nums; }
 
+/* ---------------------------------------------------------------------------
+   Ambient background — "a quiet observatory at night".
+   Fixed, inert, mounted once at the app root. Nothing here may compete with
+   text: the vignette keeps the reading column on a dark surface.
+--------------------------------------------------------------------------- */
+.ambient-root {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background: #07090d;
+  contain: strict;
+}
+
+.ambient-aurora {
+  position: absolute;
+  border-radius: 50%;
+  filter: none;
+  will-change: transform, opacity;
+  transition: opacity 1s var(--ease-ui, cubic-bezier(.2, .8, .2, 1));
+}
+
+.ambient-aurora-a {
+  width: 62vmax; height: 62vmax;
+  left: -18vmax; top: -22vmax;
+  background: radial-gradient(circle, rgb(110 130 255 / .16), transparent 62%);
+  animation: drift-a 52s ease-in-out infinite alternate;
+}
+.ambient-aurora-b {
+  width: 55vmax; height: 55vmax;
+  right: -16vmax; bottom: -20vmax;
+  background: radial-gradient(circle, rgb(60 180 190 / .12), transparent 60%);
+  animation: drift-b 61s ease-in-out infinite alternate;
+}
+.ambient-aurora-c {
+  width: 42vmax; height: 42vmax;
+  left: 42%; top: 58%;
+  background: radial-gradient(circle, rgb(227 185 107 / .07), transparent 58%);
+  animation: drift-c 47s ease-in-out infinite alternate;
+}
+
+.ambient-warm {
+  position: absolute;
+  width: 70vmax; height: 70vmax;
+  left: 50%; top: 50%;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(245 177 76 / .13), transparent 58%);
+  opacity: 0;
+  transition: opacity 1.4s var(--ease-ui, cubic-bezier(.2, .8, .2, 1));
+}
+.ambient-root[data-state="approval"] .ambient-warm { opacity: 1; }
+
+/* Cool aurora fades out as the warm one comes in during approval. */
+.ambient-root[data-state="approval"] .ambient-aurora { opacity: .35; }
+
+.ambient-orbits {
+  position: absolute;
+  inset: -6%;
+  width: 112%;
+  height: 112%;
+  opacity: .8;
+  animation: orbit-spin 220s linear infinite;
+}
+
+.ambient-grain {
+  position: absolute;
+  inset: 0;
+  opacity: .035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.ambient-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 78% 68% at 50% 46%, transparent 38%, rgb(0 0 0 / .55) 100%);
+}
+
+/* State-driven calm: the room reacts without ever demanding attention. */
+.ambient-root[data-state="focus"] .ambient-aurora { opacity: .9; }
+.ambient-root[data-state="thinking"] .ambient-aurora { opacity: 1.15; }
+.ambient-root[data-state="thinking"] .ambient-orbits { animation-duration: 150s; }
+.ambient-root[data-state="streaming"] .ambient-aurora-a { animation-duration: 44s; }
+.ambient-root[data-state="error"] .ambient-root,
+.ambient-root[data-state="error"] .ambient-aurora { opacity: .55; }
+.ambient-root[data-state="offline"] .ambient-aurora,
+.ambient-root[data-state="offline"] .ambient-orbits { opacity: .3; animation-duration: 300s; }
+
+/* Calm: half the motion budget, no long drifts. */
+.ambient-root[data-mode="calm"] .ambient-aurora { animation-duration: 120s; }
+.ambient-root[data-mode="calm"] .ambient-orbits { animation-duration: 300s; }
+
+@keyframes drift-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(6vmax, 4vmax, 0) scale(1.08); }
+}
+@keyframes drift-b {
+  from { transform: translate3d(0, 0, 0) scale(1.04); }
+  to { transform: translate3d(-5vmax, -3vmax, 0) scale(1); }
+}
+@keyframes drift-c {
+  from { transform: translate3d(-3vmax, 2vmax, 0) scale(1); }
+  to { transform: translate3d(4vmax, -3vmax, 0) scale(1.1); }
+}
+@keyframes orbit-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient-root { display: none; }
+}
+
 .markdown-content > :first-child { margin-top: 0; }
 .markdown-content > :last-child { margin-bottom: 0; }
 .markdown-content .katex-display { overflow-x: auto; overflow-y: hidden; padding: .75rem 0; color: #e4e4e7; }

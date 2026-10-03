@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode } from 'react'
-import { Activity, ArrowUp, AudioLines, ChevronDown, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Mic, Paperclip, Plus, Search, Square, Video, X } from 'lucide-react'
+import { Activity, ArrowUp, AudioLines, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Mic, Paperclip, Plus, Search, Square, Video, X } from 'lucide-react'
 import { apiRequest, ApiError, getLocalUserId, pcmToWavUrl } from './api'
 import { AssistantDetails } from './components/MessageContent'
 import { Sidebar } from './components/Sidebar'
 import { Logomark, LogomarkBadge } from './components/Logomark'
 import { ThinkingIndicator } from './components/ThinkingIndicator'
+import { AmbientLayer } from './components/AmbientLayer'
+import { CommandPalette } from './components/CommandPalette'
+import { setAmbientSignal } from './lib/ambient'
 import type { ChatMessage, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, SourcesUsed } from './types'
 
 type ConversationDetail = Conversation & { messages: ChatMessage[]; summary_at_switch: string | null }
@@ -61,6 +64,10 @@ function App() {
   const [transcriptInfo, setTranscriptInfo] = useState<TranscriptInfo | null>(null)
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [atBottom, setAtBottom] = useState(true)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [composerFocused, setComposerFocused] = useState(false)
   const [streaming, setStreaming] = useState(false)
   const [switching, setSwitching] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -71,6 +78,7 @@ function App() {
   const fileInput = useRef<HTMLInputElement>(null)
   const recorder = useRef<MediaRecorder | null>(null)
   const streamAbort = useRef<AbortController | null>(null)
+  const currentAssistantIndex = useRef(0)
   const conversationViewport = useRef<HTMLDivElement>(null)
   const followConversation = useRef(true)
   const scrollFrame = useRef<number | null>(null)
@@ -172,10 +180,93 @@ function App() {
   useEffect(() => () => recorder.current?.stream.getTracks().forEach((track) => track.stop()), [])
   useEffect(() => () => streamAbort.current?.abort(), [])
 
+  // The ambient layer reacts to what the app is actually doing.
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1]
+    setAmbientSignal('streaming', streaming && Boolean(lastMessage?.content))
+    setAmbientSignal('thinking', streaming || transcribing || uploading || switching)
+    setAmbientSignal('error', Boolean(error))
+    setAmbientSignal('focus', composerFocused)
+    setAmbientSignal('offline', !navigator.onLine)
+  }, [streaming, transcribing, uploading, switching, error, messages, composerFocused])
+
+  useEffect(() => {
+    const sync = () => setAmbientSignal('offline', !navigator.onLine)
+    window.addEventListener('online', sync)
+    window.addEventListener('offline', sync)
+    return () => {
+      window.removeEventListener('online', sync)
+      window.removeEventListener('offline', sync)
+    }
+  }, [])
+
+  useEffect(() => {
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      const meta = event.metaKey || event.ctrlKey
+      if (meta && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen((value) => !value)
+        return
+      }
+      if (event.key === 'Escape') {
+        setPaletteOpen(false)
+        return
+      }
+      const target = event.target as HTMLElement | null
+      const typing = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
+      if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        event.preventDefault()
+        jumpToMessage(event.key === 'ArrowDown' ? 1 : -1)
+        return
+      }
+      if (event.key === '/' && !typing && active) {
+        event.preventDefault()
+        document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Write a message"]')?.focus()
+        return
+      }
+      if (meta && event.shiftKey && event.key.toLowerCase() === 'o') {
+        event.preventDefault()
+        startThread()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
   function handleConversationScroll() {
     const viewport = conversationViewport.current
     if (!viewport) return
     followConversation.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 120
+    setAtBottom(followConversation.current)
+  }
+
+  function jumpToLatest() {
+    const viewport = conversationViewport.current
+    if (!viewport) return
+    followConversation.current = true
+    setAtBottom(true)
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
+  }
+
+  function jumpToMessage(offset: number) {
+    const viewport = conversationViewport.current
+    if (!viewport) return
+    const rows = Array.from(viewport.querySelectorAll<HTMLElement>('[data-assistant-message]'))
+    if (!rows.length) return
+    const index = Math.min(Math.max(currentAssistantIndex.current + offset, 0), rows.length - 1)
+    currentAssistantIndex.current = index
+    rows[index].scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
+
+  async function copyMessage(message: ChatMessage) {
+    if (!message.content) return
+    try {
+      await navigator.clipboard.writeText(message.content)
+      setCopiedId(message.id)
+      window.setTimeout(() => setCopiedId(null), 1600)
+    } catch {
+      setError('Could not copy to the clipboard.')
+    }
   }
 
   async function refreshThreads() {
@@ -386,6 +477,10 @@ function App() {
     streamAbort.current?.abort()
   }
 
+  function focusSearch() {
+    document.querySelector<HTMLInputElement>('input[aria-label="Search conversations"]')?.focus()
+  }
+
   async function streamResponse(form: FormData, assistantId: string) {
     const controller = new AbortController()
     streamAbort.current = controller
@@ -552,9 +647,11 @@ function App() {
     onSubmit={(event) => void saveKey(event)}
   />
 
-  return <div className="flex h-dvh min-h-[620px] overflow-hidden bg-[#0c0d0f] text-zinc-100 selection:bg-emerald-300/30">
+  return <div className="flex h-dvh min-h-[620px] overflow-hidden bg-transparent text-zinc-100 selection:bg-emerald-300/30">
+    <AmbientLayer />
     <Sidebar
       conversations={sidebarThreads}
+      onOpenPalette={() => setPaletteOpen(true)}
       activeId={activeId}
       userId={userId}
       query={search}
@@ -598,13 +695,16 @@ function App() {
         </div>
       </header>
 
-      <section className="flex min-h-0 flex-1 flex-col">
+      <section className="relative flex min-h-0 flex-1 flex-col">
+        {(!atBottom && messages.length > 0) ? <button type="button" onClick={jumpToLatest} className="panel-enter absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/[0.1] bg-[#16181c]/95 px-3 py-1.5 text-[10px] text-zinc-300 shadow-[0_10px_30px_rgba(0,0,0,.45)] backdrop-blur transition hover:border-emerald-300/30 hover:text-zinc-100">
+          <ChevronDown size={12} className="rotate-180" />Jump to latest
+        </button> : null}
         <div ref={conversationViewport} onScroll={handleConversationScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div className="mx-auto flex w-full max-w-[850px] flex-1 flex-col px-7 pb-5 pt-8 max-sm:px-4 max-sm:pt-5">
             {notice && <div className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-[11px] text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
             {error && <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-[11px] leading-5 text-rose-200"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></div>}
             {messages.length ? <div className="space-y-8">
-              {messages.map((message, index) => <MessageRow key={message.id} message={message} isStreaming={streaming && index === messages.length - 1} />)}
+              {messages.map((message, index) => <MessageRow key={message.id} message={message} isStreaming={streaming && index === messages.length - 1} copied={copiedId === message.id} onCopy={() => void copyMessage(message)} />)}
             </div> : <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-16 text-center">
               <div className="relative mb-7 grid size-[66px] place-items-center rounded-[22px] border border-emerald-300/10 bg-emerald-300/[0.045] text-emerald-200 shadow-[0_0_70px_rgba(52,211,153,.08)]"><Logomark size={30} /><span className="absolute -right-1 -top-1 size-2 rounded-full bg-emerald-300/70" /></div>
               <p className="mb-3 text-[9px] font-medium uppercase tracking-[.23em] text-emerald-200/70">A focused place to think</p>
@@ -629,7 +729,7 @@ function App() {
           {media && <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-[10px] text-zinc-300"><span className="text-emerald-200">{isVideo(media) ? <Video size={13} /> : <ImageIcon size={13} />}</span><span className="min-w-0 flex-1 truncate">{media.name}</span><span className="text-zinc-600">{isVideo(media) ? 'Video' : 'Image'}</span><button onClick={() => setMedia(null)} aria-label="Remove attachment" className="text-zinc-500 hover:text-white"><X size={13} /></button></div>}
           {queuedDocuments.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{queuedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className="panel-enter inline-flex max-w-full items-center gap-1.5 rounded-lg border border-sky-300/10 bg-sky-300/[0.045] px-2 py-1.5 text-[9px] text-sky-100/80"><FileText size={11} /><span className="max-w-[180px] truncate">{file.name}</span><span className="text-sky-100/40">queued</span><button onClick={() => setQueuedDocuments((items) => items.filter((_, current) => current !== index))} aria-label={`Remove ${file.name}`}><X size={11} /></button></span>)}</div>}
           <form onSubmit={(event) => void handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#151619] p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition-[border-color,box-shadow] duration-200 ease-out focus-within:border-emerald-300/25 focus-within:shadow-[0_0_0_3px_rgba(110,231,183,.045),0_20px_90px_rgba(0,0,0,.28)]">
-            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKey} rows={2} disabled={!active || streaming || transcribing} placeholder={active ? 'Message Pentagon…' : 'Start a new thread to begin'} className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-[13px] leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed" aria-label="Write a message" />
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKey} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} rows={2} disabled={!active || streaming || transcribing} placeholder={active ? 'Message Pentagon…' : 'Start a new thread to begin'} className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-[13px] leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed" aria-label="Write a message" />
             <div className="flex items-center justify-between gap-2 px-1 pb-0.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.txt" multiple hidden onChange={(event) => void handleAttachmentChange(event)} />
@@ -652,6 +752,12 @@ function App() {
         </div>
       </section>
     </main>
+    {paletteOpen ? <CommandPalette
+      onNewThread={startThread}
+      onFocusSearch={focusSearch}
+      onToggleWebSearch={() => setWebSearch((value) => !value)}
+      onClose={() => setPaletteOpen(false)}
+    /> : null}
   </div>
 }
 
@@ -659,9 +765,9 @@ function TogglePill({ active, onClick, icon, label }: { active: boolean; onClick
   return <button type="button" onClick={onClick} aria-pressed={active} className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] transition-[background-color,border-color,color,transform] duration-200 ease-out active:scale-[.98] ${active ? 'border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-100' : 'border-transparent text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-300'}`}>{icon}<span className="max-sm:hidden">{label}</span></button>
 }
 
-function MessageRow({ message, isStreaming = false }: { message: ChatMessage; isStreaming?: boolean }) {
+function MessageRow({ message, isStreaming = false, copied = false, onCopy }: { message: ChatMessage; isStreaming?: boolean; copied?: boolean; onCopy?: () => void }) {
   const user = message.role === 'user'
-  return <article className={`message-enter flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
+  return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
     {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-[10px] border border-emerald-300/12 bg-emerald-300/[0.055] text-emerald-200"><Logomark size={14} /></div>}
     <div className={`min-w-0 ${user ? 'max-w-[78%]' : 'w-full max-w-[calc(100%-40px)]'}`}>
       <div className={`mb-2 flex items-center gap-2 text-[10px] ${user ? 'justify-end pr-1 text-zinc-500' : 'text-zinc-500'}`}><span className="font-medium text-zinc-300">{user ? 'You' : 'Pentagon'}</span>{!user && <span className="truncate font-mono text-[9px] text-zinc-700">{message.model_used}</span>}</div>
@@ -670,6 +776,9 @@ function MessageRow({ message, isStreaming = false }: { message: ChatMessage; is
         {message.attachmentName && <div className="mt-2 flex items-center gap-1.5 text-[9px] text-zinc-500"><Paperclip size={11} />{message.attachmentName}</div>}
       </div> : <div className="min-w-0 pt-0.5">
         {message.content ? <div className={isStreaming ? 'streaming-answer' : undefined}><AssistantDetails message={message} /></div> : <ThinkingIndicator model={message.model_used} />}
+      {!user && message.content ? <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
+        <button type="button" onClick={onCopy} className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] text-zinc-600 transition hover:bg-white/[0.05] hover:text-zinc-300" aria-label="Copy answer">{copied ? <Check size={11} className="text-emerald-300" /> : <Copy size={11} />}{copied ? 'Copied' : 'Copy'}</button>
+      </div> : null}
       </div>}
     </div>
     {user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-white/[0.08] bg-white/[0.04] text-[9px] text-zinc-400">Y</div>}

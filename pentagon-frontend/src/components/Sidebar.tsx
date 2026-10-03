@@ -1,6 +1,8 @@
-import { useMemo } from 'react'
-import { MessageSquarePlus, Search } from 'lucide-react'
+import { useMemo, useSyncExternalStore } from 'react'
+import { MessageSquarePlus, Search, Waves } from 'lucide-react'
 import { LogomarkBadge } from './Logomark'
+import { getAmbientMode, setAmbientMode, subscribeAmbient } from '../lib/ambient'
+import type { AmbientMode } from '../lib/ambient'
 import type { Conversation } from '../types'
 
 type Group = { title: string; conversations: Conversation[] }
@@ -29,6 +31,7 @@ export function Sidebar({
   onQueryChange,
   onNewThread,
   onSelect,
+  onOpenPalette,
 }: {
   conversations: Conversation[]
   activeId: string | null
@@ -37,7 +40,14 @@ export function Sidebar({
   onQueryChange: (value: string) => void
   onNewThread: () => void
   onSelect: (id: string) => void
+  onOpenPalette?: () => void
 }) {
+  const ambientMode = useSyncExternalStore(subscribeAmbient, getAmbientMode)
+  const ambientOptions: { mode: AmbientMode; label: string }[] = [
+    { mode: 'full', label: 'Full' },
+    { mode: 'calm', label: 'Calm' },
+    { mode: 'off', label: 'Off' },
+  ]
   const groups = useMemo(() => recencyGroups(conversations.filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase()))), [conversations, query])
   return <aside className="flex h-full w-[270px] shrink-0 flex-col border-r border-white/[0.065] bg-[#101113] px-4 py-5 max-lg:w-[230px] max-md:hidden">
     <div className="mb-8 flex items-center gap-3 px-2">
@@ -46,7 +56,7 @@ export function Sidebar({
     </div>
 
     <button onClick={onNewThread} className="mb-5 flex h-10 items-center gap-2.5 rounded-xl border border-white/[0.09] bg-white/[0.035] px-3 text-left text-[12px] font-medium text-zinc-200 transition-[background-color,border-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-emerald-300/30 hover:bg-emerald-300/[0.07] hover:text-white active:translate-y-0 active:scale-[.99]">
-      <MessageSquarePlus size={15} className="text-emerald-300" />New Thread<span className="ml-auto text-[10px] text-zinc-600">⌘ K</span>
+      <MessageSquarePlus size={15} className="text-emerald-300" />New Thread<button type="button" onClick={onOpenPalette} className="ml-auto rounded-md border border-white/[0.08] px-1.5 py-0.5 text-[9px] text-zinc-600 transition hover:border-emerald-300/25 hover:text-zinc-300" title="Open command palette">⌘K</button>
     </button>
 
     <div className="relative mb-6">
@@ -71,6 +81,20 @@ export function Sidebar({
         <div className="grid size-7 place-items-center rounded-full border border-white/10 bg-white/[0.045] font-mono text-[10px] text-zinc-300">{userId.slice(-1).toUpperCase()}</div>
         <div className="min-w-0"><div className="text-[10px] font-medium text-zinc-300">Local session</div><div className="truncate text-[9px] text-zinc-600">{userId}</div></div>
         <span className="ml-auto size-1.5 rounded-full bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,.7)]" title="Backend connected" />
+      </div>
+      <div className="mt-3 flex items-center gap-2 px-2">
+        <Waves size={11} className="shrink-0 text-zinc-600" aria-hidden="true" />
+        <span className="text-[9px] uppercase tracking-[.16em] text-zinc-600">Ambient</span>
+        <div role="radiogroup" aria-label="Ambient background intensity" className="ml-auto flex overflow-hidden rounded-md border border-white/[0.07]">
+          {ambientOptions.map((option) => <button
+            key={option.mode}
+            type="button"
+            role="radio"
+            aria-checked={ambientMode === option.mode}
+            onClick={() => setAmbientMode(option.mode)}
+            className={`px-1.5 py-0.5 text-[9px] transition ${ambientMode === option.mode ? 'bg-emerald-300/[0.12] text-emerald-200' : 'text-zinc-600 hover:text-zinc-400'}`}
+          >{option.label}</button>)}
+        </div>
       </div>
     </div>
   </aside>
