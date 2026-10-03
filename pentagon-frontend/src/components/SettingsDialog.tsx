@@ -19,7 +19,7 @@ import {
 } from '../lib/preferences'
 import type { Appearance, Contrast, Density, TextSize } from '../lib/preferences'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
-import { apiRequest } from '../api'
+import { apiRequest, getLocalUserId } from '../api'
 import type { Conversation, DocumentInfo, ModelInfo } from '../types'
 
 const AMBIENT_OPTIONS: { mode: AmbientMode; label: string; description: string; icon: typeof Sun }[] = [
@@ -291,6 +291,9 @@ export function SettingsDialog({
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
   const [authBusy, setAuthBusy] = useState(false)
   const [authMessage, setAuthMessage] = useState('')
+  // Deleting a document used to fail silently, so a broken request looked
+  // exactly like a click that did nothing.
+  const [documentError, setDocumentError] = useState('')
   const [sessionEmail, setSessionEmail] = useState<string | null>(null)
 
   useEffect(() => {
@@ -343,11 +346,20 @@ export function SettingsDialog({
   }
 
   async function removeDocument(documentId: string) {
+    setDocumentError('')
     try {
-      await apiRequest(`/api/documents/${encodeURIComponent(documentId)}`, { method: 'DELETE' })
+      // remove_document is scoped by owner, so it needs the same user_id the
+      // upload and list calls send. Without it the request is a 422 and the
+      // document silently refuses to delete.
+      await apiRequest(
+        `/api/documents/${encodeURIComponent(documentId)}?user_id=${encodeURIComponent(getLocalUserId())}`,
+        { method: 'DELETE' },
+      )
       onDocumentDeleted(documentId)
-    } catch {
-      /* The list is left untouched; the next refresh will show the truth. */
+    } catch (cause) {
+      setDocumentError(
+        cause instanceof Error ? cause.message : 'Could not delete that document.',
+      )
     }
   }
 
@@ -702,6 +714,7 @@ export function SettingsDialog({
                     ))}
                   </ul>
                 )}
+                {documentError && <p className="mt-2 text-small text-amber-300/90">{documentError}</p>}
               </Section>
 
               <Section

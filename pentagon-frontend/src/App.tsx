@@ -114,7 +114,7 @@ function App() {
         setThreads(list)
         if (list.length) {
           const [detail, docs] = await Promise.all([
-            apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(list[0].id)}`),
+            apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(list[0].id)}?user_id=${encodeURIComponent(userId)}`),
             apiRequest<DocumentInfo[]>(`/api/documents?user_id=${encodeURIComponent(userId)}&conversation_id=${encodeURIComponent(list[0].id)}`),
           ])
           if (cancelled) return
@@ -317,7 +317,7 @@ function App() {
     setError('')
     try {
       const updated = await apiRequest<Conversation>(
-        `/api/conversations/${encodeURIComponent(id)}/title`,
+        `/api/conversations/${encodeURIComponent(id)}/title?user_id=${encodeURIComponent(userId)}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -334,7 +334,7 @@ function App() {
   async function deleteThread(id: string) {
     setError('')
     try {
-      await apiRequest(`/api/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      await apiRequest(`/api/conversations/${encodeURIComponent(id)}?user_id=${encodeURIComponent(userId)}`, { method: 'DELETE' })
       const remaining = threads.filter((thread) => thread.id !== id)
       setThreads(remaining)
       if (active?.id === id) {
@@ -404,7 +404,7 @@ function App() {
     setNotice('')
     try {
       const [detail, docs] = await Promise.all([
-        apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`),
+        apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}?user_id=${encodeURIComponent(userId)}`),
         apiRequest<DocumentInfo[]>(`/api/documents?user_id=${encodeURIComponent(userId)}&conversation_id=${encodeURIComponent(id)}`),
       ])
       followConversation.current = true
@@ -459,7 +459,7 @@ function App() {
     setSwitching(true)
     try {
       const result = await apiRequest<{ active_model: string; summary_generated: boolean; summary_word_count: number }>(
-        `/api/conversations/${encodeURIComponent(active.id)}`,
+        `/api/conversations/${encodeURIComponent(active.id)}?user_id=${encodeURIComponent(userId)}`,
         { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: nextModel }) },
       )
       setThreads((items) => items.map((item) => item.id === active.id ? { ...item, active_model: result.active_model } : item))

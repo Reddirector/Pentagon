@@ -213,10 +213,18 @@ def create_conversation(
 def rename_conversation(
     conversation_id: str,
     payload: RenameConversationRequest,
+    user_id: str = Query(min_length=1, max_length=128),
     db: Session = Depends(get_db),
 ) -> Conversation:
-    conversation = db.get(Conversation, conversation_id)
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user_id,
+        )
+    )
     if conversation is None:
+        # 404 rather than 403: a thread belonging to somebody else must be
+        # indistinguishable from one that does not exist.
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
     # A title of only whitespace would render as an empty row in the sidebar.
@@ -234,10 +242,17 @@ def rename_conversation(
 @router.delete("/conversations/{conversation_id}", status_code=204)
 def delete_conversation(
     conversation_id: str,
+    user_id: str = Query(min_length=1, max_length=128),
     db: Session = Depends(get_db),
 ) -> Response:
-    conversation = db.get(Conversation, conversation_id)
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user_id,
+        )
+    )
     if conversation is None:
+        # Scoped by owner, so another user's thread cannot be deleted by id.
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
     # Messages cascade through the ORM relationship; documents cascade through
@@ -255,9 +270,15 @@ def delete_conversation(
 async def switch_conversation_model(
     conversation_id: str,
     payload: SwitchConversationModelRequest,
+    user_id: str = Query(min_length=1, max_length=128),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    conversation = db.get(Conversation, conversation_id)
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user_id,
+        )
+    )
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
@@ -329,14 +350,20 @@ async def switch_conversation_model(
 @router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
 def get_conversation(
     conversation_id: str,
+    user_id: str = Query(min_length=1, max_length=128),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     conversation = db.scalar(
         select(Conversation)
         .options(selectinload(Conversation.messages))
-        .where(Conversation.id == conversation_id)
+        .where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user_id,
+        )
     )
     if conversation is None:
+        # Scoped by owner so a conversation id cannot be used to read somebody
+        # else's thread.
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
     return {

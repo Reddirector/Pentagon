@@ -122,7 +122,7 @@ def test_switch_summarizes_once_and_reuses_summary_on_next_turn(
     monkeypatch.setattr("app.routes.chat.summarize_for_model_switch", summarize)
     with TestClient(app) as client:
         switched = client.patch(
-            f"/api/conversations/{model_setup['conversation_id']}",
+            f"/api/conversations/{model_setup['conversation_id']}?user_id={model_setup['user_id']}",
             json={"model": MODEL_B},
         )
         response = client.post(
@@ -135,9 +135,12 @@ def test_switch_summarizes_once_and_reuses_summary_on_next_turn(
                 "use_web_search": False,
             },
         )
-        detail = client.get(f"/api/conversations/{model_setup['conversation_id']}")
+        detail = client.get(
+            f"/api/conversations/{model_setup['conversation_id']}"
+            f"?user_id={model_setup['user_id']}"
+        )
         same_model = client.patch(
-            f"/api/conversations/{model_setup['conversation_id']}",
+            f"/api/conversations/{model_setup['conversation_id']}?user_id={model_setup['user_id']}",
             json={"model": MODEL_B},
         )
 
@@ -177,7 +180,7 @@ def test_failed_switch_summary_keeps_old_model(model_setup, available_models, mo
     monkeypatch.setattr("app.routes.chat.summarize_for_model_switch", fail_summary)
     with TestClient(app) as client:
         response = client.patch(
-            f"/api/conversations/{model_setup['conversation_id']}",
+            f"/api/conversations/{model_setup['conversation_id']}?user_id={model_setup['user_id']}",
             json={"model": MODEL_B},
         )
 

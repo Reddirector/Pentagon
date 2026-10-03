@@ -68,6 +68,25 @@ replaced with `pentagon-logo.png`. Nothing was lost but the duplication.
 `npm run electron:dev` and the four `npm run package:*` scripts are unchanged,
 and now build the same interface the browser serves.
 
+## Every record route is scoped by owner
+
+`GET`, `PATCH` and `DELETE` on `/api/conversations/{id}` originally looked the
+row up by primary key alone, while `GET /api/conversations` and
+`DELETE /api/documents/{id}` filtered on `user_id`. Anyone who knew a thread's
+UUID could therefore read it, rename it, switch its model, or delete it with no
+`user_id` at all. The inconsistency was accidental: `remove_document` shows the
+intended shape, and the conversation routes simply missed the filter.
+
+All four now take a required `user_id` and filter on it. They answer `404`
+rather than `403` for someone else's thread, because a `403` confirms the id
+exists.
+
+This is **not** authentication. `user_id` is client-supplied, so it is a
+scoping key rather than a credential: it stops a stale id in one client from
+touching another user's rows, but a caller who can reach the API can pass any
+`user_id` they like. Real isolation needs sessions or signed tokens, which is
+why the app is documented as local-first. See the README.
+
 ## Tests run against a throwaway database
 
 `tests/conftest.py` points `DATABASE_URL` at a temporary file before the engine

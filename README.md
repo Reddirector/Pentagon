@@ -169,7 +169,10 @@ Covered by [`tests/test_document_store_resilience.py`](pentagon-backend/tests/te
 
 ## HTTP API
 
-All routes are prefixed `/api`.
+All routes are prefixed `/api`. Every route that addresses an existing record
+takes a required `user_id` and only acts on rows that belong to it; a record
+belonging to somebody else returns `404`, not `403`, so it is indistinguishable
+from one that does not exist.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -188,6 +191,12 @@ All routes are prefixed `/api`.
 | `DELETE` | `/api/documents/{id}` | Delete a document and its chunks |
 | `POST` | `/api/voice/transcribe` | Speech to text |
 | `POST` | `/api/voice/synthesize` | Text to speech |
+
+There is no authentication: `user_id` is client-supplied, so it is a scoping
+key, not a credential. It stops a stale id in one client from reaching another
+user's rows, but anyone who can call the API can pass any `user_id`. Treat this
+as a local-first application, not something to expose to a network you do not
+control.
 
 ---
 

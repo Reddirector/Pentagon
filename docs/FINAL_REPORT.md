@@ -10,7 +10,7 @@ driven end-to-end by the supplied NVIDIA key + `z-ai/glm-5.3-flash`.
 - **Default model `z-ai/glm-5.3-flash`**: verified **present in the live catalog** (80 models listed for the key). Backend exposes `default_model`; frontend uses it for new threads and for the key-gate heuristic.
 - **Supabase**: `supabase/schema.sql` (all tables + RLS + `feedback`), frontend `src/lib/supabase.ts` client module, backend `Settings` supabase fields, env templates updated.
 - **Web search is automatic and keyless**: `ddgs` (DuckDuckGo) is the primary provider, Tavily only a fallback when a key is set. The router fires on freshness/date questions with no client toggle. Top results are fetched concurrently and their **extracted page text** replaces the snippet, so answers cite real content. An SSRF guard refuses private, loopback, link-local and non-http(s) targets, **including after redirects**. Verified live: "latest news from NVIDIA" -> `web_search: ran`, 2 sources, answer grounded in page text.
-- **Existing feature set unregressed**: document RAG, web-search RAG, image/video understanding, voice STT/TTS — all exercises green (pytest 52/52; frontend tsc + oxlint + vite build).
+- **Existing feature set unregressed**: document RAG, web-search RAG, image/video understanding, voice STT/TTS — all exercises green (pytest 57/57; frontend tsc + oxlint + vite build).
 
 ## Key status (important)
 
@@ -76,7 +76,7 @@ five of them fail against the previous implementation.
 
 ### Verification
 
-- Backend: **52 passed**. The suite now runs against a throwaway database
+- Backend: **57 passed**. The suite now runs against a throwaway database
   (`tests/conftest.py`); a full run leaves the real `pentagon.db` byte-identical.
 - Frontend: `tsc`, `oxlint` (0 warnings) and `vite build` all clean.
 - Verified live in Chromium at 320/390/768/1024/1280/1440px, and RAG verified
@@ -91,3 +91,12 @@ five of them fail against the previous implementation.
 - One conversation was lost during earlier manual testing and the cause was
   never identified. Delete behaviour is verified correct, but back up
   `pentagon.db` before relying on it.
+- Two of the two real threads in the local workspace were deleted again during
+  later manual testing, through the app's own Settings → Data delete path (the
+  server access log shows two `DELETE /api/conversations/{id}?user_id=…` calls
+  carrying the owner id, preceded by four failed `DELETE /api/documents/{id}`
+  calls from the same screen). The exact click was never attributed. Deleting a
+  document from that panel had **never worked** — it omitted `user_id` and
+  returned `422`, silently, because the error was swallowed; that is fixed, and
+  a failed delete now shows a message. Thread deletion there already required a
+  confirmation dialog. Back up `pentagon.db` before destructive testing.

@@ -62,10 +62,10 @@ def _seed_conversation(title: str = "Original title") -> tuple[str, str]:
 
 
 def test_rename_conversation_updates_title(client: TestClient) -> None:
-    _user_id, conversation_id = _seed_conversation()
+    user_id, conversation_id = _seed_conversation()
 
     response = client.patch(
-        f"/api/conversations/{conversation_id}/title",
+        f"/api/conversations/{conversation_id}/title?user_id={user_id}",
         json={"title": "  Deployment plan  "},
     )
 
@@ -78,10 +78,10 @@ def test_rename_conversation_updates_title(client: TestClient) -> None:
 
 
 def test_rename_conversation_rejects_blank_title(client: TestClient) -> None:
-    _user_id, conversation_id = _seed_conversation()
+    user_id, conversation_id = _seed_conversation()
 
     response = client.patch(
-        f"/api/conversations/{conversation_id}/title",
+        f"/api/conversations/{conversation_id}/title?user_id={user_id}",
         json={"title": "   "},
     )
 
@@ -94,7 +94,7 @@ def test_rename_conversation_rejects_blank_title(client: TestClient) -> None:
 
 def test_rename_unknown_conversation_is_404(client: TestClient) -> None:
     response = client.patch(
-        "/api/conversations/does-not-exist/title",
+        "/api/conversations/does-not-exist/title?user_id=someone",
         json={"title": "Anything"},
     )
 
@@ -104,7 +104,7 @@ def test_rename_unknown_conversation_is_404(client: TestClient) -> None:
 def test_delete_conversation_removes_messages_and_documents(client: TestClient) -> None:
     user_id, conversation_id = _seed_conversation()
 
-    response = client.delete(f"/api/conversations/{conversation_id}")
+    response = client.delete(f"/api/conversations/{conversation_id}?user_id={user_id}")
 
     assert response.status_code == 204
     assert response.content == b""
@@ -116,11 +116,11 @@ def test_delete_conversation_removes_messages_and_documents(client: TestClient) 
 
 
 def test_delete_unknown_conversation_is_404(client: TestClient) -> None:
-    assert client.delete("/api/conversations/does-not-exist").status_code == 404
+    assert client.delete("/api/conversations/does-not-exist?user_id=someone").status_code == 404
 
 
 def test_delete_is_idempotent_after_removal(client: TestClient) -> None:
-    _user_id, conversation_id = _seed_conversation()
+    user_id, conversation_id = _seed_conversation()
 
-    assert client.delete(f"/api/conversations/{conversation_id}").status_code == 204
-    assert client.delete(f"/api/conversations/{conversation_id}").status_code == 404
+    assert client.delete(f"/api/conversations/{conversation_id}?user_id={user_id}").status_code == 204
+    assert client.delete(f"/api/conversations/{conversation_id}?user_id={user_id}").status_code == 404
