@@ -1,0 +1,51 @@
+# Python virtualenv (the local `pentagon/` dir is ~2 GB)
+pentagon/
+venv/
+.venv/
+
+# Secrets — never commit real keys
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.env.keys
+
+# Node / frontend build output
+node_modules/
+dist/
+dist-ssr/
+release/
+.vite/
+
+# Local databases and generated data
+*.db
+*.sqlite
+*.sqlite3
+chroma_data/
+image_uploads/
+speech_models/
+sandbox/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Tooling / editor
+.gradle/
+.idea/
+.vscode/
+.freebuff/
+.DS_Store
+*.swp
+
+# Local dev samples and scratch
+dev_samples/
+*.log
+npm-debug.log*
+# Preserved local history of the old nested backend repo (not published)
+.git.local-backup/

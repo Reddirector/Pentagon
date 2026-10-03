@@ -1,0 +1,709 @@
+import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode } from 'react'
+import { Activity, ArrowUp, AudioLines, ChevronDown, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Mic, Paperclip, Plus, Search, Square, Video, X } from 'lucide-react'
+import { apiRequest, ApiError, getLocalUserId, pcmToWavUrl } from './api'
+import { AssistantDetails } from './components/MessageContent'
+import { Sidebar } from './components/Sidebar'
+import { Logomark, LogomarkBadge } from './components/Logomark'
+import { ThinkingIndicator } from './components/ThinkingIndicator'
+import type { ChatMessage, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, SourcesUsed } from './types'
+
+type ConversationDetail = Conversation & { messages: ChatMessage[]; summary_at_switch: string | null }
+type TranscriptInfo = { durationMs: number; provider: string }
+type Validation = 'idle' | 'checking' | 'valid' | 'invalid'
+
+function titleFor(message: string) {
+  const normalized = message.trim().replace(/\s+/g, ' ')
+  return normalized.length > 54 ? `${normalized.slice(0, 51)}…` : normalized || 'New thread'
+}
+
+function decodeAudio(value: string): Uint8Array {
+  const raw = atob(value)
+  const bytes = new Uint8Array(raw.length)
+  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index)
+  return bytes
+}
+
+function isDocument(file: File) {
+  return /\.(pdf|docx|txt)$/i.test(file.name)
+}
+
+function isImage(file: File) {
+  return file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(file.name)
+}
+
+function isVideo(file: File) {
+  return file.type.startsWith('video/') || /\.(mp4|mov|webm|mkv|avi)$/i.test(file.name)
+}
+
+function App() {
+  const [userId] = useState(getLocalUserId)
+  const [booting, setBooting] = useState(true)
+  const [keyNeeded, setKeyNeeded] = useState(false)
+  const [keyValue, setKeyValue] = useState('')
+  const [keyValidation, setKeyValidation] = useState<Validation>('idle')
+  const [keyValidationMessage, setKeyValidationMessage] = useState('Enter a key to validate it with NVIDIA.')
+  const [savingKey, setSavingKey] = useState(false)
+  const [models, setModels] = useState<ModelInfo[]>([])
+  const [defaultModel, setDefaultModel] = useState('')
+  const [threads, setThreads] = useState<Conversation[]>([])
+  const [active, setActive] = useState<ConversationDetail | Conversation | null>(null)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [documents, setDocuments] = useState<DocumentInfo[]>([])
+  const [summaryActive, setSummaryActive] = useState(false)
+  const [queuedDocuments, setQueuedDocuments] = useState<File[]>([])
+  const [media, setMedia] = useState<File | null>(null)
+  const [selectedModel, setSelectedModel] = useState('')
+  const [search, setSearch] = useState('')
+  const [draft, setDraft] = useState('')
+  const [webSearch, setWebSearch] = useState(false)
+  const [audioReply, setAudioReply] = useState(false)
+  const [transcriptInfo, setTranscriptInfo] = useState<TranscriptInfo | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const [streaming, setStreaming] = useState(false)
+  const [switching, setSwitching] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const [showDocuments, setShowDocuments] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const recorder = useRef<MediaRecorder | null>(null)
+  const streamAbort = useRef<AbortController | null>(null)
+  const conversationViewport = useRef<HTMLDivElement>(null)
+  const followConversation = useRef(true)
+  const scrollFrame = useRef<number | null>(null)
+
+  const activeModel = models.find((item) => item.id === selectedModel)
+  const activeId = active?.id || null
+  const sidebarThreads = active && 'isDraft' in active && active.isDraft ? [active as Conversation, ...threads] : threads
+  const isDraftThread = Boolean(active && 'isDraft' in active && active.isDraft)
+  const contextLabel = summaryActive
+    ? `Summary + ${Math.min(messages.length, 6)} recent`
+    : `${messages.length} ${messages.length === 1 ? 'message' : 'messages'}`
+
+  useEffect(() => {
+    let cancelled = false
+    async function hydrate() {
+      setBooting(true)
+      let preferredModel = ''
+      let list: Conversation[] = []
+      try {
+        const modelResult = await apiRequest<{ models: ModelInfo[]; default_model?: string | null }>(`/api/models?user_id=${encodeURIComponent(userId)}`)
+        if (cancelled) return
+        setModels(modelResult.models)
+        preferredModel = modelResult.default_model || modelResult.models[0]?.id || ''
+        setDefaultModel(preferredModel)
+        list = await apiRequest<Conversation[]>('/api/conversations?user_id=' + encodeURIComponent(userId))
+        if (cancelled) return
+        setThreads(list)
+        if (list.length) {
+          const [detail, docs] = await Promise.all([
+            apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(list[0].id)}`),
+            apiRequest<DocumentInfo[]>(`/api/documents?user_id=${encodeURIComponent(userId)}&conversation_id=${encodeURIComponent(list[0].id)}`),
+          ])
+          if (cancelled) return
+          setActive(detail)
+          setMessages(detail.messages)
+          setDocuments(docs)
+          setSummaryActive(Boolean(detail.summary_at_switch))
+          setSelectedModel(detail.active_model || preferredModel)
+        } else {
+          setActive(null)
+          setMessages([])
+          setDocuments([])
+          setSummaryActive(false)
+          setSelectedModel(preferredModel)
+        }
+        setKeyNeeded(false)
+      } catch (cause) {
+        if (cancelled) return
+        if (cause instanceof ApiError && cause.status === 404) {
+          // 404 on the thread detail could also mean this browser has no stored
+          // threads yet. Only gate on the key when no default model is configured.
+          if (list.length === 0) setKeyNeeded(!preferredModel)
+        } else {
+          setError(cause instanceof Error ? cause.message : 'Could not connect to the Pentagon backend.')
+        }
+      } finally {
+        if (!cancelled) setBooting(false)
+      }
+    }
+    void hydrate()
+    return () => { cancelled = true }
+  }, [userId])
+
+  useEffect(() => {
+    if (!keyValue.trim()) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await apiRequest<{ valid: boolean; reason?: string }>('/api/keys/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: keyValue }),
+          signal: controller.signal,
+        })
+        setKeyValidation(result.valid ? 'valid' : 'invalid')
+        setKeyValidationMessage(result.valid ? 'Key verified and ready to save.' : result.reason || 'NVIDIA did not accept this key.')
+      } catch (cause) {
+        if (controller.signal.aborted) return
+        setKeyValidation('invalid')
+        setKeyValidationMessage(cause instanceof Error ? cause.message : 'Key validation failed.')
+      }
+    }, 500)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [keyValue])
+
+  useEffect(() => {
+    if (!followConversation.current || !conversationViewport.current) return
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current)
+    scrollFrame.current = requestAnimationFrame(() => {
+      const viewport = conversationViewport.current
+      viewport?.scrollTo({ top: viewport.scrollHeight, behavior: streaming ? 'auto' : 'smooth' })
+      scrollFrame.current = null
+    })
+    return () => {
+      if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current)
+      scrollFrame.current = null
+    }
+  }, [messages, streaming])
+  useEffect(() => () => recorder.current?.stream.getTracks().forEach((track) => track.stop()), [])
+  useEffect(() => () => streamAbort.current?.abort(), [])
+
+  function handleConversationScroll() {
+    const viewport = conversationViewport.current
+    if (!viewport) return
+    followConversation.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 120
+  }
+
+  async function refreshThreads() {
+    const list = await apiRequest<Conversation[]>(`/api/conversations?user_id=${encodeURIComponent(userId)}`)
+    setThreads(list)
+    return list
+  }
+
+  async function saveKey(event: FormEvent) {
+    event.preventDefault()
+    if (keyValidation !== 'valid' || savingKey) return
+    setSavingKey(true)
+    setError('')
+    try {
+      await apiRequest('/api/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, api_key: keyValue }),
+      })
+      setKeyValue('')
+      setKeyNeeded(false)
+      setBooting(true)
+      window.location.reload()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not store the NVIDIA key.')
+    } finally {
+      setSavingKey(false)
+    }
+  }
+
+  function startThread() {
+    if (streaming) return
+    followConversation.current = true
+    setError('')
+    setNotice('')
+    setActive({
+      id: `draft-${crypto.randomUUID()}`,
+      title: 'New Thread',
+      updated_at: new Date().toISOString(),
+      active_model: null,
+      isDraft: true,
+    })
+    setMessages([])
+    setDocuments([])
+    setSummaryActive(false)
+    setQueuedDocuments([])
+    setMedia(null)
+    setDraft('')
+    setTranscriptInfo(null)
+  }
+
+  async function openThread(id: string) {
+    if (streaming || switching) return
+    setError('')
+    setNotice('')
+    try {
+      const [detail, docs] = await Promise.all([
+        apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`),
+        apiRequest<DocumentInfo[]>(`/api/documents?user_id=${encodeURIComponent(userId)}&conversation_id=${encodeURIComponent(id)}`),
+      ])
+      followConversation.current = true
+      setActive(detail)
+      setMessages(detail.messages)
+      setDocuments(docs)
+      setSummaryActive(Boolean(detail.summary_at_switch))
+      setSelectedModel(detail.active_model || defaultModel)
+      setQueuedDocuments([])
+      setMedia(null)
+      setDraft('')
+      setTranscriptInfo(null)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load this thread.') }
+  }
+
+  async function createRemoteThread(firstMessage: string): Promise<ConversationDetail> {
+    if (active && !isDraftThread) return active as ConversationDetail
+    const created = await apiRequest<Conversation>('/api/conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, title: titleFor(firstMessage) }),
+    })
+    const remote = { ...created, summary_at_switch: null, messages: [] } as ConversationDetail
+    setActive(remote)
+    setSummaryActive(false)
+    setThreads((items) => [remote, ...items])
+    return remote
+  }
+
+  async function loadDocuments(conversationId: string) {
+    const result = await apiRequest<DocumentInfo[]>(`/api/documents?user_id=${encodeURIComponent(userId)}&conversation_id=${encodeURIComponent(conversationId)}`)
+    setDocuments(result)
+    return result
+  }
+
+  async function uploadDocument(file: File, conversationId: string) {
+    const form = new FormData()
+    form.set('user_id', userId)
+    form.set('conversation_id', conversationId)
+    form.set('file', file)
+    const result = await apiRequest<DocumentInfo>('/api/documents/upload', { method: 'POST', body: form })
+    await loadDocuments(conversationId)
+    setNotice(`${result.filename} added to this thread.`)
+  }
+
+  async function switchModel(nextModel: string) {
+    if (!nextModel || nextModel === selectedModel || switching) return
+    const previous = selectedModel
+    setSelectedModel(nextModel)
+    setError('')
+    if (!active || isDraftThread) return
+    setSwitching(true)
+    try {
+      const result = await apiRequest<{ active_model: string; summary_generated: boolean; summary_word_count: number }>(
+        `/api/conversations/${encodeURIComponent(active.id)}`,
+        { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: nextModel }) },
+      )
+      setThreads((items) => items.map((item) => item.id === active.id ? { ...item, active_model: result.active_model } : item))
+      setActive((item) => item && item.id === active.id ? { ...item, active_model: result.active_model } : item)
+      setSummaryActive(result.summary_generated)
+      if (result.summary_generated) setNotice(`Context summary prepared for ${result.active_model} (${result.summary_word_count} words).`)
+    } catch (cause) {
+      setSelectedModel(previous)
+      setError(cause instanceof Error ? cause.message : 'Could not change this thread’s model.')
+    } finally { setSwitching(false) }
+  }
+
+  async function acceptFiles(files: File[]) {
+    const accepted: File[] = []
+    let nextMedia: File | null = null
+    for (const file of files) {
+      if (isDocument(file)) accepted.push(file)
+      else if (isImage(file) || isVideo(file)) nextMedia = file
+      else setError(`${file.name} is not a supported image, video, PDF, DOCX, or TXT file.`)
+    }
+    if (nextMedia) setMedia(nextMedia)
+    if (!accepted.length) return
+    if (!active) {
+      setQueuedDocuments((current) => [...current, ...accepted])
+      setNotice(`${accepted.length} document${accepted.length === 1 ? '' : 's'} queued for the first message.`)
+      return
+    }
+    if (isDraftThread) {
+      setQueuedDocuments((current) => [...current, ...accepted])
+      setNotice(`${accepted.length} document${accepted.length === 1 ? '' : 's'} queued for the first message.`)
+      return
+    }
+    setUploading(true)
+    setError('')
+    try {
+      for (const file of accepted) await uploadDocument(file, active.id)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Document upload failed.') }
+    finally { setUploading(false) }
+  }
+
+  async function sendMessage(event?: FormEvent) {
+    event?.preventDefault()
+    const typed = draft.trim()
+    if (streaming || transcribing || uploading || !active || !selectedModel || (!typed && !media)) return
+    const question = typed || (media && isVideo(media) ? 'Describe what happens in this video with timestamps.' : 'Describe what is in this image.')
+    const pendingDocs = [...queuedDocuments]
+    const mediaForMessage = media
+    const modelForMessage = selectedModel
+    followConversation.current = true
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(), role: 'user', content: question, model_used: modelForMessage,
+      attachmentName: mediaForMessage?.name,
+    }
+    const assistantId = crypto.randomUUID()
+    setError('')
+    setNotice('')
+    setStreaming(true)
+    setDraft('')
+    setTranscriptInfo(null)
+    try {
+      const thread = await createRemoteThread(question)
+      for (const file of pendingDocs) await uploadDocument(file, thread.id)
+      setQueuedDocuments([])
+      const assistant: ChatMessage = { id: assistantId, role: 'assistant', content: '', model_used: modelForMessage }
+      setMessages((current) => [...current, userMessage, assistant])
+      const form = new FormData()
+      form.set('user_id', userId)
+      form.set('conversation_id', thread.id)
+      form.set('model', modelForMessage)
+      form.set('message', question)
+      form.set('use_web_search', String(webSearch))
+      form.set('respond_with_audio', String(audioReply))
+      if (mediaForMessage) form.set(isVideo(mediaForMessage) ? 'video' : 'image', mediaForMessage)
+      if (transcriptInfo) {
+        form.set('transcription_duration_ms', String(transcriptInfo.durationMs))
+        form.set('transcription_provider', transcriptInfo.provider)
+      }
+      setMedia(null)
+      await streamResponse(form, assistantId)
+      const list = await refreshThreads()
+      const refreshed = list.find((item) => item.id === thread.id)
+      if (refreshed) setActive((current) => current && current.id === refreshed.id ? { ...current, title: refreshed.title, updated_at: refreshed.updated_at } : current)
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        setNotice('Stopped. The partial answer above was kept.')
+        setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'Stopped before an answer was produced.' } : item))
+      } else {
+        setError(cause instanceof Error ? cause.message : 'The chat request failed.')
+        setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'I could not complete that request.' } : item))
+      }
+    } finally { setStreaming(false) }
+  }
+
+  function stopStreaming() {
+    streamAbort.current?.abort()
+  }
+
+  async function streamResponse(form: FormData, assistantId: string) {
+    const controller = new AbortController()
+    streamAbort.current = controller
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      body: form,
+      headers: { Accept: 'text/event-stream' },
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      let message = `Chat request failed (${response.status})`
+      try { message = (await response.json() as { detail?: string }).detail || message } catch { /* Keep status fallback. */ }
+      throw new Error(message)
+    }
+    if (!response.body) throw new Error('The backend did not return a stream.')
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let pending = ''
+    let audioChunks: Uint8Array[] = []
+    let sampleRate = 22050
+    let channels = 1
+    let bufferedText = ''
+    let textFrame: number | null = null
+    const update = (changes: Partial<ChatMessage>) => setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, ...changes } : item))
+    const flushText = () => {
+      if (textFrame !== null) cancelAnimationFrame(textFrame)
+      textFrame = null
+      if (!bufferedText) return
+      const content = bufferedText
+      bufferedText = ''
+      setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, content: item.content + content } : item))
+    }
+    const queueText = (content: string) => {
+      bufferedText += content
+      if (textFrame === null) textFrame = requestAnimationFrame(flushText)
+    }
+    const dispatch = (block: string) => {
+      const lines = block.split('\n')
+      const eventName = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() || 'message'
+      const raw = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n')
+      if (!raw) return
+      let payload: Record<string, unknown>
+      try { payload = JSON.parse(raw) as Record<string, unknown> } catch { return }
+      if (eventName === 'token' && typeof payload.content === 'string') {
+        queueText(payload.content)
+      } else if (eventName === 'metadata') {
+        update({
+          sources_used: payload.sources_used as SourcesUsed,
+          execution_trace: payload.execution_trace as ExecutionTrace,
+        })
+      } else if (eventName === 'audio_chunk' && typeof payload.content === 'string') {
+        audioChunks.push(decodeAudio(payload.content))
+        if (typeof payload.sample_rate_hz === 'number') sampleRate = payload.sample_rate_hz
+        if (typeof payload.channels === 'number') channels = payload.channels
+      } else if (eventName === 'audio_end') {
+        if (typeof payload.sample_rate_hz === 'number') sampleRate = payload.sample_rate_hz
+        if (typeof payload.channels === 'number') channels = payload.channels
+        const audioUrl = pcmToWavUrl(audioChunks, sampleRate, channels)
+        if (audioUrl) update({ audioUrl })
+        audioChunks = []
+      } else if (eventName === 'audio_error') {
+        setError(String(payload.message || 'The text response is ready, but speech synthesis failed.'))
+      } else if (eventName === 'error') {
+        throw new Error(String(payload.message || 'The model request failed.'))
+      }
+    }
+    try {
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        if (streamAbort.current?.signal.aborted) break
+        pending += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+        let boundary = pending.indexOf('\n\n')
+        while (boundary >= 0) {
+          dispatch(pending.slice(0, boundary))
+          pending = pending.slice(boundary + 2)
+          boundary = pending.indexOf('\n\n')
+        }
+      }
+      pending += decoder.decode()
+      if (pending.trim()) dispatch(pending)
+    } finally {
+      flushText()
+      streamAbort.current = null
+    }
+  }
+
+  async function toggleRecording() {
+    if (recording) { recorder.current?.stop(); setRecording(false); return }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setError('Audio recording is not available in this browser.')
+      return
+    }
+    setError('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const chunks: Blob[] = []
+      const mediaRecorder = new MediaRecorder(stream)
+      recorder.current = mediaRecorder
+      mediaRecorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop())
+        recorder.current = null
+        const mime = mediaRecorder.mimeType || 'audio/webm'
+        const ext = mime.includes('wav') ? 'wav' : mime.includes('mpeg') ? 'mp3' : 'webm'
+        void transcribeRecording(new Blob(chunks, { type: mime }), ext)
+      }
+      mediaRecorder.start()
+      setRecording(true)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Microphone permission was denied.') }
+  }
+
+  async function transcribeRecording(blob: Blob, extension: string) {
+    setTranscribing(true)
+    setNotice('Transcribing audio…')
+    const form = new FormData()
+    form.set('user_id', userId)
+    form.set('file', blob, `recording.${extension}`)
+    try {
+      const result = await apiRequest<{ text: string; execution_trace?: { transcription?: { duration_ms?: number; provider?: string } } }>('/api/voice/transcribe', { method: 'POST', body: form })
+      if (!result.text.trim()) {
+        setNotice('No speech was detected. Record another clip or type a message.')
+        return
+      }
+      setDraft((current) => current ? `${current.trimEnd()} ${result.text.trim()}` : result.text.trim())
+      const trace = result.execution_trace?.transcription
+      setTranscriptInfo({ durationMs: trace?.duration_ms || 0, provider: trace?.provider || 'unspecified' })
+      setNotice('Transcript added to the composer. Review or edit it before sending.')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not transcribe this recording.') }
+    finally { setTranscribing(false) }
+  }
+
+  async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || [])
+    event.target.value = ''
+    await acceptFiles(files)
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    await sendMessage(event)
+  }
+
+  function handleComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      void sendMessage()
+    }
+  }
+
+  if (booting) return <div className="grid h-full min-h-dvh place-items-center bg-[#0c0d0f] text-sm text-zinc-500"><div className="flex items-center gap-3"><LogomarkBadge size={32} /><span>Connecting to Pentagon…</span></div></div>
+
+  if (keyNeeded) return <KeyGate
+    value={keyValue}
+    validation={keyValidation}
+    validationMessage={keyValidationMessage}
+    saving={savingKey}
+    error={error}
+    onChange={(value) => {
+      setKeyValue(value)
+      setKeyValidation(value.trim() ? 'checking' : 'idle')
+      setKeyValidationMessage(value.trim() ? 'Checking the key with NVIDIA…' : 'Enter a key to validate it with NVIDIA.')
+      setError('')
+    }}
+    onSubmit={(event) => void saveKey(event)}
+  />
+
+  return <div className="flex h-dvh min-h-[620px] overflow-hidden bg-[#0c0d0f] text-zinc-100 selection:bg-emerald-300/30">
+    <Sidebar
+      conversations={sidebarThreads}
+      activeId={activeId}
+      userId={userId}
+      query={search}
+      onQueryChange={setSearch}
+      onNewThread={startThread}
+      onSelect={(id) => {
+        if (isDraftThread && active?.id === id) return
+        void openThread(id)
+      }}
+    />
+    <main className="relative flex min-w-0 flex-1 flex-col">
+      <header className="z-20 flex min-h-[66px] items-center justify-between gap-4 border-b border-white/[0.065] bg-[#0c0d0f]/90 px-7 backdrop-blur-xl max-sm:px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-2">
+            <Logomark size={13} className="shrink-0 text-emerald-300" />
+            <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="max-w-[min(34vw,360px)] min-w-0 appearance-none bg-transparent pr-1 text-[11px] font-medium text-zinc-200 outline-none disabled:text-zinc-500">
+              {!models.length && <option value="">No models available</option>}
+              {models.map((model) => <option value={model.id} key={model.id} className="bg-[#151619]">{model.id}{model.supports_vision ? ' · Vision' : ''}</option>)}
+            </select>
+            <ChevronDown size={12} className="shrink-0 text-zinc-600" />
+          </div>
+          <span className={`hidden items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] sm:inline-flex ${webSearch ? 'border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-200' : 'border-white/[0.07] text-zinc-500'}`}>
+            <span className={`size-1.5 rounded-full ${webSearch ? 'bg-emerald-300 shadow-[0_0_8px_rgba(110,231,183,.6)]' : 'bg-zinc-700'}`} />Web Search {webSearch ? 'Active' : 'Off'}
+          </span>
+          {activeModel?.supports_vision && <span className="hidden items-center gap-1.5 rounded-full border border-violet-300/15 bg-violet-300/[0.06] px-2.5 py-1.5 text-[10px] text-violet-200 md:inline-flex"><ImageIcon size={11} />Vision ready</span>}
+        </div>
+        <div className="flex shrink-0 items-center gap-2 max-sm:gap-1.5">
+          <div className="relative">
+            <button onClick={() => setShowDocuments((current) => !current)} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] transition-colors duration-200 ease-out ${documents.length ? 'border-sky-300/15 bg-sky-300/[0.055] text-sky-200' : 'border-white/[0.07] text-zinc-500 hover:text-zinc-300'}`} aria-expanded={showDocuments}>
+              <FileText size={12} />{documents.length} docs active
+            </button>
+            <div aria-hidden={!showDocuments} className={`absolute right-0 top-10 z-30 w-64 origin-top-right rounded-xl border border-white/10 bg-[#17181b] p-2 shadow-2xl transition-[opacity,transform,visibility] duration-200 ease-out ${showDocuments ? 'visible translate-y-0 scale-100 opacity-100' : 'invisible pointer-events-none translate-y-1 scale-[.98] opacity-0'}`}>
+              <div className="px-2 py-1.5 text-[9px] font-medium uppercase tracking-[.15em] text-zinc-600">Thread documents</div>
+              {documents.length ? documents.map((doc) => <div key={doc.document_id} className="flex items-center gap-2 rounded-lg px-2 py-2 text-[11px] text-zinc-300"><FileText size={12} className="text-sky-300" /><span className="min-w-0 flex-1 truncate">{doc.filename}</span><span className="font-mono text-[9px] text-zinc-600">{doc.chunks_stored}</span></div>) : <div className="px-2 py-3 text-[10px] text-zinc-500">No documents in this thread yet.</div>}
+            </div>
+          </div>
+          <div className="hidden items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.02] px-2.5 py-1.5 text-[10px] text-zinc-500 sm:flex" title="Message count from the loaded backend history; token totals are not returned by the API.">
+            <Activity size={12} className="text-zinc-600" /><span className="text-zinc-600">Context</span><span className="text-zinc-300">{contextLabel}</span>
+          </div>
+          <button onClick={startThread} className="grid size-8 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.06] hover:text-white md:hidden" title="New thread"><Plus size={16} /></button>
+        </div>
+      </header>
+
+      <section className="flex min-h-0 flex-1 flex-col">
+        <div ref={conversationViewport} onScroll={handleConversationScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div className="mx-auto flex w-full max-w-[850px] flex-1 flex-col px-7 pb-5 pt-8 max-sm:px-4 max-sm:pt-5">
+            {notice && <div className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-[11px] text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
+            {error && <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-[11px] leading-5 text-rose-200"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></div>}
+            {messages.length ? <div className="space-y-8">
+              {messages.map((message, index) => <MessageRow key={message.id} message={message} isStreaming={streaming && index === messages.length - 1} />)}
+            </div> : <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-16 text-center">
+              <div className="relative mb-7 grid size-[66px] place-items-center rounded-[22px] border border-emerald-300/10 bg-emerald-300/[0.045] text-emerald-200 shadow-[0_0_70px_rgba(52,211,153,.08)]"><Logomark size={30} /><span className="absolute -right-1 -top-1 size-2 rounded-full bg-emerald-300/70" /></div>
+              <p className="mb-3 text-[9px] font-medium uppercase tracking-[.23em] text-emerald-200/70">A focused place to think</p>
+              <h1 className="max-w-xl text-balance text-[clamp(30px,4vw,47px)] font-medium leading-[1.12] tracking-[-.045em] text-zinc-100">{active ? 'What should we explore?' : 'A clear space for your next idea.'}</h1>
+              <p className="mt-4 max-w-md text-[12px] leading-6 text-zinc-500">Bring a question, a document, or a moment from a video. Pentagon will show the sources and work behind each reply.</p>
+              {!active && <button onClick={startThread} className="mt-7 flex items-center gap-2 rounded-full bg-emerald-300 px-4 py-2.5 text-[11px] font-semibold text-[#102016] transition hover:bg-emerald-200"><Plus size={14} />Start a new thread</button>}
+              {active && <div className="mt-8 grid w-full max-w-lg grid-cols-2 gap-2.5 max-sm:grid-cols-1">
+                {['Summarize the key points in my documents', 'Explain this code and show an example', 'Compare the main ideas in this topic', 'Describe what happens in an attached video'].map((suggestion) => <button key={suggestion} onClick={() => setDraft(suggestion)} className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-3 text-left text-[10px] text-zinc-400 transition hover:border-emerald-300/20 hover:bg-emerald-300/[0.04] hover:text-zinc-200">{suggestion}</button>)}
+              </div>}
+            </div>}
+          </div>
+        </div>
+
+        <div
+          className={`relative mx-auto w-full max-w-[850px] px-7 pb-5 pt-2 max-sm:px-3 max-sm:pb-3 ${dragging ? 'after:pointer-events-none after:absolute after:inset-x-7 after:top-0 after:bottom-5 after:rounded-2xl after:border after:border-dashed after:border-emerald-300/60 after:bg-emerald-300/[0.04] after:content-["Drop_files_to_attach"] after:grid after:place-items-center after:text-[12px] after:text-emerald-100' : ''}`}
+          onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false) }}
+          onDrop={(event) => { event.preventDefault(); setDragging(false); void acceptFiles(Array.from(event.dataTransfer.files)) }}
+        >
+          {/* Fade the last message into the composer instead of hard-cutting it. */}
+          <div aria-hidden="true" className="pointer-events-none -mt-12 h-12 bg-gradient-to-t from-[#0c0d0f] via-[#0c0d0f]/70 to-transparent" />
+          {media && <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-[10px] text-zinc-300"><span className="text-emerald-200">{isVideo(media) ? <Video size={13} /> : <ImageIcon size={13} />}</span><span className="min-w-0 flex-1 truncate">{media.name}</span><span className="text-zinc-600">{isVideo(media) ? 'Video' : 'Image'}</span><button onClick={() => setMedia(null)} aria-label="Remove attachment" className="text-zinc-500 hover:text-white"><X size={13} /></button></div>}
+          {queuedDocuments.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{queuedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className="panel-enter inline-flex max-w-full items-center gap-1.5 rounded-lg border border-sky-300/10 bg-sky-300/[0.045] px-2 py-1.5 text-[9px] text-sky-100/80"><FileText size={11} /><span className="max-w-[180px] truncate">{file.name}</span><span className="text-sky-100/40">queued</span><button onClick={() => setQueuedDocuments((items) => items.filter((_, current) => current !== index))} aria-label={`Remove ${file.name}`}><X size={11} /></button></span>)}</div>}
+          <form onSubmit={(event) => void handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#151619] p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition-[border-color,box-shadow] duration-200 ease-out focus-within:border-emerald-300/25 focus-within:shadow-[0_0_0_3px_rgba(110,231,183,.045),0_20px_90px_rgba(0,0,0,.28)]">
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKey} rows={2} disabled={!active || streaming || transcribing} placeholder={active ? 'Message Pentagon…' : 'Start a new thread to begin'} className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-[13px] leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed" aria-label="Write a message" />
+            <div className="flex items-center justify-between gap-2 px-1 pb-0.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.txt" multiple hidden onChange={(event) => void handleAttachmentChange(event)} />
+                <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, or document"><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
+                <span className="mx-0.5 h-4 w-px bg-white/[0.08]" />
+                <TogglePill active={webSearch} onClick={() => setWebSearch((value) => !value)} icon={<Search size={12} />} label="Web Search" />
+                <TogglePill active={audioReply} onClick={() => setAudioReply((value) => !value)} icon={<AudioLines size={12} />} label="Audio reply" />
+                <button type="button" onClick={() => void toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
+              </div>
+              {streaming
+                ? <button type="button" onClick={stopStreaming} className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-zinc-200 transition-[background-color,transform] duration-200 ease-out hover:bg-white/[0.1] active:scale-95" aria-label="Stop generating" title="Stop generating"><Square size={13} fill="currentColor" /></button>
+                : <button type="submit" disabled={!active || !selectedModel || transcribing || (!draft.trim() && !media)} className="grid size-8 shrink-0 place-items-center rounded-xl bg-emerald-300 text-[#102016] transition-[background-color,box-shadow,transform] duration-200 ease-out hover:-translate-y-px hover:bg-emerald-200 hover:shadow-[0_6px_18px_rgba(110,231,183,.12)] active:translate-y-0 active:scale-95 disabled:translate-y-0 disabled:scale-100 disabled:bg-white/[0.06] disabled:text-zinc-600 disabled:shadow-none" aria-label="Send message" title="Send message">{transcribing ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.4} />}</button>}
+              <span className="sr-only">{queuedDocuments.length ? `${queuedDocuments.length} documents queued` : uploading ? 'Uploading document' : ''}</span>
+            </div>
+          </form>
+          <div className="flex items-center justify-between gap-3 px-2 pt-2 text-[9px] text-zinc-600 max-sm:text-[8px]">
+            <span className="truncate">Drop files to upload · Markdown supported</span>
+            <span className="max-w-[50%] truncate text-right">{activeModel?.id || selectedModel || 'Choose a model'}{transcribing ? ' · Transcribing…' : uploading ? ' · Uploading…' : ''}</span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+}
+
+function TogglePill({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: ReactNode; label: string }) {
+  return <button type="button" onClick={onClick} aria-pressed={active} className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] transition-[background-color,border-color,color,transform] duration-200 ease-out active:scale-[.98] ${active ? 'border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-100' : 'border-transparent text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-300'}`}>{icon}<span className="max-sm:hidden">{label}</span></button>
+}
+
+function MessageRow({ message, isStreaming = false }: { message: ChatMessage; isStreaming?: boolean }) {
+  const user = message.role === 'user'
+  return <article className={`message-enter flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
+    {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-[10px] border border-emerald-300/12 bg-emerald-300/[0.055] text-emerald-200"><Logomark size={14} /></div>}
+    <div className={`min-w-0 ${user ? 'max-w-[78%]' : 'w-full max-w-[calc(100%-40px)]'}`}>
+      <div className={`mb-2 flex items-center gap-2 text-[10px] ${user ? 'justify-end pr-1 text-zinc-500' : 'text-zinc-500'}`}><span className="font-medium text-zinc-300">{user ? 'You' : 'Pentagon'}</span>{!user && <span className="truncate font-mono text-[9px] text-zinc-700">{message.model_used}</span>}</div>
+      {user ? <div className="rounded-2xl rounded-tr-md border border-white/[0.07] bg-[#202124] px-4 py-3 text-[13px] leading-6 text-zinc-100">
+        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        {message.attachmentName && <div className="mt-2 flex items-center gap-1.5 text-[9px] text-zinc-500"><Paperclip size={11} />{message.attachmentName}</div>}
+      </div> : <div className="min-w-0 pt-0.5">
+        {message.content ? <div className={isStreaming ? 'streaming-answer' : undefined}><AssistantDetails message={message} /></div> : <ThinkingIndicator model={message.model_used} />}
+      </div>}
+    </div>
+    {user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-white/[0.08] bg-white/[0.04] text-[9px] text-zinc-400">Y</div>}
+  </article>
+}
+
+function KeyGate({ value, validation, validationMessage, saving, error, onChange, onSubmit }: {
+  value: string
+  validation: Validation
+  validationMessage: string
+  saving: boolean
+  error: string
+  onChange: (value: string) => void
+  onSubmit: (event: FormEvent) => void
+}) {
+  const tone = validation === 'valid' ? 'text-emerald-300' : validation === 'invalid' ? 'text-rose-300' : validation === 'checking' ? 'text-amber-200' : 'text-zinc-500'
+  return <main className="relative grid min-h-screen place-items-center overflow-hidden bg-[#0b0c0e] px-5 py-10 text-zinc-100">
+    <div className="pointer-events-none absolute left-1/2 top-0 size-[500px] -translate-x-1/2 rounded-full bg-emerald-300/[0.04] blur-[100px]" />
+    <section className="relative w-full max-w-[440px] rounded-[24px] border border-white/[0.09] bg-[#121315]/95 p-8 shadow-[0_32px_100px_rgba(0,0,0,.48)] max-sm:p-6">
+      <div className="mb-9 flex items-center gap-3"><LogomarkBadge size={36} /><span className="text-[12px] font-semibold tracking-[.2em]">PENTAGON</span></div>
+      <p className="mb-3 text-[9px] font-medium uppercase tracking-[.22em] text-emerald-200/70">Your models · Your key</p>
+      <h1 className="text-[30px] font-medium leading-[1.12] tracking-[-.04em]">Bring your NVIDIA models into focus.</h1>
+      <p className="mt-3 text-[12px] leading-6 text-zinc-500">Pentagon checks your key with NVIDIA, then sends it to the backend for encrypted storage. It is never saved in this browser.</p>
+      {error && <div role="alert" className="mt-5 rounded-lg border border-rose-400/15 bg-rose-400/[0.06] px-3 py-2 text-[11px] text-rose-200">{error}</div>}
+      <form onSubmit={onSubmit} className="mt-7">
+        <label htmlFor="nvidia-key" className="mb-2 block text-[10px] font-medium text-zinc-300">NVIDIA API key</label>
+        <input id="nvidia-key" type="password" autoComplete="off" spellCheck={false} value={value} onChange={(event) => onChange(event.target.value)} placeholder="nvapi-••••••••••••••••" className="h-11 w-full rounded-xl border border-white/[0.1] bg-[#0c0d0f] px-3.5 text-[12px] text-zinc-100 outline-none placeholder:text-zinc-700 focus:border-emerald-300/40" />
+        <div className={`mt-2.5 flex min-h-4 items-center gap-2 text-[10px] ${tone}`} aria-live="polite"><span className={`size-1.5 rounded-full ${validation === 'valid' ? 'bg-emerald-300' : validation === 'invalid' ? 'bg-rose-300' : validation === 'checking' ? 'animate-pulse bg-amber-200' : 'bg-zinc-700'}`} />{validationMessage}</div>
+        <button type="submit" disabled={validation !== 'valid' || saving} className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-[11px] font-semibold text-[#102016] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-zinc-600">{saving ? <LoaderCircle size={14} className="animate-spin" /> : <LockKeyhole size={13} />}{saving ? 'Saving securely…' : 'Store key and continue'}</button>
+      </form>
+      <div className="mt-7 flex items-center gap-2 border-t border-white/[0.06] pt-5 text-[9px] leading-5 text-zinc-600"><LockKeyhole size={12} className="shrink-0" />Only the local user ID is kept in browser storage.</div>
+    </section>
+    <div className="absolute bottom-5 text-[8px] uppercase tracking-[.2em] text-zinc-700">FastAPI · NVIDIA NIM · Local workspace</div>
+  </main>
+}
+
+export default App

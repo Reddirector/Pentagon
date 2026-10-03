@@ -1,0 +1,192 @@
+@baseUrl = http://127.0.0.1:8000
+@userId = local-dev
+@conversationId = {{createConversation.response.body.$.id}}
+@model = {{listModels.response.body.$.models[0].id}}
+@documentId = {{uploadDocument.response.body.$.document_id}}
+
+# Run Validate NVIDIA key, Store NVIDIA key, List models, then Create conversation.
+# The key is prompted for each key request and is not stored in this file.
+
+### FastAPI OpenAPI schema
+GET {{baseUrl}}/openapi.json
+Accept: application/json
+
+### FastAPI Swagger UI
+GET {{baseUrl}}/docs
+
+### FastAPI ReDoc UI
+GET {{baseUrl}}/redoc
+
+### Validate an NVIDIA key (does not store it)
+# @name validateKey
+# @prompt password NVIDIA API key
+POST {{baseUrl}}/api/keys/validate
+Content-Type: application/json
+
+{
+  "api_key": "{{password}}"
+}
+
+### Store an NVIDIA key (requires KEY_ENCRYPTION_SECRET in the backend .env)
+# @name storeKey
+# @prompt password NVIDIA API key
+POST {{baseUrl}}/api/keys
+Content-Type: application/json
+
+{
+  "user_id": "{{userId}}",
+  "api_key": "{{password}}"
+}
+
+### List models available to the stored key
+# @name listModels
+GET {{baseUrl}}/api/models?user_id={{userId}}
+Accept: application/json
+
+### Create a conversation
+# @name createConversation
+POST {{baseUrl}}/api/conversations
+Content-Type: application/json
+
+{
+  "user_id": "{{userId}}",
+  "title": "REST Client dev session"
+}
+
+### List conversations
+GET {{baseUrl}}/api/conversations?user_id={{userId}}
+Accept: application/json
+
+### Get one conversation (run Create a conversation first)
+GET {{baseUrl}}/api/conversations/{{conversationId}}
+Accept: application/json
+
+### Switch conversation model (uses the first model returned by List models)
+PATCH {{baseUrl}}/api/conversations/{{conversationId}}
+Content-Type: application/json
+
+{
+  "model": "{{model}}"
+}
+
+### Chat (streams Server-Sent Events; run Store key and Create conversation first)
+POST {{baseUrl}}/api/chat
+Content-Type: application/json
+Accept: text/event-stream
+
+{
+  "user_id": "{{userId}}",
+  "conversation_id": "{{conversationId}}",
+  "model": "{{model}}",
+  "message": "Explain how hot reload works in this project.",
+  "use_web_search": false,
+  "respond_with_audio": false
+}
+
+### Chat with an image (replace the example path with a local jpg, png, or webp)
+POST {{baseUrl}}/api/chat
+Content-Type: multipart/form-data; boundary=PentagonBoundary
+Accept: text/event-stream
+
+--PentagonBoundary
+Content-Disposition: form-data; name="user_id"
+
+{{userId}}
+--PentagonBoundary
+Content-Disposition: form-data; name="conversation_id"
+
+{{conversationId}}
+--PentagonBoundary
+Content-Disposition: form-data; name="model"
+
+{{model}}
+--PentagonBoundary
+Content-Disposition: form-data; name="message"
+
+Describe this image.
+--PentagonBoundary
+Content-Disposition: form-data; name="image"; filename="photo.jpg"
+Content-Type: image/jpeg
+
+< ./path/to/photo.jpg
+--PentagonBoundary--
+
+### Chat with a video (replace the example path with a local video file)
+POST {{baseUrl}}/api/chat
+Content-Type: multipart/form-data; boundary=PentagonBoundary
+Accept: text/event-stream
+
+--PentagonBoundary
+Content-Disposition: form-data; name="user_id"
+
+{{userId}}
+--PentagonBoundary
+Content-Disposition: form-data; name="conversation_id"
+
+{{conversationId}}
+--PentagonBoundary
+Content-Disposition: form-data; name="model"
+
+{{model}}
+--PentagonBoundary
+Content-Disposition: form-data; name="message"
+
+Summarize the events in this clip with timestamps.
+--PentagonBoundary
+Content-Disposition: form-data; name="video"; filename="clip.mp4"
+Content-Type: video/mp4
+
+< ./path/to/clip.mp4
+--PentagonBoundary--
+
+### Upload a TXT, PDF, or DOCX document (run Create a conversation first)
+# @name uploadDocument
+POST {{baseUrl}}/api/documents/upload
+Content-Type: multipart/form-data; boundary=PentagonBoundary
+
+--PentagonBoundary
+Content-Disposition: form-data; name="user_id"
+
+{{userId}}
+--PentagonBoundary
+Content-Disposition: form-data; name="conversation_id"
+
+{{conversationId}}
+--PentagonBoundary
+Content-Disposition: form-data; name="file"; filename="sample.txt"
+Content-Type: text/plain
+
+< ./dev_samples/sample.txt
+--PentagonBoundary--
+
+### List documents in a conversation
+GET {{baseUrl}}/api/documents?user_id={{userId}}&conversation_id={{conversationId}}
+Accept: application/json
+
+### Delete a document (run Upload a document first)
+DELETE {{baseUrl}}/api/documents/{{documentId}}?user_id={{userId}}
+
+### Transcribe audio (replace the example path with a local webm, wav, or mp3)
+POST {{baseUrl}}/api/voice/transcribe
+Content-Type: multipart/form-data; boundary=PentagonBoundary
+
+--PentagonBoundary
+Content-Disposition: form-data; name="user_id"
+
+{{userId}}
+--PentagonBoundary
+Content-Disposition: form-data; name="file"; filename="recording.webm"
+Content-Type: audio/webm
+
+< ./path/to/recording.webm
+--PentagonBoundary--
+
+### Synthesize speech (response is raw PCM audio)
+POST {{baseUrl}}/api/voice/synthesize?user_id={{userId}}
+Content-Type: application/json
+Accept: audio/pcm
+
+{
+  "text": "Pentagon speech synthesis is ready.",
+  "voice": "en_US-lessac-medium"
+}

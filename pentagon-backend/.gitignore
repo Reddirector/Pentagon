@@ -1,0 +1,13 @@
+.env
+*.db
+*.sqlite3
+chroma_data/
+image_uploads/
+speech_models/
+desktop/node_modules/
+desktop/dist/
+desktop/release/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
