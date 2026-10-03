@@ -55,9 +55,12 @@ export function Sidebar({
       <div><div className="text-[12px] font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 text-[9px] uppercase tracking-[.18em] text-zinc-600">Personal workspace</div></div>
     </div>
 
-    <button onClick={onNewThread} className="mb-5 flex h-10 items-center gap-2.5 rounded-xl border border-white/[0.09] bg-white/[0.035] px-3 text-left text-[12px] font-medium text-zinc-200 transition-[background-color,border-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-emerald-300/30 hover:bg-emerald-300/[0.07] hover:text-white active:translate-y-0 active:scale-[.99]">
-      <MessageSquarePlus size={15} className="text-emerald-300" />New Thread<button type="button" onClick={onOpenPalette} className="ml-auto rounded-md border border-white/[0.08] px-1.5 py-0.5 text-[9px] text-zinc-600 transition hover:border-emerald-300/25 hover:text-zinc-300" title="Open command palette">⌘K</button>
-    </button>
+    <div className="mb-5 flex items-center gap-1.5">
+      <button onClick={onNewThread} className="flex h-10 flex-1 items-center gap-2.5 rounded-xl border border-white/[0.09] bg-white/[0.035] px-3 text-left text-[12px] font-medium text-zinc-200 transition-[background-color,border-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-emerald-300/30 hover:bg-emerald-300/[0.07] hover:text-white active:translate-y-0 active:scale-[.99]">
+        <MessageSquarePlus size={15} className="text-emerald-300" />New Thread
+      </button>
+      <button type="button" onClick={onOpenPalette} className="grid h-10 w-9 shrink-0 place-items-center rounded-xl border border-white/[0.07] text-[9px] text-zinc-600 transition hover:border-emerald-300/25 hover:text-zinc-300" title="Open command palette" aria-label="Open command palette">⌘K</button>
+    </div>
 
     <div className="relative mb-6">
       <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
