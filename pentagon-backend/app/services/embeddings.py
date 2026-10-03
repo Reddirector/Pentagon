@@ -19,6 +19,11 @@ _NVIDIA_EMBEDDING_PREFIX = "nvidia:"
 _local_model_lock = threading.Lock()
 
 
+def is_remote_provider(provider: str) -> bool:
+    """True when the provider is an API-backed model rather than the local one."""
+    return provider.startswith(_NVIDIA_EMBEDDING_PREFIX)
+
+
 async def choose_embedding_provider(user_id: str, api_key: str | None) -> str:
     if api_key:
         try:
