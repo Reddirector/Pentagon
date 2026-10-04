@@ -48,10 +48,21 @@ from PIL import Image, ImageChops, ImageDraw
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PUBLIC = os.path.join(ROOT, "public")
 
-# Where the perceived-ink crosses this, the stroke boundary. The artwork peaks
-# near 0.48 on the app's black surface, so this keeps the soft stroke edges and
-# trims only the sensor noise.
-ISO = 0.055
+# Where the perceived-ink crosses this, the stroke boundary.
+#
+# The obvious choice - just above the noise floor - is wrong, and measurably so.
+# Binarising throws away the alpha ramp, so a fringe that was 5% opaque in the
+# raster becomes a 50%-opaque stroke in the vector, and the mark reads bolder
+# than the artwork it replaces. Traced at the noise floor the result carried
+# 1.26x the raster's total ink.
+#
+# This value was picked by rendering the vector and the PNG at the same size
+# and comparing total ink, not by maximising IoU against the thresholded mask:
+# at 0.20 the two agree to within 0.6% and the path is a quarter smaller. It
+# scores slightly lower on IoU (0.75 vs 0.81) and that is the right trade -
+# IoU rewards reproducing faint fringes nobody can see, total ink is what the
+# eye actually compares.
+ISO = 0.20
 
 # Douglas-Peucker tolerance in source pixels. Measured against the rasterised
 # source: 0.5 holds IoU ~0.81 on the logo while keeping the path to roughly a
