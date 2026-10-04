@@ -80,6 +80,12 @@ PAD_FRACTION = 0.015
 # Measured, it cost ~0.01 IoU and a third of the path size to switch it off.
 CHAIKIN_ROUNDS = 0
 
+# Rendered size used by verify(), chosen to match the sidebar's badge.
+CHECK_SIZE = 64
+
+# Kept in step with INK_OPACITY in src/components/Logomark.tsx.
+INK_OPACITY = 0.5
+
 
 def load_ink(name: str) -> np.ndarray:
     """Perceived ink of the artwork as it actually appears on the app surface.
@@ -272,10 +278,6 @@ def _signed_area(points) -> float:
     return total / 2.0
 
 
-def _polarity_unused():
-    """Removed: see the module docstring on why evenodd replaces this."""
-
-
 def padded_ink(name: str) -> tuple[np.ndarray, int]:
     """Ink on a canvas with a clear margin all round.
 
@@ -344,6 +346,77 @@ def to_path(loops) -> str:
     return "".join(parts)
 
 
+def render(loops, pixels_wide: int, scale: float) -> np.ndarray:
+    """Rasterise the traced loops the way the SVG fill will: even-odd parity."""
+    pixels_tall = max(1, int(round(pixels_wide * scale)))
+    accumulator = np.zeros((pixels_tall, pixels_wide), dtype=bool)
+    for loop in loops:
+        mask = Image.new("1", (pixels_wide, pixels_tall), 0)
+        ImageDraw.Draw(mask).polygon([(x * scale, y * scale) for x, y in loop], fill=1)
+        accumulator ^= np.asarray(mask, dtype=bool)
+    return accumulator
+
+
+def verify(loops, name: str) -> int:
+    """Fail the command if the trace no longer looks like the artwork.
+
+    This script has no test suite, which meant a subtly wrong logo shipped
+    silently: a first pass rendered 30% bolder than the raster it was meant to
+    reproduce, and nothing objected. Rendering the trace and the source at the
+    same size and comparing total ink catches that class of mistake, because
+    total ink is the weight a reader actually perceives.
+
+    The bounds are deliberately loose. This is a smoke alarm against a broken
+    tracer, not a regression gate on the artwork.
+    """
+    source = Image.open(os.path.join(PUBLIC, name)).convert("RGBA")
+    source_width, source_height = source.size
+    padded_height, padded_width = load_ink(name).shape
+
+    # The trace lives in padded coordinates and the reference does not, so the
+    # two are rendered at the same scale and the padding is cropped off
+    # afterwards. Skipping this compares a padded trace against an unpadded
+    # raster and reports the padding as extra ink.
+    supersample = 8
+    scale = CHECK_SIZE * supersample / source_width
+    canvas = int(round(padded_width * scale))
+    accumulator = render(loops, canvas, scale)
+    columns = canvas // supersample
+    accumulator = accumulator.reshape(columns, supersample, columns, supersample).mean(axis=(1, 3))
+    margin = round((padded_width - source_width) / 2 * CHECK_SIZE / source_width)
+    traced = accumulator[margin : margin + CHECK_SIZE, margin : margin + CHECK_SIZE]
+
+    pixels = np.asarray(source.resize((CHECK_SIZE, CHECK_SIZE), Image.LANCZOS), dtype=np.float64)
+    alpha = pixels[..., 3] / 255.0
+    reference = (pixels[..., :3] @ np.array([0.299, 0.587, 0.114])) * alpha
+    # INK_OPACITY lives in Logomark.tsx; 0.5 is what the component sets today.
+    produced = traced * INK_OPACITY * 250.0
+
+    reference_ink = float(reference.mean())
+    produced_ink = float(produced.mean())
+    ratio = produced_ink / reference_ink if reference_ink else 0.0
+    coverage = float((alpha > 0.35).mean())
+    coverage_ratio = float(traced.mean()) / coverage if coverage else 0.0
+
+    print(
+        f"  check: total ink {produced_ink:.2f} vs raster {reference_ink:.2f} "
+        f"(ratio {ratio:.3f}), coverage ratio {coverage_ratio:.3f}"
+    )
+    if not 0.80 <= ratio <= 1.20:
+        print(
+            f"trace is {ratio:.2f}x the artwork's ink - adjust ISO or INK_OPACITY",
+            file=sys.stderr,
+        )
+        return 1
+    if not 0.60 <= coverage_ratio <= 1.50:
+        print(
+            f"trace covers {coverage_ratio:.2f}x the artwork's area - adjust ISO or SIMPLIFY",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def main() -> int:
     name = "pentagon-logo.png"
     ink, pad = padded_ink(name)
@@ -359,6 +432,9 @@ def main() -> int:
     if not path:
         print("no path produced - check ISO against the artwork", file=sys.stderr)
         return 1
+    failed = verify(loops, name)
+    if failed:
+        return failed
 
     logo_box = f"0 0 {width} {height}"
     module = f'''// GENERATED FILE - do not edit by hand.

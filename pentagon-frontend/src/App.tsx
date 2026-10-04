@@ -109,6 +109,11 @@ function App() {
   const followConversation = useRef(true)
   const openThreadToken = useRef(0)
   const scrollFrame = useRef<number | null>(null)
+  // Blob URLs for synthesised replies. A WAV is megabytes, and pcmToWavUrl
+  // handed out a fresh object URL per answer that nothing ever released, so a
+  // long session with speech grew without bound. Registered on creation and
+  // revoked below once no message points at them any more.
+  const audioUrls = useRef<Set<string>>(new Set())
 
   const activeModel = models.find((item) => item.id === selectedModel)
   const activeId = active?.id || null
@@ -217,6 +222,18 @@ function App() {
   }, [messages, streaming])
   useEffect(() => () => recorder.current?.stream.getTracks().forEach((track) => track.stop()), [])
   useEffect(() => () => streamAbort.current?.abort(), [])
+  useEffect(() => {
+    const live = new Set(messages.map((item) => item.audioUrl).filter((url): url is string => Boolean(url)))
+    for (const url of audioUrls.current) {
+      if (live.has(url)) continue
+      URL.revokeObjectURL(url)
+      audioUrls.current.delete(url)
+    }
+  }, [messages])
+  useEffect(() => () => {
+    for (const url of audioUrls.current) URL.revokeObjectURL(url)
+    audioUrls.current.clear()
+  }, [])
 
   // The ambient layer reacts to what the app is actually doing.
   useEffect(() => {
@@ -717,7 +734,10 @@ function App() {
         if (typeof payload.sample_rate_hz === 'number') sampleRate = payload.sample_rate_hz
         if (typeof payload.channels === 'number') channels = payload.channels
         const audioUrl = pcmToWavUrl(audioChunks, sampleRate, channels)
-        if (audioUrl) update({ audioUrl })
+        if (audioUrl) {
+          audioUrls.current.add(audioUrl)
+          update({ audioUrl })
+        }
         audioChunks = []
       } else if (eventName === 'audio_error') {
         setError(String(payload.message || 'The text response is ready, but speech synthesis failed.'))
