@@ -1,9 +1,14 @@
 {
   "name": "pentagon-frontend",
+  "version": "0.1.0",
   "description": "React and Electron frontend for the Pentagon backend",
+  "author": {
+    "name": "Reddirector",
+    "url": "https://github.com/Reddirector/Pentagon"
+  },
+  "license": "MIT",
   "desktopName": "Pentagon",
   "private": true,
-  "version": "0.1.0",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
@@ -75,7 +80,8 @@
         "AppImage"
       ],
       "category": "Utility",
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "icon": "public/pentagon-logo.png"
     },
     "mac": {
       "target": [
