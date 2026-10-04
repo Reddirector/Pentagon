@@ -108,7 +108,14 @@ class MessageResponse(BaseModel):
     role: Literal["user", "assistant"]
     content: str
     model_used: str
-    image_path: str | None = None
+    # ``image_path`` is deliberately absent. It holds the absolute server path
+    # the upload was written to (``image_uploads/<conversation id>/<id>.png``),
+    # which ``from_attributes=True`` copied straight into every conversation
+    # response. Nothing in the client ever read it -- the image travels to the
+    # model inline as a data URI and is rendered from the transcript, not from
+    # disk -- so the only effect was telling any caller the server's directory
+    # layout. The column stays for the deletion sweep in routes.chat, which
+    # needs to know a message had an upload.
     created_at: datetime
 
 

@@ -29,7 +29,8 @@ export type ChatMessage = {
   content: string
   model_used: string
   created_at?: string
-  image_path?: string | null
+  // No image_path: the API used to send the absolute server path the upload
+  // was written to. Nothing here ever read it.
   attachmentName?: string
   execution_trace?: ExecutionTrace
   sources_used?: SourcesUsed
