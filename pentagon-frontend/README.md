@@ -77,8 +77,18 @@ harder than the legacy icon stays in one place. The Android plate colour
 lives in `android/app/src/main/res/values/ic_launcher_background.xml` and
 matches `--surface-app`; keep the two in step if the app background changes.
 
-The in-app mark comes from `src/components/Logomark.tsx`, which already falls
-back to the sphere-only asset below 22px.
+The in-app mark is inline SVG in `src/components/Logomark.tsx`, rendered from
+`src/components/logoPaths.ts`. That file is generated:
+
+```bash
+npm run vectorize   # needs python3 + Pillow + numpy
+```
+
+It traces `public/pentagon-logo.png` into path data. The logo was an `<img>`
+until a reader reported they could grab it and drop it into the composer as an
+attachment — browsers treat images as draggable, and SVG roots are not, so the
+mark is now vector. Keep the PNGs as the source of truth; edit them and re-run
+`npm run vectorize` to propagate.
 
 ## Product notes
 

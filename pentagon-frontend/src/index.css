@@ -109,6 +109,10 @@ button, input, textarea, select { transition-timing-function: var(--ease-ui); }
 button { cursor: pointer; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; }
 textarea { field-sizing: content; }
+/* The brand mark must never behave like a picture the reader can pick up and
+   drop into the composer. An inline <svg> already has no drag handle; this
+   covers the user-select half and keeps it true if the element ever changes. */
+.logo-mark { user-select: none; -webkit-user-drag: none; }
 ::selection { background: rgba(255, 255, 255, .22); color: #fff; }
 
 * { scrollbar-color: rgba(161, 161, 170, .24) transparent; scrollbar-width: thin; }
