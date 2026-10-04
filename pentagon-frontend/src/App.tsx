@@ -46,6 +46,22 @@ function isVideo(file: File) {
   return file.type.startsWith('video/') || /\.(mp4|mov|webm|mkv|avi)$/i.test(file.name)
 }
 
+/**
+ * Which model a new thread should start on.
+ *
+ * The server's default is only a preference, not a guarantee: it is a single
+ * `DEFAULT_CHAT_MODEL` setting shared by every key, while the picker is built
+ * from the catalog of whichever key is stored. When the two disagree, taking
+ * the server default anyway leaves the picker displaying one model while every
+ * request quietly sends another -- so it is only accepted when it is actually
+ * on offer.
+ */
+function chooseDefaultModel(available: ModelInfo[], preferred: string, serverDefault: string): string {
+  if (preferred && available.some((model) => model.id === preferred)) return preferred
+  if (serverDefault && available.some((model) => model.id === serverDefault)) return serverDefault
+  return available[0]?.id || ''
+}
+
 function App() {
   const [userId] = useState(getLocalUserId)
   const [booting, setBooting] = useState(true)
@@ -119,10 +135,11 @@ function App() {
         if (cancelled) return
         setModels(modelResult.models)
         const storedModel = getPreferences().defaultModel
-        preferredModel =
-          storedModel && modelResult.models.some((model) => model.id === storedModel)
-            ? storedModel
-            : modelResult.default_model || modelResult.models[0]?.id || ''
+        preferredModel = chooseDefaultModel(
+          modelResult.models,
+          storedModel,
+          modelResult.default_model || '',
+        )
         setDefaultModel(preferredModel)
         list = await apiRequest<Conversation[]>('/api/conversations?user_id=' + encodeURIComponent(userId))
         if (cancelled) return
@@ -353,9 +370,13 @@ function App() {
       const remaining = threads.filter((thread) => thread.id !== id)
       setThreads(remaining)
       if (active?.id === id) {
+        // A reply in flight is still streaming into this thread, and would keep
+        // appending to it after the server had already dropped it. Stop it, then
+        // move on regardless of the streaming guard openThread applies.
+        streamAbort.current?.abort()
         const next = remaining[0]
         if (next) {
-          void openThread(next.id)
+          void loadThread(next.id)
         } else {
           // Nothing left to show: fall back to an empty draft thread.
           setActive({
@@ -384,6 +405,14 @@ function App() {
       setModels(result.models)
       setDefaultModel(result.default_model || '')
       setKeyNeeded(false)
+      // A different key serves a different catalog. If the model this thread is
+      // pinned to is no longer on offer, keeping it would show one name in the
+      // picker while the request sent another, so fall back to a real one.
+      setSelectedModel((current) =>
+        result.models.some((model) => model.id === current)
+          ? current
+          : chooseDefaultModel(result.models, getPreferences().defaultModel, result.default_model || ''),
+      )
     } catch {
       /* Keep the previous list; the next send will surface any real problem. */
     }
@@ -412,13 +441,23 @@ function App() {
     setTranscriptInfo(null)
     // A draft has no model of its own, so it falls back to the default chosen
     // in Settings rather than inheriting whatever the previous thread used.
-    setSelectedModel(getPreferences().defaultModel || defaultModel || selectedModel)
+    setSelectedModel(chooseDefaultModel(models, getPreferences().defaultModel, defaultModel))
   }
 
   async function openThread(id: string) {
     if (streaming || switching) return
     setError('')
     setNotice('')
+    await loadThread(id)
+  }
+
+  /**
+   * The fetch-and-apply half of openThread, deliberately without the streaming
+   * guard. Deleting the open thread has to replace it even mid-reply, and
+   * reusing the guarded entry point there left the app showing a thread that
+   * no longer existed.
+   */
+  async function loadThread(id: string) {
     // Clicking through threads quickly starts overlapping loads. Only the most
     // recent click may write to state, otherwise a slow earlier response can
     // land last and show the wrong conversation.
@@ -434,7 +473,7 @@ function App() {
       setMessages(detail.messages)
       setDocuments(docs)
       setSummaryActive(Boolean(detail.summary_at_switch))
-      setSelectedModel(detail.active_model || defaultModel)
+      setSelectedModel(detail.active_model || chooseDefaultModel(models, '', defaultModel))
       setQueuedDocuments([])
       setMedia(null)
       setDraft('')
@@ -545,12 +584,25 @@ function App() {
     setStoppedReply(false)
     setDraft('')
     setTranscriptInfo(null)
+    // The composer is emptied above, but nothing is committed to the thread
+    // until the uploads finish. Without this the typed question was lost for
+    // good whenever an attachment failed: it was gone from the composer and
+    // never appeared in the conversation.
+    let messageShown = false
     try {
       const thread = await createRemoteThread(question)
-      for (const file of pendingDocs) await uploadDocument(file, thread.id)
+      let uploaded = 0
+      for (const file of pendingDocs) {
+        await uploadDocument(file, thread.id)
+        uploaded += 1
+        // Trim as we go, so a failure part-way through leaves exactly the
+        // files that never made it, not all of them again.
+        setQueuedDocuments((items) => items.slice(uploaded))
+      }
       setQueuedDocuments([])
       const assistant: ChatMessage = { id: assistantId, role: 'assistant', content: '', model_used: modelForMessage }
       setMessages((current) => [...current, userMessage, assistant])
+      messageShown = true
       const form = new FormData()
       form.set('user_id', userId)
       form.set('conversation_id', thread.id)
@@ -572,10 +624,17 @@ function App() {
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === 'AbortError') {
         setNotice('Stopped. The partial answer above was kept.')
-        setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'Stopped before an answer was produced.' } : item))
+        if (messageShown) setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'Stopped before an answer was produced.' } : item))
       } else {
         setError(cause instanceof Error ? cause.message : 'The chat request failed.')
-        setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'I could not complete that request.' } : item))
+        if (messageShown) {
+          setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'I could not complete that request.' } : item))
+        } else {
+          // Nothing reached the thread -- creating it or uploading an
+          // attachment failed first -- so the question goes back to the
+          // composer instead of vanishing along with the cleared draft.
+          setDraft((current) => (current.trim() ? current : question))
+        }
       }
     } finally { setStreaming(false) }
   }

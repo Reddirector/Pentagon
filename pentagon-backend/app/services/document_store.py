@@ -48,6 +48,24 @@ def has_documents(conversation_id: str) -> bool:
     return collection is not None and collection.count() > 0
 
 
+def purge_conversation_collection(conversation_id: str) -> bool:
+    """Drop every chunk indexed for a conversation.
+
+    The database cascades the ``documents`` rows when a thread is deleted, but
+    the vectors live in Chroma, keyed by a hash of the conversation id. Without
+    this the full text of every uploaded document outlived the thread that was
+    supposed to have removed it.
+
+    Returns True when a collection was actually deleted.
+    """
+    name = collection_name_for_conversation(conversation_id)
+    if _get_collection(name) is None:
+        return False
+    _client().delete_collection(name)
+    logger.info("Purged vector collection %s for a deleted conversation", name)
+    return True
+
+
 async def _rebuild_with_local_embeddings(name: str, collection) -> Any:
     """Re-encode an existing collection with the local model.
 

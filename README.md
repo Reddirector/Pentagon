@@ -182,7 +182,7 @@ from one that does not exist.
 | `GET` | `/api/conversations/{id}` | Full thread with messages |
 | `PATCH` | `/api/conversations/{id}` | Switch model, summarising prior turns |
 | `PATCH` | `/api/conversations/{id}/title` | Rename a thread |
-| `DELETE` | `/api/conversations/{id}` | Delete a thread, its messages and documents |
+| `DELETE` | `/api/conversations/{id}` | Delete a thread, its messages, its uploaded images and its indexed document chunks |
 | `GET` | `/api/models` | Model catalogue and the server default |
 | `POST` | `/api/keys` | Validate and store an API key (encrypted) |
 | `POST` | `/api/keys/validate` | Check a key without storing it |
@@ -198,12 +198,18 @@ user's rows, but anyone who can call the API can pass any `user_id`. Treat this
 as a local-first application, not something to expose to a network you do not
 control.
 
+Deleting a thread removes everything it stored, not only the database rows: the
+uploaded images in `image_uploads/<thread id>/` and the Chroma collection
+holding every embedded chunk of every document uploaded to it are removed too.
+Covered by
+[`tests/test_thread_deletion_cleanup.py`](pentagon-backend/tests/test_thread_deletion_cleanup.py).
+
 ---
 
 ## Testing
 
 ```bash
-# Backend — 95 tests
+# Backend — 101 tests
 cd pentagon-backend
 python -m pytest -q
 

@@ -4,6 +4,8 @@ import asyncio
 import base64
 import json
 import logging
+import re
+import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
 import time
@@ -34,6 +36,7 @@ from app.services.chat_graph import (
     public_sources,
 )
 from app.services.conversation_context import build_model_history, summarize_for_model_switch
+from app.services.document_store import purge_conversation_collection
 from app.services.image_inputs import parse_chat_submission
 from app.services.nvidia_client import NvidiaApiError, list_models_for_user
 from app.services.speech import stream_speech
@@ -256,8 +259,45 @@ def delete_conversation(
     # the foreign key, since SQLite runs with PRAGMA foreign_keys=ON.
     db.delete(conversation)
     db.commit()
+    # Neither of those lives in the database. Uploaded images sit in a folder
+    # named after the conversation and the document text sits in a Chroma
+    # collection keyed by a hash of its id, so a deleted thread used to leave
+    # both behind -- on disk, indefinitely, after the UI promised they were
+    # gone. Purging happens after the commit, so a failure here leaves an
+    # orphan file rather than a thread row pointing at nothing.
+    _purge_conversation_uploads(conversation_id)
+    try:
+        purge_conversation_collection(conversation_id)
+    except Exception as exc:
+        logger.warning(
+            "Vector cleanup failed for a deleted conversation (%s); the chunks remain on disk",
+            type(exc).__name__,
+        )
     logger.info("conversation deleted conversation=%s", conversation_id)
     return Response(status_code=204)
+
+
+def _purge_conversation_uploads(conversation_id: str) -> None:
+    """Remove the image folder a conversation accumulated, if it is ours.
+
+    The path is rebuilt from the settings directory rather than read from the
+    stored ``image_path`` column, so a tampered row cannot steer this into
+    deleting something outside the upload directory.
+    """
+    directory = Path(settings.image_upload_directory) / conversation_id
+    # conversation_id is a uuid4 hex string from the request path; anything
+    # with a separator or parent reference is not one of ours to remove.
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", conversation_id):
+        logger.warning("Refusing to purge uploads for an unexpected id %r", conversation_id)
+        return
+    try:
+        resolved = directory.resolve()
+        root = Path(settings.image_upload_directory).resolve()
+    except OSError:
+        return
+    if resolved != root / conversation_id or root not in resolved.parents:
+        return
+    shutil.rmtree(resolved, ignore_errors=True)
 
 
 @router.patch(

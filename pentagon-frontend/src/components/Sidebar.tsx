@@ -89,6 +89,7 @@ export function Sidebar({
   const asideRef = useRef<HTMLElement>(null)
   const [draftWidth, setDraftWidth] = useState<number | null>(null)
   const [resizing, setResizing] = useState(false)
+  const resizeCleanupRef = useRef<(() => void) | null>(null)
   const widthPreference = preferences.sidebarWidth
 
   // The rail is a desktop-only affordance. On a phone the sidebar is an overlay
@@ -143,6 +144,7 @@ export function Sidebar({
       if (latest.value !== null) persistSidebarWidth(latest.value)
       setDraftWidth(null)
       setResizing(false)
+      resizeCleanupRef.current = null
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', finish)
       window.removeEventListener('pointercancel', finish)
@@ -151,7 +153,18 @@ export function Sidebar({
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', finish)
     window.addEventListener('pointercancel', finish)
+    // A drag that ends outside the window, or one still running when the
+    // sidebar goes away, used to leave all three listeners attached to window
+    // for the rest of the session -- every later pointermove then wrote width
+    // state into an unmounted component.
+    resizeCleanupRef.current?.()
+    resizeCleanupRef.current = finish
   }
+
+  useEffect(() => () => {
+    resizeCleanupRef.current?.()
+    resizeCleanupRef.current = null
+  }, [])
 
   function nudgeWidth(delta: number) {
     // Deliberately not appliedWidth: while collapsed that is the 64px rail, and
