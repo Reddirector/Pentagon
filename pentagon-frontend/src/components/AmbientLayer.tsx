@@ -9,6 +9,11 @@ import {
 
 // L4 constellation: one canvas, 30fps cap, DPR capped at 1.5, paused when the
 // tab is hidden. Dots twinkle and drift; nearby dots are joined by faint lines.
+// The pointer pushes the field aside: dots near the cursor are displaced away
+// from it at draw time, so hovering parts the constellation and the effect
+// unwinds the moment the cursor leaves. Displacing at draw time rather than
+// adding impulse to each dot means the response is instant and cannot pump
+// energy into the drift over time.
 function Constellation() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mode = useSyncExternalStore(subscribeAmbient, getAmbientMode)
@@ -21,9 +26,33 @@ function Constellation() {
 
     const calm = mode === 'calm'
     const speed = calm ? 0.4 : 1
+    // How far a dot is shoved clear of the cursor, and over what distance.
+    const pushRadius = calm ? 68 : 104
+    const pushStrength = calm ? 26 : 46
     let width = 0
     let height = 0
     let dots: { x: number; y: number; vx: number; vy: number; phase: number }[] = []
+    // Where each dot is actually painted this frame, after the cursor has
+    // pushed it. Links are drawn from these too, so the whole field parts
+    // together instead of the lines stretching across the gap.
+    let drawnX: number[] = []
+    let drawnY: number[] = []
+
+    const pointer = { x: 0, y: 0, active: false }
+    // Eased so the field settles into place instead of snapping, and so
+    // leaving the window fades the parting back out rather than cutting it.
+    let influence = 0
+
+    const onPointerMove = (event: PointerEvent) => {
+      // Touch and pen have no hover, so they should not part the field.
+      if (event.pointerType && event.pointerType !== 'mouse') return
+      pointer.x = event.clientX
+      pointer.y = event.clientY
+      pointer.active = true
+    }
+    const onPointerLeave = () => {
+      pointer.active = false
+    }
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
@@ -35,6 +64,8 @@ function Constellation() {
       canvas.style.height = `${height}px`
       context.setTransform(dpr, 0, 0, dpr, 0, 0)
       const count = dotCount(mode, width * height)
+      drawnX = new Array<number>(count)
+      drawnY = new Array<number>(count)
       dots = Array.from({ length: count }, () => ({
         x: Math.random() * width,
         y: Math.random() * height,
@@ -46,6 +77,9 @@ function Constellation() {
 
     resize()
     window.addEventListener('resize', resize)
+    // The canvas is pointer-events-none, so the cursor is tracked on the window.
+    window.addEventListener('pointermove', onPointerMove, { passive: true })
+    document.documentElement.addEventListener('pointerleave', onPointerLeave)
 
     let frame = 0
     let last = performance.now()
@@ -81,26 +115,55 @@ function Constellation() {
         if (dot.y > height + 10) dot.y = -10
       }
 
+      influence += ((pointer.active ? 1 : 0) - influence) * 0.18
+      if (influence < 0.002) influence = 0
+
+      const reach = pushRadius * pushRadius
+      for (let i = 0; i < dots.length; i += 1) {
+        const dot = dots[i]
+        let x = dot.x
+        let y = dot.y
+        if (influence > 0) {
+          const dx = x - pointer.x
+          const dy = y - pointer.y
+          const distanceSquared = dx * dx + dy * dy
+          if (distanceSquared < reach) {
+            const distance = Math.sqrt(distanceSquared)
+            // Directly under the cursor there is no direction to push along,
+            // so nudge straight up rather than dividing by zero.
+            const nx = distance > 0.001 ? dx / distance : 0
+            const ny = distance > 0.001 ? dy / distance : -1
+            // Squared falloff: gentle at the rim, firmest at the cursor.
+            const falloff = 1 - distance / pushRadius
+            const push = pushStrength * falloff * falloff * influence
+            x += nx * push
+            y += ny * push
+          }
+        }
+        drawnX[i] = x
+        drawnY[i] = y
+      }
+
       context.lineWidth = 1
       for (let i = 0; i < dots.length; i += 1) {
         for (let j = i + 1; j < dots.length; j += 1) {
-          const dx = dots[i].x - dots[j].x
-          const dy = dots[i].y - dots[j].y
+          const dx = drawnX[i] - drawnX[j]
+          const dy = drawnY[i] - drawnY[j]
           const distance = Math.hypot(dx, dy)
           if (distance > linkDistance) continue
           context.strokeStyle = `rgba(255, 255, 255, ${(1 - distance / linkDistance) * 0.1})`
           context.beginPath()
-          context.moveTo(dots[i].x, dots[i].y)
-          context.lineTo(dots[j].x, dots[j].y)
+          context.moveTo(drawnX[i], drawnY[i])
+          context.lineTo(drawnX[j], drawnY[j])
           context.stroke()
         }
       }
 
-      for (const dot of dots) {
-        const twinkle = 0.28 + Math.sin(frame / 22 + dot.phase) * 0.18
+      for (let i = 0; i < dots.length; i += 1) {
+        const twinkle = 0.28 + Math.sin(frame / 22 + dots[i].phase) * 0.18
         context.fillStyle = `rgba(255, 255, 255, ${Math.max(0.06, twinkle)})`
         context.beginPath()
-        context.arc(dot.x, dot.y, calm ? 1 : 1.4, 0, Math.PI * 2)
+        context.arc(drawnX[i], drawnY[i], calm ? 1 : 1.4, 0, Math.PI * 2)
         context.fill()
       }
     }
@@ -109,6 +172,8 @@ function Constellation() {
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('resize', resize)
+      window.removeEventListener('pointermove', onPointerMove)
+      document.documentElement.removeEventListener('pointerleave', onPointerLeave)
     }
   }, [mode])
 
