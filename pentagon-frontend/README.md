@@ -59,6 +59,27 @@ For `npm run dev` and `npm run electron:dev`, set `VITE_API_BASE_URL` in
 `.env`. For a packaged Electron app, set `PENTAGON_API_URL` in its launch
 environment to use a backend other than `http://127.0.0.1:8000`.
 
+## App icon
+
+Every launcher icon is derived from two brand assets in `public/`, never
+hand-drawn: `pentagon-logo.png` (sphere, compass star, moon) and
+`pentagon-mark.png` (sphere only). Change those and run:
+
+```bash
+npm run icons
+```
+
+The script (`scripts/generate-icons.py`, needs `pip install Pillow`) rewrites
+the Android `mipmap-*` densities, the adaptive-icon foreground, the iOS 1024
+`AppIcon`, `favicon.ico`, and `apple-touch-icon.png`. It also picks each plate
+colour and margin for you, so the reason the adaptive foreground is inset
+harder than the legacy icon stays in one place. The Android plate colour
+lives in `android/app/src/main/res/values/ic_launcher_background.xml` and
+matches `--surface-app`; keep the two in step if the app background changes.
+
+The in-app mark comes from `src/components/Logomark.tsx`, which already falls
+back to the sphere-only asset below 22px.
+
 ## Product notes
 
 - The context indicator reports message history loaded from the backend; the
