@@ -920,7 +920,7 @@ function App() {
             {messages.length ? <div className="space-y-8">
               {messages.map((message, index) => <MessageRow key={message.id} message={message} isStreaming={streaming && index === messages.length - 1} copied={copiedId === message.id} onCopy={() => void copyMessage(message)} />)}
             </div> : <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-16 text-center">
-              <div className="relative mb-7 grid size-[66px] place-items-center"><Logomark size={60} /><span className="absolute -right-1 -top-1 size-2 rounded-full bg-white/70" /></div>
+              <div className="mb-7 grid size-[66px] place-items-center"><Logomark size={60} /></div>
               <p className="mb-3 text-caption font-medium uppercase tracking-[.23em] text-emerald-200/70">A focused place to think</p>
               <h1 className="max-w-xl text-balance text-hero-fluid font-medium leading-[1.12] tracking-[-.045em] text-zinc-100">{active ? 'What should we explore?' : 'A clear space for your next idea.'}</h1>
               <p className="mt-4 max-w-md text-body leading-6 text-zinc-500">Bring a question, a document, or a moment from a video. Pentagon will show the sources and work behind each reply.</p>
