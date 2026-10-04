@@ -5,6 +5,12 @@ const { startUiServer } = require('./uiServer.cjs')
 const isDev = process.argv.includes('--dev')
 const backendUrl = process.env.PENTAGON_API_URL || process.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 const assetsDirectory = path.join(__dirname, '..', 'dist')
+// Without an explicit window icon the taskbar falls back to whatever the
+// desktop guesses from the app id, which is how the window ended up wearing
+// something that was not the Pentagon mark. Vite copies public/ into dist/ and
+// the packager ships dist/, so the same file serves both the dev tree and the
+// packaged app -- no extra asset to keep in sync.
+const iconPath = path.join(__dirname, '..', isDev ? 'public' : 'dist', 'pentagon-logo.png')
 let uiServer
 let uiOrigin
 
@@ -16,6 +22,7 @@ async function createWindow() {
     minHeight: 620,
     backgroundColor: '#0c0d0f',
     title: 'Pentagon',
+    icon: iconPath,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
