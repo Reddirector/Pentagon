@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Matches --surface-app in src/index.css. The Capacitor template ships
-         #FFFFFF here, which framed the light mark on a white tile and made the
-         launcher the one place the app was not black. Regenerate the mark with
-         `npm run icons`. -->
+    <!-- Matches the surface-app variable in src/index.css. The Capacitor
+         template ships #FFFFFF here, which framed the light mark on a white
+         tile and made the launcher the one place the app was not black.
+         Regenerate the mark with `npm run icons`. -->
     <color name="ic_launcher_background">#000000</color>
 </resources>

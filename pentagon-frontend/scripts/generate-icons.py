@@ -25,8 +25,10 @@ Layout rules worth knowing before you tune the fractions:
 
 from __future__ import annotations
 
+import glob
 import os
 import sys
+import xml.dom.minidom
 
 from PIL import Image, ImageDraw
 
@@ -173,12 +175,27 @@ def write_web() -> list[str]:
     return [ico, touch_path]
 
 
+def check_android_resources() -> None:
+    """Fail loudly on a malformed resource file.
+
+    The plate colour lives in res/values/ic_launcher_background.xml, so the one
+    command that owns the icon set also owns the XML that points at it. Nothing
+    else in the frontend toolchain reads res/, so a typo here - a `--` inside a
+    comment, say, which is illegal in XML and rejected by aapt2 - would
+    otherwise surface only at `gradlew assemble`, long after the edit.
+    """
+    for path in glob.glob(os.path.join(ANDROID_RES, "**", "*.xml"), recursive=True):
+        xml.dom.minidom.parse(path)
+
+
 def main() -> int:
     written = [*write_android(), *write_ios(), *write_web()]
     for path in written:
         image = Image.open(path)
         print(f"  {os.path.relpath(path, ROOT)}  {image.size[0]}x{image.size[1]} {image.mode}")
     print(f"{len(written)} icon files regenerated from public/pentagon-{{logo,mark}}.png")
+    check_android_resources()
+    print("android res/ XML parses clean")
     return 0
 
 
