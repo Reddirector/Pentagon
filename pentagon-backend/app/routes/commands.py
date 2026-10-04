@@ -37,7 +37,7 @@ router = APIRouter(prefix="/api/commands", tags=["commands"])
 class CommandSettings(BaseModel):
     enabled: bool
     available: bool
-    approval_timeout_seconds: float = Field(default=300.0, description=0)
+    approval_timeout_seconds: float
 
 
 class CommandSettingsUpdate(BaseModel):

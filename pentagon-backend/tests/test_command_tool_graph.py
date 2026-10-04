@@ -251,6 +251,29 @@ def test_command_runs_are_recorded_in_the_trace(
 # --- HTTP surface ---------------------------------------------------------
 
 
+def test_every_response_model_renders_a_valid_openapi_schema() -> None:
+    """A malformed field breaks /openapi.json, not the endpoint itself.
+
+    `Field(default=300.0, description=0)` shipped once: the description was the
+    integer 0 rather than a string, which every route test passed straight
+    through and only surfaced as a 500 on the docs page. Asserting on the
+    endpoint's own response cannot see that, so assert on the schema.
+    """
+    from fastapi.openapi.utils import get_openapi
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        routes=app.routes,
+    )
+    command_settings = schema["components"]["schemas"]["CommandSettings"]
+    assert "enabled" in command_settings["properties"]
+    assert "available" in command_settings["properties"]
+    assert isinstance(
+        command_settings["properties"]["approval_timeout_seconds"], dict
+    )
+
+
 def test_settings_report_availability_and_default_to_off(
     client: TestClient, monkeypatch
 ) -> None:
