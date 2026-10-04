@@ -126,11 +126,20 @@ async def chat(
         summary_at_switch=conversation.summary_at_switch,
         active_model=conversation.active_model,
     )
+    # Both gates again, at the point where the decision actually takes effect:
+    # the server switch and the user's own stored preference.
+    user = db.get(User, payload.user_id)
+    command_tool_enabled = bool(
+        settings.command_tool_enabled
+        and user is not None
+        and user.command_tool_enabled
+    )
     graph = build_chat_graph(
         api_key,
         payload.model,
         user_id=payload.user_id,
         use_web_search=payload.use_web_search,
+        command_tool_enabled=command_tool_enabled,
     )
     graph_input = initial_chat_state(
         user_id=payload.user_id,
@@ -151,6 +160,7 @@ async def chat(
         ),
         context_raw_message_count=(min(len(prior_messages), 6) if conversation.summary_at_switch else 0),
         context_model=conversation.active_model,
+        command_tool_enabled=command_tool_enabled,
     )
 
     return StreamingResponse(
@@ -577,11 +587,20 @@ async def _stream_chat(
                 {"message": "Speech synthesis failed; the text response is still available."},
             )
 
+    command_runs = final_state.get("command_runs", [])
+    if command_runs:
+        logger.info(
+            "conversation used %d command(s) conversation=%s commands=%s",
+            len(command_runs),
+            conversation_id,
+            [run.get("command") for run in command_runs],
+        )
     yield _sse(
         "metadata",
         {
             "sources_used": public_sources(final_state),
             "execution_trace": final_state.get("execution_trace", {}),
+            **({"command_runs": command_runs} if command_runs else {}),
         },
     )
     yield _sse("done", {"conversation_id": conversation_id})

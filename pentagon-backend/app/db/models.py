@@ -59,6 +59,11 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+    # Per-user opt-in for the shell tool. Defaults to False, so a new user has
+    # no command access until they turn it on and the server allows it. Stored
+    # here rather than in localStorage so the backend -- which is what decides
+    # whether to hand the model a tool -- can see it.
+    command_tool_enabled: Mapped[bool] = mapped_column(default=False)
 
     api_key: Mapped["ApiKey | None"] = relationship(back_populates="user", uselist=False)
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="user")

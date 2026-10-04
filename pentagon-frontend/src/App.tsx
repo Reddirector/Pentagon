@@ -1,8 +1,9 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
 import { ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, Mic, Paperclip, Plus, Square, Video, X } from 'lucide-react'
 import { apiRequest, ApiError, apiUrl, getLocalUserId, pcmToWavUrl } from './api'
 import { AssistantDetails } from './components/MessageContent'
+import { CommandApproval, CommandLog } from './components/CommandPanel'
 import { Sidebar } from './components/Sidebar'
 import { Logomark, LogomarkBadge } from './components/Logomark'
 import { ThinkingIndicator } from './components/ThinkingIndicator'
@@ -11,7 +12,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { SettingsDialog } from './components/SettingsDialog'
 import { setAmbientSignal } from './lib/ambient'
 import { getPreferences, toggleSidebarCollapsed } from './lib/preferences'
-import type { ChatMessage, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, SourcesUsed } from './types'
+import type { ChatMessage, CommandRun, CommandSettings, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, PendingCommand, SourcesUsed } from './types'
 
 type ConversationDetail = Conversation & { messages: ChatMessage[]; summary_at_switch: string | null }
 type TranscriptInfo = { durationMs: number; provider: string }
@@ -101,6 +102,27 @@ function App() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [dragging, setDragging] = useState(false)
+  const [commandSettings, setCommandSettings] = useState<CommandSettings>({
+    enabled: false,
+    available: false,
+    approval_timeout_seconds: 300,
+  })
+  const [deciding, setDeciding] = useState<string | null>(null)
+
+  // --- command tool bootstrap ---------------------------------------------
+  // Defined with useCallback so the effect can depend on it honestly rather
+  // than being exempted from the dependency check.
+  const loadCommandSettings = useCallback(async () => {
+    try {
+      const result = await apiRequest<CommandSettings>(
+        `/api/commands/settings?user_id=${encodeURIComponent(userId)}`,
+      )
+      setCommandSettings(result)
+    } catch {
+      // A server without the tool simply has no settings; the toggle stays off.
+      setCommandSettings({ enabled: false, available: false, approval_timeout_seconds: 300 })
+    }
+  }, [userId])
   const fileInput = useRef<HTMLInputElement>(null)
   const recorder = useRef<MediaRecorder | null>(null)
   const streamAbort = useRef<AbortController | null>(null)
@@ -136,6 +158,11 @@ function App() {
       let preferredModel = ''
       let list: Conversation[] = []
       try {
+        // Whether the shell tool is available is fixed for the session, so it
+        // belongs in the one bootstrap fetch rather than in an effect of its
+        // own. It is deliberately not fatal: a failure here must not stop the
+        // app from loading models and threads, and the toggle simply stays off.
+        await loadCommandSettings()
         const modelResult = await apiRequest<{ models: ModelInfo[]; default_model?: string | null }>(`/api/models?user_id=${encodeURIComponent(userId)}`)
         if (cancelled) return
         setModels(modelResult.models)
@@ -183,7 +210,7 @@ function App() {
     }
     void hydrate()
     return () => { cancelled = true }
-  }, [userId])
+  }, [userId, loadCommandSettings])
 
   useEffect(() => {
     if (!keyValue.trim()) return
@@ -221,6 +248,47 @@ function App() {
     }
   }, [messages, streaming])
   useEffect(() => () => recorder.current?.stream.getTracks().forEach((track) => track.stop()), [])
+
+  /**
+   * Show the approval prompt while a turn is in flight.
+   *
+   * This polls rather than waiting for a server-sent event, and that is
+   * deliberate. The server blocks inside the tool node until the decision
+   * arrives, so it has no opportunity to push anything down the same stream
+   * while the question is outstanding -- there is nothing to emit from until
+   * the answer comes back. Polling the pending list is also what makes a
+   * reload mid-request recoverable rather than stranded.
+   */
+  useEffect(() => {
+    if (!streaming || !commandSettings.enabled || !active) return
+    const conversationId = active.id
+    let cancelled = false
+    const poll = async () => {
+      if (cancelled) return
+      try {
+        const rows = await apiRequest<PendingCommand[]>(
+          `/api/commands/pending?user_id=${encodeURIComponent(userId)}`
+          + `&conversation_id=${encodeURIComponent(conversationId)}`,
+        )
+        if (cancelled || !rows.length) return
+        setMessages((current) =>
+          current.map((item) =>
+            item.role === 'assistant' && !item.pendingCommand && !item.content
+              ? { ...item, pendingCommand: rows[0] }
+              : item,
+          ),
+        )
+      } catch {
+        /* The prompt is re-checked on the next tick; a failed poll is not fatal. */
+      }
+    }
+    void poll()
+    const timer = window.setInterval(poll, 1500)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [streaming, commandSettings.enabled, active, userId])
   useEffect(() => () => streamAbort.current?.abort(), [])
   useEffect(() => {
     const live = new Set(messages.map((item) => item.audioUrl).filter((url): url is string => Boolean(url)))
@@ -661,6 +729,33 @@ function App() {
     streamAbort.current?.abort()
   }
 
+  /** Answer the approval prompt. The turn stays blocked until the server hears this. */
+  async function decideCommand(requestId: string, approved: boolean) {
+    if (deciding) return
+    setDeciding(requestId)
+    try {
+      await apiRequest('/api/commands/decide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId, approved, user_id: userId }),
+      })
+      // Clear the prompt whether or not the write landed: if the request failed
+      // the server is no longer waiting, and a card the user cannot dismiss is
+      // worse than one that disappears.
+      setMessages((current) =>
+        current.map((item) =>
+          item.pendingCommand?.request_id === requestId
+            ? { ...item, pendingCommand: null }
+            : item,
+        ),
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not send your decision.')
+    } finally {
+      setDeciding(null)
+    }
+  }
+
   function focusSearch() {
     document.querySelector<HTMLInputElement>('input[aria-label="Search conversations"]')?.focus()
   }
@@ -725,6 +820,11 @@ function App() {
         update({
           sources_used: payload.sources_used as SourcesUsed,
           execution_trace: payload.execution_trace as ExecutionTrace,
+          // Only set when the turn actually ran commands, so a normal reply
+          // leaves the previous value alone rather than clearing it.
+          ...(Array.isArray(payload.command_runs)
+            ? { commandRuns: payload.command_runs as CommandRun[] }
+            : {}),
         })
       } else if (eventName === 'audio_chunk' && typeof payload.content === 'string') {
         audioChunks.push(decodeAudio(payload.content))
@@ -938,7 +1038,19 @@ function App() {
               </span>)}
             </div>}
             {messages.length ? <div className="space-y-8">
-              {messages.map((message, index) => <MessageRow key={message.id} message={message} isStreaming={streaming && index === messages.length - 1} copied={copiedId === message.id} onCopy={() => void copyMessage(message)} />)}
+              {messages.map((message, index) => <MessageRow
+                key={message.id}
+                message={message}
+                isStreaming={streaming && index === messages.length - 1}
+                copied={copiedId === message.id}
+                onCopy={() => void copyMessage(message)}
+                onDecideCommand={(approved) => {
+                  const pending = message.pendingCommand
+                  if (pending) void decideCommand(pending.request_id, approved)
+                }}
+                commandTimeoutSeconds={commandSettings.approval_timeout_seconds}
+                deciding={Boolean(message.pendingCommand && deciding === message.pendingCommand.request_id)}
+              />)}
             </div> : <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-16 text-center">
               <div className="mb-7 grid size-[66px] place-items-center"><Logomark size={60} /></div>
               <p className="mb-3 text-caption font-medium uppercase tracking-[.23em] text-emerald-200/70">A focused place to think</p>
@@ -1003,6 +1115,8 @@ function App() {
         onDeleteThread={(id) => void deleteThread(id)}
         onClose={() => setSettingsOpen(false)}
         onKeySaved={() => void refreshModels()}
+        commandSettings={commandSettings}
+        onCommandSettingsChange={(enabled) => setCommandSettings((current) => ({ ...current, enabled }))}
         onDocumentDeleted={(documentId) =>
           setDocuments((current) => current.filter((item) => item.document_id !== documentId))
         }
@@ -1011,7 +1125,15 @@ function App() {
   </div>
 }
 
-function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy }: { message: ChatMessage; isStreaming?: boolean; copied?: boolean; onCopy?: () => void }) {
+function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, onDecideCommand, commandTimeoutSeconds = 300, deciding = false }: {
+  message: ChatMessage
+  isStreaming?: boolean
+  copied?: boolean
+  onCopy?: () => void
+  onDecideCommand?: (approved: boolean) => void
+  commandTimeoutSeconds?: number
+  deciding?: boolean
+}) {
   const user = message.role === 'user'
   return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
     {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center"><Logomark size={20} /></div>}
@@ -1022,6 +1144,15 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy }
         {message.attachmentName && <div className="mt-2 flex items-center gap-1.5 text-caption text-zinc-500"><Paperclip size={11} />{message.attachmentName}</div>}
       </div> : <div className="min-w-0 pt-0.5">
         {message.content ? <div className={isStreaming ? 'streaming-answer' : undefined}><AssistantDetails message={message} /></div> : <ThinkingIndicator model={message.model_used} />}
+      {/* Above the answer: while a command is pending there is nothing to read
+          yet, so the prompt has to be the thing the eye lands on. */}
+      {message.pendingCommand && onDecideCommand ? <CommandApproval
+        pending={message.pendingCommand}
+        timeoutSeconds={commandTimeoutSeconds}
+        busy={deciding}
+        onDecide={onDecideCommand}
+      /> : null}
+      {message.commandRuns?.length ? <CommandLog runs={message.commandRuns} /> : null}
       {!user && message.content ? <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
         <button type="button" onClick={onCopy} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2 py-1 text-micro text-zinc-600 transition hover:bg-white/[0.05] hover:text-zinc-300" aria-label="Copy answer">{copied ? <Check size={11} className="text-emerald-300" /> : <Copy size={11} />}{copied ? 'Copied' : 'Copy'}</button>
       </div> : null}
@@ -1039,7 +1170,8 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy }
 const MessageRow = memo(MessageRowImpl, (previous, next) =>
   previous.message === next.message &&
   previous.isStreaming === next.isStreaming &&
-  previous.copied === next.copied
+  previous.copied === next.copied &&
+  previous.deciding === next.deciding
 )
 
 function KeyGate({ value, validation, validationMessage, saving, error, onChange, onSubmit }: {

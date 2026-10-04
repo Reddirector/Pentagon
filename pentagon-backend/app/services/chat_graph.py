@@ -7,11 +7,16 @@ import re
 import time
 from typing import Annotated, Any, TypedDict
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
+from app.config import settings
+from app.services.command_runner import (
+    SHELL_TOOL_SCHEMA,
+    run_command,
+)
 from app.services.document_store import has_documents, retrieve_chunks
 from app.services.nvidia_client import make_chat_model
 from app.services.vision import VISION_MODEL_ID, analyze_image
@@ -20,6 +25,7 @@ from app.services.web_search import search_web
 
 
 logger = logging.getLogger(__name__)
+SHELL_TOOL_NAME = "run_shell_command"
 _CURRENT_INFO_TERMS = re.compile(
     r"\b(latest|today|current|currently|now|recent|news|yesterday|this week|this month|this year)\b",
     re.IGNORECASE,
@@ -53,6 +59,20 @@ class ChatState(TypedDict):
     execution_trace: Annotated[dict[str, Any], merge_trace]
     augmented_prompt: str
     answer: str
+    # Tool loop. ``pending_tool_calls`` is what the model asked for on the last
+    # generate; ``command_runs`` is the audit trail, kept as a list because a
+    # dict keyed by name would collapse repeated commands into one entry.
+    #
+    # ``tool_messages`` is the tool-call transcript: the AIMessage that asked,
+    # followed by the ToolMessage carrying the result. It is kept apart from
+    # ``messages`` (the conversation history) because the augmented prompt
+    # replaces the user's own turn, and every re-entry to generate_response has
+    # to rebuild that head in the same place.
+    command_tool_enabled: bool
+    pending_tool_calls: list[dict[str, Any]]
+    command_runs: Annotated[list[dict[str, Any]], operator.add]
+    tool_messages: Annotated[list[BaseMessage], operator.add]
+    tool_iterations: int
 
 
 def _node_trace(
@@ -108,8 +128,22 @@ def build_chat_graph(
     *,
     user_id: str,
     use_web_search: bool | None = None,
+    command_tool_enabled: bool = False,
 ):
     chat_model = make_chat_model(api_key, model)
+
+    def model_for_turn():
+        """The chat model, carrying the shell tool only when it is allowed.
+
+        Both gates matter. The server switch means a deployment that does not
+        want shell access never hands the model the tool at all, and the
+        per-user flag means one user cannot enable it for another. When the tool
+        is absent the model simply never emits a tool call, so the loop below
+        is inert and the graph behaves exactly as it did before.
+        """
+        if command_tool_enabled and settings.command_tool_enabled:
+            return chat_model.bind_tools([SHELL_TOOL_SCHEMA])
+        return chat_model
 
     async def intent_router(state: ChatState) -> dict[str, Any]:
         started = time.perf_counter()
@@ -299,17 +333,148 @@ def build_chat_graph(
     async def generate_response(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
         started = time.perf_counter()
         context_message = HumanMessage(content=state["augmented_prompt"])
-        prompt_messages = [*state["messages"][:-1], context_message]
+        # History, then the augmented prompt standing in for the user's own
+        # turn, then any tool transcript from earlier in this loop. Each piece
+        # is placed explicitly rather than by slicing off the end, because after
+        # a tool call the end of the list is a ToolMessage that must stay.
+        prompt_messages = [
+            *state["messages"],
+            context_message,
+            *state.get("tool_messages", []),
+        ]
+        model = model_for_turn()
         try:
-            response = await chat_model.ainvoke(prompt_messages, config=config)
+            response = await model.ainvoke(prompt_messages, config=config)
         except Exception:
             _node_trace("generate_response", started, status="failed")
             raise
         answer = _content_as_text(response.content)
-        return {
+        tool_calls = [
+            {
+                "id": call.get("id") or "",
+                "name": call.get("name") or "",
+                "args": call.get("args") or {},
+            }
+            for call in (getattr(response, "tool_calls", None) or [])
+            if isinstance(call, dict) and call.get("name") == SHELL_TOOL_NAME
+        ]
+        # Unknown tool names are dropped rather than executed: the model can
+        # only be trusted to ask for the one tool this graph actually offers.
+        unknown = [
+            call.get("name")
+            for call in (getattr(response, "tool_calls", None) or [])
+            if isinstance(call, dict) and call.get("name") != SHELL_TOOL_NAME
+        ]
+        if unknown:
+            logger.info("ignoring unsupported tool calls %s", sorted(set(unknown)))
+
+        # Tool calls mean there is no final answer yet. The answer text that
+        # came with them is kept, because a model often narrates ("Let me check
+        # the log") before calling the tool, and that text is the answer so far.
+        result: dict[str, Any] = {
             "answer": answer,
             "execution_trace": _node_trace("generate_response", started),
+            "pending_tool_calls": tool_calls,
+            "tool_iterations": state.get("tool_iterations", 0) + (1 if tool_calls else 0),
         }
+        if tool_calls:
+            result["execution_trace"]["generate_response"]["tool_calls_requested"] = len(tool_calls)
+            # The AIMessage has to stay in the transcript so each ToolMessage
+            # that follows has a tool_call it can be matched against.
+            result["tool_messages"] = [response]
+        return result
+
+    async def run_command_node(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
+        """Run whatever the model asked for, then hand the output back to it.
+
+        Every requested command is executed exactly once, its output is returned
+        as a ToolMessage (which is what the model expects to read next), and the
+        run is recorded in the audit trail whether it succeeded, failed, timed
+        out or was denied.
+        """
+        started = time.perf_counter()
+        requests = state.get("pending_tool_calls") or []
+        budget = settings.command_max_calls_per_turn
+        messages: list[BaseMessage] = []
+        runs: list[dict[str, Any]] = []
+
+        for call in requests:
+            arguments = call.get("args") or {}
+            command = arguments.get("command")
+            reason = arguments.get("reason") or ""
+            if not isinstance(command, str) or not command.strip():
+                messages.append(
+                    ToolMessage(
+                        content="[rejected] No command was provided.",
+                        tool_call_id=call.get("id") or "",
+                        name=SHELL_TOOL_NAME,
+                    )
+                )
+                continue
+            if len(runs) >= budget:
+                messages.append(
+                    ToolMessage(
+                        content=(
+                            f"[refused] The limit of {budget} commands for this turn was "
+                            "already reached. Answer with what you have."
+                        ),
+                        tool_call_id=call.get("id") or "",
+                        name=SHELL_TOOL_NAME,
+                    )
+                )
+                continue
+
+            result = await run_command(
+                command,
+                conversation_id=state["conversation_id"],
+                user_id=state["user_id"],
+                reason=reason,
+                auto_approve=True,
+            )
+            payload = result.as_payload()
+            runs.append(payload)
+            logger.info(
+                "command %s exit=%s auto=%s duration_ms=%.1f",
+                "ran" if result.auto_approved else "was not run",
+                result.exit_code,
+                result.auto_approved,
+                result.duration_ms,
+            )
+            messages.append(
+                ToolMessage(
+                    content=result.as_text(),
+                    tool_call_id=call.get("id") or "",
+                    name=SHELL_TOOL_NAME,
+                )
+            )
+
+        trace = _node_trace(
+            "run_command",
+            started,
+            command_count=len(runs),
+            commands=[run["command"] for run in runs],
+            denied=sum(1 for run in runs if run["exit_code"] is None),
+        )
+        return {
+            "tool_messages": messages,
+            "command_runs": runs,
+            "pending_tool_calls": [],
+            "execution_trace": trace,
+        }
+
+    def route_after_generate(state: ChatState) -> str:
+        requests = state.get("pending_tool_calls") or []
+        if not requests:
+            return END
+        if state.get("tool_iterations", 0) >= settings.command_max_calls_per_turn:
+            # Refuse to loop forever. The model gets a tool result telling it to
+            # answer with what it has, then the turn ends.
+            logger.info("command loop hit the per-turn limit")
+            return END
+        return "run_command"
+
+    def route_after_command(state: ChatState) -> str:
+        return "generate_response"
 
     graph = StateGraph(ChatState)
     graph.add_node("intent_router", intent_router)
@@ -318,13 +483,19 @@ def build_chat_graph(
     graph.add_node("vision_analysis", vision_analysis_node)
     graph.add_node("context_assembler", context_assembler)
     graph.add_node("generate_response", generate_response)
+    graph.add_node("run_command", run_command_node)
     graph.add_edge(START, "intent_router")
     graph.add_conditional_edges("intent_router", dispatch_branches)
     graph.add_edge("web_search", "context_assembler")
     graph.add_edge("retrieve_documents", "context_assembler")
     graph.add_edge("vision_analysis", "context_assembler")
     graph.add_edge("context_assembler", "generate_response")
-    graph.add_edge("generate_response", END)
+    graph.add_conditional_edges(
+        "generate_response",
+        route_after_generate,
+        {"run_command": "run_command", END: END},
+    )
+    graph.add_edge("run_command", "generate_response")
     return graph.compile()
 
 
@@ -346,6 +517,7 @@ def initial_chat_state(
     context_summary_word_count: int = 0,
     context_raw_message_count: int = 0,
     context_model: str | None = None,
+    command_tool_enabled: bool = False,
 ) -> ChatState:
     has_image = image_data_uri is not None
     has_video = video_data_uri is not None
@@ -373,7 +545,11 @@ def initial_chat_state(
         "user_id": user_id,
         "conversation_id": conversation_id,
         "user_message": normalized_message,
-        "messages": [*history, HumanMessage(content=normalized_message)],
+        # The conversation history only. The user's own turn is represented by
+        # `augmented_prompt`, which generate_response substitutes in; keeping it
+        # out of here means re-entering the model after a tool call does not
+        # have to guess which trailing message to discard.
+        "messages": list(history),
         "use_web_search": use_web_search,
         "has_image": has_image,
         "image_data_uri": image_data_uri or "",
@@ -390,6 +566,11 @@ def initial_chat_state(
         "execution_trace": execution_trace,
         "augmented_prompt": "",
         "answer": "",
+        "command_tool_enabled": command_tool_enabled,
+        "pending_tool_calls": [],
+        "command_runs": [],
+        "tool_messages": [],
+        "tool_iterations": 0,
     }
 
 

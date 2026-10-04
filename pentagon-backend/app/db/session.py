@@ -42,6 +42,18 @@ def initialize_database() -> None:
             connection.execute(text("ALTER TABLE conversations ADD COLUMN active_model VARCHAR(255)"))
         if "summary_at_switch" not in conversation_columns:
             connection.execute(text("ALTER TABLE conversations ADD COLUMN summary_at_switch TEXT"))
+    # Additive migrations for existing databases. SQLite cannot add a column
+    # with a non-constant default, so the flag is created NOT NULL DEFAULT 0:
+    # existing users are off, which is the safe direction to fail.
+    user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    if "command_tool_enabled" not in user_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN command_tool_enabled "
+                    "BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
 
 
 def get_db() -> Generator[Session, None, None]:

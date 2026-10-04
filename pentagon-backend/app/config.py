@@ -36,6 +36,25 @@ class Settings(BaseSettings):
     nvidia_server_api_key: SecretStr | None = None
     default_chat_model: str | None = None
 
+    # --- Shell tool -------------------------------------------------------
+    # Master switch. The model is given no command tool at all unless this is
+    # true, so a deployment that does not want shell access never exposes it,
+    # regardless of what any client asks for. It is off by default because a
+    # prompt-injected web page or uploaded PDF must not be able to reach a shell.
+    command_tool_enabled: bool = False
+    # A command the user has not answered is denied, never run. Silence is a
+    # "no": a closed tab must not turn into an executed command.
+    command_approval_timeout_seconds: float = 300.0
+    command_timeout_seconds: float = 120.0
+    # Ceiling on what a single command can hand back to the model, so one
+    # runaway `cat` of a huge log cannot blow out the conversation context.
+    command_max_output_bytes: int = 20_000
+    # Where commands run. Empty means the backend's own working directory.
+    command_working_directory: str = ""
+    # How many commands the model may request in a single turn. Each one is a
+    # round trip through the model, so this bounds a runaway loop.
+    command_max_calls_per_turn: int = 8
+
     # Origins allowed to call this API from a browser or a native WebView. The
     # web and Electron builds are same-origin, so they need nothing here; the
     # iOS and Android shells load from their own bundled origin and therefore

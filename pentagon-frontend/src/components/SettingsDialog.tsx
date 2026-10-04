@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { AlertTriangle, Check, Copy, MoonStar, Pencil, Sun, Trash2, Waves, X } from 'lucide-react'
+import { AlertTriangle, Check, Copy, LockKeyhole, MoonStar, Pencil, Sun, Trash2, Waves, X } from 'lucide-react'
 import { getAmbientMode, setAmbientMode, subscribeAmbient } from '../lib/ambient'
 import type { AmbientMode } from '../lib/ambient'
 import {
@@ -20,7 +20,7 @@ import {
 import type { Appearance, Contrast, Density, TextSize } from '../lib/preferences'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { apiRequest, getApiBase, getLocalUserId, setApiBase } from '../api'
-import type { Conversation, DocumentInfo, ModelInfo } from '../types'
+import type { CommandSettings, Conversation, DocumentInfo, ModelInfo } from '../types'
 
 const AMBIENT_OPTIONS: { mode: AmbientMode; label: string; description: string; icon: typeof Sun }[] = [
   { mode: 'full', label: 'Full', description: 'Aurora, orbit rings, a twinkling constellation, grain and a vignette.', icon: Sun },
@@ -36,7 +36,7 @@ const SHORTCUTS: [string, string][] = [
   ['Esc', 'Close a dialog'],
 ]
 
-const TABS = ['Account', 'Appearance', 'Model', 'Data', 'About'] as const
+const TABS = ['Account', 'Appearance', 'Model', 'Commands', 'Data', 'About'] as const
 type Tab = (typeof TABS)[number]
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
@@ -187,6 +187,8 @@ export function SettingsDialog({
   onDocumentDeleted,
   onRenameThread,
   onDeleteThread,
+  commandSettings,
+  onCommandSettingsChange,
 }: {
   userId: string
   models: ModelInfo[]
@@ -198,6 +200,8 @@ export function SettingsDialog({
   onKeySaved: () => void
   onDocumentDeleted: (documentId: string) => void
   onRenameThread: (id: string, title: string) => void
+  commandSettings: CommandSettings
+  onCommandSettingsChange: (enabled: boolean) => void
   onDeleteThread: (id: string) => void
 }) {
   const [tab, setTab] = useState<Tab>('Account')
@@ -388,6 +392,30 @@ export function SettingsDialog({
       setDocumentError(
         cause instanceof Error ? cause.message : 'Could not delete that document.',
       )
+    }
+  }
+
+  const [commandBusy, setCommandBusy] = useState(false)
+  const [commandError, setCommandError] = useState('')
+
+  async function setCommandsEnabled(enabled: boolean) {
+    if (commandBusy) return
+    setCommandBusy(true)
+    setCommandError('')
+    try {
+      const result = await apiRequest<CommandSettings>(
+        `/api/commands/settings?user_id=${encodeURIComponent(userId)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled }),
+        },
+      )
+      onCommandSettingsChange(result.enabled)
+    } catch (cause) {
+      setCommandError(cause instanceof Error ? cause.message : 'Could not change that setting.')
+    } finally {
+      setCommandBusy(false)
     }
   }
 
@@ -762,6 +790,109 @@ export function SettingsDialog({
                 </p>
               </div>
             </Section>
+          )}
+
+          {tab === 'Commands' && (
+            <>
+              <Section
+                title="Command tool"
+                hint="Lets Pentagon run CLI commands on this machine so it can build, test and inspect your project instead of only describing what to do."
+              >
+                {!commandSettings.available ? (
+                  <p className="rounded-lg border border-white/[0.07] bg-white/[0.02] px-3.5 py-3 text-small leading-6 text-zinc-500">
+                    This server does not offer the command tool. Set{' '}
+                    <code className="font-mono text-zinc-400">COMMAND_TOOL_ENABLED=true</code> in the
+                    backend environment and restart it to make it available.
+                  </p>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={commandSettings.enabled}
+                      disabled={commandBusy}
+                      onClick={() => void setCommandsEnabled(!commandSettings.enabled)}
+                      className="flex w-full items-start gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-3 text-left transition hover:border-white/15 disabled:opacity-50"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition ${
+                          commandSettings.enabled ? 'bg-emerald-300' : 'bg-white/[0.12]'
+                        }`}
+                      >
+                        <span
+                          className={`size-4 rounded-full bg-black transition-transform ${
+                            commandSettings.enabled ? 'translate-x-4' : ''
+                          }`}
+                        />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-body font-medium text-zinc-100">
+                          Let Pentagon run commands
+                        </span>
+                        <span className="mt-0.5 block text-micro-sm leading-[1.55] text-zinc-600">
+                          {commandSettings.enabled
+                            ? 'On. Read-only commands run immediately; anything else asks you first.'
+                            : 'Off. The model is not offered a command tool at all.'}
+                        </span>
+                      </span>
+                    </button>
+                    {commandError && (
+                      <p className="mt-2 text-small text-amber-300/90">{commandError}</p>
+                    )}
+                  </>
+                )}
+              </Section>
+
+              <Section title="How a command is treated" hint="The rule is that nothing runs unless you would be comfortable typing it yourself.">
+                <ul className="space-y-2.5 text-small leading-6 text-zinc-500">
+                  <li className="flex gap-2.5">
+                    <Check size={13} className="mt-1 shrink-0 text-emerald-400" />
+                    <span>
+                      <span className="text-zinc-300">Read-only runs by itself.</span> Listing and
+                      reading files, grepping, <code className="font-mono text-[0.92em]">git status</code>,
+                      <code className="font-mono text-[0.92em]">git diff</code> and similar inspection
+                      commands execute immediately.
+                    </span>
+                  </li>
+                  <li className="flex gap-2.5">
+                    <AlertTriangle size={13} className="mt-1 shrink-0 text-amber-300" />
+                    <span>
+                      <span className="text-zinc-300">Everything else asks you.</span> Writes,
+                      installs, network calls and anything that runs a build or a test suite show the
+                      exact command and wait for a decision. If you ignore it, it does not run.
+                    </span>
+                  </li>
+                  <li className="flex gap-2.5">
+                    <LockKeyhole size={13} className="mt-1 shrink-0 text-zinc-500" />
+                    <span>
+                      <span className="text-zinc-300">Reading a credential also asks.</span> Command
+                      output goes to the model, so opening{' '}
+                      <code className="font-mono text-[0.92em]">.env</code> or a private key is treated
+                      like a write rather than a read.
+                    </span>
+                  </li>
+                  <li className="flex gap-2.5">
+                    <AlertTriangle size={13} className="mt-1 shrink-0 text-zinc-500" />
+                    <span>
+                      <span className="text-zinc-300">Privilege escalation never runs.</span> Commands
+                      that need <code className="font-mono text-[0.92em]">sudo</code> or another user
+                      account are refused outright, approved or not.
+                    </span>
+                  </li>
+                </ul>
+              </Section>
+
+              <Section
+                title="Uploaded documents and web pages"
+                hint="The model reads whatever you attach and whatever it finds while searching, and text in either can try to instruct it. That is the main reason a command has to be shown to you before it runs."
+              >
+                <p className="text-small leading-6 text-zinc-500">
+                  Read-only commands are the exception, and they are the reason to keep an eye on
+                  this panel: one of them can still list directories and print file contents.
+                </p>
+              </Section>
+            </>
           )}
 
           {tab === 'Data' && (
