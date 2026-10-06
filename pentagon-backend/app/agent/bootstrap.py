@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.agent.registry import ToolRegistry
-from app.services import browser, sandbox_runner
+from app.services import browser, mcp_bridge, sandbox_runner
 from app.tools import (
     ask_user,
     browse_page,
@@ -42,4 +42,9 @@ def build_registry() -> ToolRegistry:
     if sandbox_runner.sandbox_available():
         registry.register(python_exec.TOOL_SPEC, python_exec.run)
         registry.register(create_artifact.TOOL_SPEC, create_artifact.run)
+    # T10: tools contributed by user-configured MCP servers. The bridge has
+    # to have connected by now (app lifespan does it at startup); until it
+    # has, this contributes nothing and the registry stays honest.
+    for spec, handler in mcp_bridge.registered_tools():
+        registry.register(spec, handler)
     return registry

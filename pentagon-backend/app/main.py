@@ -9,12 +9,18 @@ from fastapi.responses import JSONResponse
 from app.config import cors_origin_list
 from app.db.session import initialize_database
 from app.routes import chat, commands, documents, keys, models, voice
+from app.services import mcp_bridge
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     initialize_database()
+    # T10: connect configured MCP servers once, before any turn can ask for
+    # their tools. A broken server is recorded in the bridge's problems,
+    # never a startup failure.
+    await mcp_bridge.connect_all()
     yield
+    await mcp_bridge.shutdown()
 
 
 app = FastAPI(

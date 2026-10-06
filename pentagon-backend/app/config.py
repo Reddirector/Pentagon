@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     nvidia_server_api_key: SecretStr | None = None
     default_chat_model: str | None = None
 
+    # --- MCP bridge -------------------------------------------------------
+    # External MCP servers to bridge, as a JSON array. Only these commands
+    # are ever spawned -- never one a model or a web page asks for. Example:
+    # [{"name":"files","command":["npx","-y","@modelcontextprotocol/server-filesystem","/data"],"tier":"read"}]
+    # "tier" is the approval tier for the server's tools when it publishes
+    # no annotations of its own (default write, so unknown capabilities are
+    # approval-gated at Balanced rather than auto-run).
+    mcp_servers: str = "[]"
+
     # --- Shell tool -------------------------------------------------------
     # Master switch. The model is given no command tool at all unless this is
     # true, so a deployment that does not want shell access never exposes it,
