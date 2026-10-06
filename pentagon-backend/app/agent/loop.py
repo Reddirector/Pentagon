@@ -21,8 +21,21 @@ from app.agent.llm import ModelReply, assemble_tool_calls, content_as_text
 from app.agent.registry import ToolRegistry
 from app.agent.schemas import AgentEvent, Budget, BudgetExceeded, ToolContext
 from app.agent.traces import TraceRecorder
+from app.agent.validate import RepairTracker, validate_call
 
 _FALLBACK_RESULT_CHARS = 20_000
+
+
+def _lookup(registry: ToolRegistry):
+    """Name -> spec or None: the shape validate_call's unknown-name check wants."""
+
+    def lookup(name: str):
+        try:
+            return registry.get(name).spec
+        except Exception:
+            return None
+
+    return lookup
 
 
 @dataclass(frozen=True)
@@ -88,6 +101,7 @@ async def run_turn(
     )
     recorder = trace or TraceRecorder(request.user_id, request.conversation_id, request.turn_id)
     executor = Executor(registry, budget)
+    tracker = RepairTracker()
 
     schemas = registry.openai_schemas(request.tool_names) if request.tool_names is not None else registry.openai_schemas()
     messages: list[BaseMessage] = [
@@ -143,35 +157,47 @@ async def run_turn(
 
         messages.append(_assistant_message(reply))
         for call in reply.tool_calls:
-            yield AgentEvent(
-                "tool_start",
-                {"tool": str(call.get("name") or ""), "id": str(call.get("id") or "")},
-            )
-            executed = await executor.run_one(call, ctx)
-            spec = registry.get(executed.tool).spec if registry.has(executed.tool) else None
-            max_chars = spec.max_result_chars if spec else _FALLBACK_RESULT_CHARS
+            checked = validate_call(call, _lookup(registry), tracker, registry.names())
+            if checked.executable:
+                yield AgentEvent(
+                    "tool_start",
+                    {"tool": checked.tool, "id": checked.tool_call_id},
+                )
+                executed = await executor.run_one(
+                    {"name": checked.tool, "args": checked.args, "id": checked.tool_call_id}, ctx
+                )
+                spec = registry.get(executed.tool).spec if registry.has(executed.tool) else None
+                max_chars = spec.max_result_chars if spec else _FALLBACK_RESULT_CHARS
+                content = executed.result.compact(max_chars)
+                status = executed.status
+                elapsed = executed.elapsed_ms
+            else:
+                assert checked.refusal is not None
+                content = checked.refusal.compact(4_000)
+                status = "error"
+                elapsed = 0.0
             messages.append(
                 ToolMessage(
-                    content=executed.result.compact(max_chars),
-                    tool_call_id=executed.tool_call_id,
+                    content=content,
+                    tool_call_id=checked.tool_call_id,
                 )
             )
             recorder.record_tool_call(
                 budget.tool_calls - 1,
-                executed.tool,
-                executed.args,
-                executed.status,
-                duration_ms=executed.elapsed_ms,
+                checked.tool,
+                checked.args,
+                status,
+                duration_ms=elapsed,
             )
             yield AgentEvent(
                 "tool_result",
                 {
-                    "tool": executed.tool,
-                    "id": executed.tool_call_id,
-                    "status": executed.status,
-                    "ok": executed.result.ok,
-                    "summary": _summary_of(executed),
-                    "elapsed_ms": executed.elapsed_ms,
+                    "tool": checked.tool,
+                    "id": checked.tool_call_id,
+                    "status": status,
+                    "ok": status == "ok",
+                    "summary": content[:200],
+                    "elapsed_ms": elapsed,
                 },
             )
 

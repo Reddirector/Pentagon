@@ -162,6 +162,26 @@ class ToolTrace(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
 
 
+class ModelCapabilities(Base):
+    """What one model can do with tools, as measured -- never assumed.
+
+    Written once per model by ``app.agent.capabilities`` after a three-request
+    probe, then read on every selection instead of probing again. Open rows
+    mean 'never probed'; a badge (Strong / Basic / Prompted-only) is derived
+    from the flags, not stored.
+    """
+
+    __tablename__ = "model_capabilities"
+
+    model_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    native_tools: Mapped[bool | None] = mapped_column(nullable=True)
+    parallel_tools: Mapped[bool | None] = mapped_column(nullable=True)
+    vision: Mapped[bool | None] = mapped_column(nullable=True)
+    json_mode: Mapped[bool | None] = mapped_column(nullable=True)
+    max_context: Mapped[int | None] = mapped_column(nullable=True)
+    probed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+
 class Document(Base):
     __tablename__ = "documents"
 
