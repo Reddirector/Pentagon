@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # sampled more sparsely rather than rejected.
     video_max_duration_seconds: float = 600.0
     speech_models_directory: str = "./speech_models"
+    # Where create_artifact writes deliverables, one subfolder per turn.
+    artifact_directory: str = "./artifacts"
     faster_whisper_model: str = "base"
     local_tts_voice: str = "en_US-lessac-medium"
     nvidia_riva_asr_url: str | None = None

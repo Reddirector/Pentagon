@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from app.agent.registry import ToolRegistry
+from app.services import sandbox_runner
 from app.tools import (
     ask_user,
     calculator,
+    create_artifact,
     fetch_url,
     get_current_time,
+    python_exec,
     read_document,
     read_result,
     search_documents,
@@ -27,4 +30,11 @@ def build_registry() -> ToolRegistry:
     registry.register(read_result.TOOL_SPEC, read_result.run)
     registry.register(update_plan.TOOL_SPEC, update_plan.run)
     registry.register(ask_user.TOOL_SPEC, ask_user.run)
+    # T8: code execution exists only when the Docker sandbox does. Without
+    # Docker the tools are simply not registered -- there is no host-code
+    # path to fall back to (python_exec would DENIED anyway if it raced a
+    # daemon that died after startup).
+    if sandbox_runner.sandbox_available():
+        registry.register(python_exec.TOOL_SPEC, python_exec.run)
+        registry.register(create_artifact.TOOL_SPEC, create_artifact.run)
     return registry

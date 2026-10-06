@@ -1,0 +1,21 @@
+# The Pentagon code-sandbox image: where model-written Python runs.
+#
+# Pinned, minimal, non-root. This image is only ever started by
+# app/services/sandbox_runner.py, which passes --network none --read-only
+# --cap-drop ALL --security-opt no-new-privileges --pids-limit and memory/cpu
+# limits. There is no host-execution fallback: if Docker cannot run this
+# image, python_exec fails instead of running anything locally.
+FROM python:3.12-slim
+
+# Stable non-root uid; the runner also passes --user 10001:10001 at run time,
+# so even a rebuilt image that forgot USER would still not be root.
+RUN useradd --uid 10001 --create-home sandbox
+
+# Streams print() live through the runner's pipes, and the read-only rootfs
+# makes __pycache__ writes pointless anyway.
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# /work exists but stays read-only at run time; /tmp is a per-run tmpfs.
+WORKDIR /work
+USER sandbox

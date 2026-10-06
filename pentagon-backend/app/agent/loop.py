@@ -333,6 +333,10 @@ async def run_turn(
                 and not shared["ask_user"].get("answered")
             ):
                 yield AgentEvent("ask_user", shared["ask_user"])
+            if checked.tool == "create_artifact" and isinstance(
+                shared.get("artifact"), dict
+            ):
+                yield AgentEvent("artifact", shared["artifact"])
 
     if reply is not None and not reply.text.strip() and not budget.out_of_time():
         # The final answer must be prose for the user, never nothing.

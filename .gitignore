@@ -26,6 +26,10 @@ chroma_data/
 image_uploads/
 speech_models/
 sandbox/
+# ...but the code sandbox Dockerfile is source: keep the backend's in.
+!pentagon-backend/sandbox/
+# Agent-generated artifacts (create_artifact) are runtime output.
+artifacts/
 
 # Python caches
 __pycache__/
