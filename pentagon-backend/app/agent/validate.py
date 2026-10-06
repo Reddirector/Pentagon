@@ -23,6 +23,7 @@ from typing import Any
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
+from app.agent.injection import exfiltration_risk
 from app.agent.schemas import ToolResult, ToolSpec
 
 
@@ -217,4 +218,28 @@ def validate_call(
                 hint=f"The schema for {name} is: {_compact_schema(spec)}",
             ),
         )
+
+    # T7 exfiltration guard: credential-shaped material must never leave in
+    # tool arguments -- checked here, before the approval card and before the
+    # trace, so the secret cannot leak via either. The refusal names the rule
+    # that matched, never the matched value. This is not a schema failure, so
+    # it does not count against the model's repair budget: removing the
+    # secret and resending is a valid next move.
+    risk = exfiltration_risk(args)
+    if risk is not None:
+        return ValidatedCall(
+            executable=False,
+            tool=name,
+            args=args,
+            tool_call_id=call_id,
+            refusal=ToolResult.failure(
+                "DENIED",
+                f"The arguments for {name} were not sent: they {risk}.",
+                hint=(
+                    "Tools never receive credentials. Take any key, token or "
+                    "password out of the arguments and try again."
+                ),
+            ),
+        )
+
     return ValidatedCall(executable=True, tool=name, args=args, tool_call_id=call_id)

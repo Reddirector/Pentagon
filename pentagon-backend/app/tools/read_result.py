@@ -39,6 +39,8 @@ TOOL_SPEC = ToolSpec(
     idempotent=True,
     parallel_safe=True,
     tags=("read", "result", "handle", "page", "truncated", "large"),
+    # The stored text a handle pages back is recycled third-party content.
+    untrusted=True,
 )
 
 

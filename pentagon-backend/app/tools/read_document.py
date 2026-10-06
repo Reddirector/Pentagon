@@ -51,6 +51,7 @@ TOOL_SPEC = ToolSpec(
     idempotent=True,
     parallel_safe=True,
     tags=("documents", "files", "read", "page", "pdf"),
+    untrusted=True,
 )
 
 

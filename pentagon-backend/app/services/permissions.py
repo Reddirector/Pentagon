@@ -143,6 +143,31 @@ def requires_approval(
     return bool(destructive)
 
 
+def requires_tool_approval(tier: str, level: object) -> bool:
+    """Whether an agent tool call at ``tier`` stops for the user at ``level``.
+
+    This is the same ladder the shell runner and the desktop actions use,
+    with the tool tier translated onto its two signals:
+
+    - ``read`` changes nothing, so it runs by itself at Balanced and Trusted
+      and asks at Restricted like everything else.
+    - ``write`` changes state, so it asks through Balanced and runs at Trusted.
+    - ``destructive`` and ``external_send`` always ask, at every level:
+      "Trusted" is never "unlimited", and data leaving the machine cannot be
+      recalled any more than a deleted file can.
+
+    The decision reads only the tier and the level. Nothing from a retrieved
+    page, a tool result, or an error message is consulted -- content cannot
+    move a call up or down this ladder.
+    """
+    if tier == "read":
+        return requires_approval(changes_state=False, level=level)
+    if tier == "write":
+        return requires_approval(changes_state=True, level=level)
+    # destructive, external_send -- and any future tier -- take the strict path.
+    return requires_approval(changes_state=True, level=level, destructive=True)
+
+
 # --------------------------------------------------------------------------
 # Destructive shell commands.
 # --------------------------------------------------------------------------

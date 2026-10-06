@@ -40,6 +40,7 @@ TOOL_SPEC = ToolSpec(
     idempotent=True,
     parallel_safe=True,
     tags=("web", "url", "fetch", "read", "page", "link"),
+    untrusted=True,
 )
 
 _MAX_RESULT_CHARS = 30_000

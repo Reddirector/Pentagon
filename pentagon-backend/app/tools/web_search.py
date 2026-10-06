@@ -43,6 +43,7 @@ TOOL_SPEC = ToolSpec(
     idempotent=True,
     parallel_safe=True,
     tags=("web", "internet", "search", "news", "current", "latest", "online"),
+    untrusted=True,
 )
 
 

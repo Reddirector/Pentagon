@@ -80,6 +80,11 @@ class ToolSpec:
     idempotent: bool = True
     needs_connection: str | None = None
     tags: tuple[str, ...] = ()
+    # True when this tool's results carry third-party text (web pages,
+    # uploads, search snippets): the loop spotlights those results and runs
+    # the injection detector over them before they enter the model's context.
+    # It is presentation policy only and never affects the permission tier.
+    untrusted: bool = False
 
     def validation_errors(self) -> list[str]:
         """Structural problems a registration must not ship with."""
@@ -145,6 +150,45 @@ class AskUserGate:
     def provide(self, answer: dict[str, Any]) -> bool:
         if self._future is not None and not self._future.done():
             self._future.set_result(answer)
+            return True
+        return False
+
+
+class ApprovalGate:
+    """The pause between "the model wants to act" and "the user allows it".
+
+    The loop emits one ``approval_required`` event for the whole batch and
+    awaits ``wait_for_decision``; the answering route resolves it with
+    ``provide`` listing the approved call ids. An unanswered wait returns
+    ``None`` (a timeout is a "no" -- silence never runs an action), an
+    explicit empty list means the user declined everything, and a missing
+    gate means there is nobody to ask at all.
+    """
+
+    def __init__(self) -> None:
+        self._future: asyncio.Future | None = None
+        self._early: list[str] | None = None
+
+    async def wait_for_decision(self, timeout: float) -> list[str] | None:
+        # A route reacting to the approval_required event may answer before
+        # the loop has resumed into this wait; accept that answer instead of
+        # losing it to the race.
+        if self._early is not None:
+            ids, self._early = self._early, None
+            return ids
+        loop = asyncio.get_running_loop()
+        self._future = loop.create_future()
+        try:
+            return await asyncio.wait_for(self._future, timeout)
+        except asyncio.TimeoutError:
+            return None
+
+    def provide(self, approved_ids: list[str]) -> bool:
+        if self._future is None:
+            self._early = list(approved_ids)
+            return True
+        if not self._future.done():
+            self._future.set_result(list(approved_ids))
             return True
         return False
 

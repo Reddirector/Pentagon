@@ -11,20 +11,26 @@ was gathered. A turn never ends silently.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.agent.executor import ExecutedCall, Executor
+from app.agent.injection import detector_note, detect_injection, spotlight
 from app.agent.llm import ModelReply, assemble_tool_calls, content_as_text
 from app.agent.registry import ToolRegistry
 from app.agent.context import ScratchStore, ToolScratchNote
-from app.agent.schemas import AgentEvent, Budget, BudgetExceeded, ToolContext
+from app.agent.schemas import AgentEvent, Budget, BudgetExceeded, ToolContext, ToolResult
 from app.agent.traces import TraceRecorder
 from app.agent.validate import RepairTracker, validate_call
+from app.services.permissions import requires_tool_approval
 
 _FALLBACK_RESULT_CHARS = 20_000
+
+# How long a batch waits on the approval card before silence counts as "no".
+# Module-level so tests can shrink it, mirroring ask_user's timeout.
+_APPROVAL_TIMEOUT_SECONDS = 300.0
 
 
 def _lookup(registry: ToolRegistry):
@@ -91,8 +97,14 @@ async def run_turn(
     trace: TraceRecorder | None = None,
     cancel: asyncio.Event | None = None,
     pause_gate: Any | None = None,
+    approval_gate: Any | None = None,
 ) -> AsyncIterator[AgentEvent]:
-    """Run one agent turn; yields the SSE-facing event stream."""
+    """Run one agent turn; yields the SSE-facing event stream.
+
+    ``approval_gate`` (an :class:`ApprovalGate`) pauses the turn when the
+    model asks for a tool that must not run unattended at the user's
+    permission level; without a gate those calls are denied outright.
+    """
     budget = budget or Budget()
     scratch = ScratchStore()
     shared: dict[str, Any] = {}
@@ -167,6 +179,78 @@ async def run_turn(
             validate_call(call, _lookup(registry), tracker, registry.names())
             for call in reply.tool_calls
         ]
+
+        # T7 batch approval: one card for every call in this batch that the
+        # ladder says must not run unattended. The decision reads only the
+        # tool's tier and the user's permission level -- never any content.
+        pending_approval = [
+            checked
+            for checked in checked_calls
+            if checked.executable
+            and requires_tool_approval(
+                registry.get(checked.tool).spec.tier, request.permission_level
+            )
+        ]
+        if pending_approval:
+            yield AgentEvent(
+                "approval_required",
+                {
+                    "turn_id": request.turn_id,
+                    "calls": [
+                        {
+                            "id": checked.tool_call_id,
+                            "tool": checked.tool,
+                            "tier": registry.get(checked.tool).spec.tier,
+                            "args": checked.args,
+                        }
+                        for checked in pending_approval
+                    ],
+                },
+            )
+            decision: list[str] | None = None
+            if approval_gate is not None:
+                decision = await approval_gate.wait_for_decision(
+                    _APPROVAL_TIMEOUT_SECONDS
+                )
+            approved_ids = set(decision) if decision is not None else set()
+
+            def _denial(checked) -> ToolResult:
+                if approval_gate is None:
+                    return ToolResult.failure(
+                        "DENIED",
+                        f"{checked.tool} was not run: there is no interactive "
+                        "user to approve it right now.",
+                        hint=(
+                            "This action changes something and needs approval; "
+                            "ask the user to approve it before trying again."
+                        ),
+                    )
+                if decision is None:
+                    return ToolResult.failure(
+                        "DENIED",
+                        f"{checked.tool} was not run: the approval request was "
+                        "not answered in time.",
+                        hint="Treat silence as a no; ask the user again if this is still needed.",
+                    )
+                return ToolResult.failure(
+                    "DENIED",
+                    f"{checked.tool} was not run because the user did not approve it.",
+                    hint="Do not retry the same call without the user's approval.",
+                )
+
+            pending_ids = {checked.tool_call_id for checked in pending_approval}
+            checked_calls = [
+                replace(
+                    checked,
+                    executable=False,
+                    refusal=_denial(checked),
+                )
+                if checked.tool_call_id in pending_ids
+                and checked.tool_call_id not in approved_ids
+                else checked
+                for checked in checked_calls
+            ]
+
         for checked in checked_calls:
             if checked.executable:
                 yield AgentEvent(
@@ -188,13 +272,28 @@ async def run_turn(
                 spec = registry.get(executed.tool).spec if registry.has(executed.tool) else None
                 max_chars = spec.max_result_chars if spec else _FALLBACK_RESULT_CHARS
                 content = executed.result.compact(max_chars)
+                untrusted = spec is not None and spec.untrusted
+                # Scan before wrapping so a hit is found even when the text
+                # is about to be truncated or parked in the scratch store.
+                flags = detect_injection(content) if untrusted else []
                 # Oversized results go to the scratch store whole; the model
                 # sees a head excerpt plus a handle it can read_result().
                 stored = scratch.store(executed.tool, content)
                 if stored is not None:
+                    head = content[:ScratchStore.head_chars()]
+                    if untrusted:
+                        # Spotlight the excerpt only: the note's paging
+                        # instruction is ours and stays outside the markers.
+                        head = spotlight(executed.tool, head)
                     content = ToolScratchNote(
-                        executed.tool, content[:ScratchStore.head_chars()], stored
+                        executed.tool, head, stored
                     ).as_content()
+                elif untrusted:
+                    # T7 provenance: third-party text arrives spotlighted so
+                    # its boundaries are explicit.
+                    content = spotlight(executed.tool, content)
+                if flags:
+                    content = detector_note(flags) + "\n" + content
                 status = executed.status
                 elapsed = executed.elapsed_ms
             else:
