@@ -20,8 +20,9 @@ from app.services.nvidia_client import complete_video_request
 
 
 VIDEO_MODEL_ID = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-MAX_VIDEO_BYTES = 50 * 1024 * 1024
-MAX_VIDEO_SECONDS = 60.0
+MAX_VIDEO_BYTES = 120 * 1024 * 1024
+MAX_VIDEO_SECONDS = 600.0
+MAX_SAMPLED_FRAMES = 60
 _VIDEO_SUFFIXES = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
 _VIDEO_MIME_TO_SUFFIX = {
     "video/mp4": ".mp4",
@@ -57,12 +58,23 @@ async def read_uploaded_video(upload: UploadFile) -> PreparedVideo:
     if mime_suffix and filename_suffix != mime_suffix:
         raise _bad_video("Video filename and content type must match.")
 
-    content = await upload.read(MAX_VIDEO_BYTES + 1)
-    if len(content) > MAX_VIDEO_BYTES:
-        raise _bad_video("Video must be 50 MB or smaller.")
+    # The configured limit can lower the hard ceiling but never raise it, so a
+    # generous deployment setting cannot remove the bound entirely.
+    max_bytes = max_bytes_limit()
+    content = await upload.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise _bad_video(f"Video must be {max_bytes // (1024 * 1024)} MB or smaller.")
     if not content:
         raise _bad_video("Video file is empty.")
     return await asyncio.to_thread(_prepare_video, content, filename_suffix)
+
+
+def max_bytes_limit() -> int:
+    """The effective upload ceiling for this deployment."""
+    configured = int(getattr(settings, "video_max_bytes", 0) or 0)
+    if configured <= 0:
+        return MAX_VIDEO_BYTES
+    return min(configured, MAX_VIDEO_BYTES)
 
 
 def _prepare_video(content: bytes, suffix: str) -> PreparedVideo:
@@ -74,10 +86,15 @@ def _prepare_video(content: bytes, suffix: str) -> PreparedVideo:
             detail="Video processing requires ffmpeg and ffprobe on the server.",
         )
 
-    fps = min(max(float(settings.video_sampling_fps), 0.1), 1.0)
     max_duration = min(float(settings.video_max_duration_seconds), MAX_VIDEO_SECONDS)
     if max_duration <= 0:
         raise HTTPException(status_code=503, detail="Video duration limit is not configured.")
+
+    # A long clip is sampled more sparsely rather than rejected, so the frame
+    # budget stays fixed no matter how long the video is.
+    requested_fps = float(settings.video_sampling_fps)
+    fps = min(max(requested_fps, 0.1), 1.0)
+    fps = min(fps, max(MAX_SAMPLED_FRAMES / max_duration, 0.02))
 
     with tempfile.TemporaryDirectory(prefix="pentagon-video-") as directory:
         source_path = Path(directory) / f"source{suffix}"
@@ -172,7 +189,7 @@ def _prepare_video(content: bytes, suffix: str) -> PreparedVideo:
             frames_sent = int(sampled_data["streams"][0]["nb_read_frames"])
         except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             raise _bad_video("The sampled video frame count could not be determined.") from None
-        if sampled_probe.returncode != 0 or not 1 <= frames_sent <= 60:
+        if sampled_probe.returncode != 0 or not 1 <= frames_sent <= MAX_SAMPLED_FRAMES:
             raise _bad_video("Video sampling produced an invalid frame count.")
 
         sampled_bytes = sampled_path.read_bytes()

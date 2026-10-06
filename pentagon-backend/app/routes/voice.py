@@ -50,7 +50,7 @@ async def transcribe(
     started = time.perf_counter()
     try:
         text, provider = await transcribe_audio(content, filename, api_key)
-    except Exception as exc:
+    except Exception:
         logger.exception("Speech transcription failed")
         raise HTTPException(
             status_code=422,

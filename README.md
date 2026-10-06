@@ -239,7 +239,9 @@ npm run electron:dev      # window against the dev server
 npm run package:linux     # or :mac / :win
 ```
 
-`npm run package:linux` writes `pentagon-frontend/release/Pentagon-0.1.0.AppImage`.
+`npm run package:linux` writes `pentagon-frontend/release/Pentagon` (the name is
+fixed by `artifactName` in the electron-builder config, so it does not pick up
+the version and change between releases).
 Requires **Node 22.12+** per the declared engine; builds do succeed on Node 20.
 See [`docs/DECISIONS.md`](docs/DECISIONS.md) for why a second Electron package
 under `pentagon-backend/desktop/` was removed rather than kept in sync.

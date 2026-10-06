@@ -20,7 +20,9 @@ class Settings(BaseSettings):
     chroma_persist_directory: str = "./chroma_data"
     image_upload_directory: str = "./image_uploads"
     video_sampling_fps: float = 1.0
-    video_max_duration_seconds: float = 60.0
+    # How much of an uploaded video is actually analysed. Longer clips are
+    # sampled more sparsely rather than rejected.
+    video_max_duration_seconds: float = 600.0
     speech_models_directory: str = "./speech_models"
     faster_whisper_model: str = "base"
     local_tts_voice: str = "en_US-lessac-medium"
@@ -54,6 +56,30 @@ class Settings(BaseSettings):
     # How many commands the model may request in a single turn. Each one is a
     # round trip through the model, so this bounds a runaway loop.
     command_max_calls_per_turn: int = 8
+    # Desktop control (opening and closing apps, screenshots, volume, power)
+    # is a separate switch from the shell, because it is a different and much
+    # larger blast radius: it can lock the screen or shut the machine down.
+    # Off by default for the same reason the shell is.
+    desktop_actions_enabled: bool = False
+    # Desktop actions get a shorter answer window than shell commands: the
+    # window you agreed to close five minutes ago may not be the one that is on
+    # screen now, so a late yes is worth less than a prompt no.
+    desktop_action_approval_timeout_seconds: float = 120.0
+    # Where screenshots land. Empty means the system temp directory.
+    screenshot_directory: str = ""
+    # How long a window-manager script may take before we give up on it.
+    # (no separate execution timeout: desktop actions either finish fast or
+    # are waiting on the user for the approval window below.)
+    # Location. Separate again, because "where is this person" is a different
+    # kind of question from "run this command". Off by default, and only ever
+    # consulted when the model decides an answer needs it.
+    location_enabled: bool = False
+    # Where the capability token lives. Empty means
+    # $XDG_CONFIG_HOME/pentagon/capability-token.
+    capability_token_path: str = ""
+    # Ceiling on video we will accept or fetch. video.py keeps hard limits as
+    # well; this is the tunable side of them.
+    video_max_bytes: int = 120 * 1024 * 1024
 
     # Origins allowed to call this API from a browser or a native WebView. The
     # web and Electron builds are same-origin, so they need nothing here; the

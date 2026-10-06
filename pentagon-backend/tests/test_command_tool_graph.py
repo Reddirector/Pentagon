@@ -27,12 +27,25 @@ from app.db.session import SessionLocal, initialize_database
 from app.main import app
 from app.security.crypto import encrypt_api_key
 from app.services import chat_graph, command_runner
+from app.services.permissions import (
+    DEFAULT_PERMISSION_LEVEL,
+    level_info,
+    levels_as_list,
+)
 
 
 @pytest.fixture
 def client() -> TestClient:
+    """A client that presents the capability, like the real desktop app does.
+
+    Every route on the commands router now requires it, so a bare TestClient
+    would get a 401 for the right reason and the wrong reason at once.
+    """
     initialize_database()
-    return TestClient(app)
+    from app.services import capability
+
+    token = capability.load_or_create()
+    return TestClient(app, headers={"X-Pentagon-Capability": token})
 
 
 @pytest.fixture(autouse=True)
@@ -287,7 +300,45 @@ def test_settings_report_availability_and_default_to_off(
 
     assert response.status_code == 200
     body = response.json()
-    assert body == {"enabled": False, "available": False, "approval_timeout_seconds": settings.command_approval_timeout_seconds}
+    assert body == {
+        "enabled": False,
+        "available": False,
+        "approval_timeout_seconds": settings.command_approval_timeout_seconds,
+        # Desktop control and location are their own switches, each off
+        # unless enabled here.
+        "desktop_available": settings.desktop_actions_enabled,
+        "location_available": settings.location_enabled,
+        # A user who has never chosen a level reports Balanced, which is what
+        # the gates did before levels existed.
+        "permission_level": DEFAULT_PERMISSION_LEVEL,
+        "permission_levels": levels_as_list(),
+        "permission_name": level_info(DEFAULT_PERMISSION_LEVEL).name,
+    }
+
+
+def test_desktop_availability_is_reported_independently(
+    client: TestClient, monkeypatch
+) -> None:
+    """A deployment can allow shell access while refusing desktop control."""
+    monkeypatch.setattr(settings, "command_tool_enabled", True)
+    monkeypatch.setattr(settings, "desktop_actions_enabled", False)
+    new_id = f"cmdtool-{uuid4()}"
+    with SessionLocal() as db:
+        db.add(User(id=new_id))
+        db.commit()
+
+    body = client.get(
+        "/api/commands/settings", params={"user_id": new_id}
+    ).json()
+
+    assert body["available"] is True
+    assert body["desktop_available"] is False
+
+    monkeypatch.setattr(settings, "desktop_actions_enabled", True)
+    body = client.get(
+        "/api/commands/settings", params={"user_id": new_id}
+    ).json()
+    assert body["desktop_available"] is True
 
 
 def test_settings_can_be_enabled_when_the_server_allows_it(
@@ -381,7 +432,16 @@ def test_pending_is_reachable_while_the_turn_is_still_open(client: TestClient) -
     assert response.status_code == 200
     rows = response.json()
     assert rows == [
-        {"request_id": "req-open", "command": "rm -rf /tmp/whatever", "reason": "cleaning up"}
+        {
+            "request_id": "req-open",
+            "command": "rm -rf /tmp/whatever",
+            "reason": "cleaning up",
+            # A shell command describes itself; there is nothing to resolve
+            # first, so the card carries no separate detail.
+            "detail": "",
+            # The client needs to know whether to answer yes/no or with a value.
+            "kind": "command",
+        }
     ]
 
 

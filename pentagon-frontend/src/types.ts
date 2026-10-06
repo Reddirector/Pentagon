@@ -67,6 +67,10 @@ export type PendingCommand = {
   request_id: string
   command: string
   reason: string
+  /** What will actually happen, resolved before asking. Empty for shell commands. */
+  detail?: string
+  /** "command" is answered yes/no; "location" is answered with coordinates. */
+  kind?: 'command' | 'location'
 }
 
 export type CommandSettings = {
@@ -75,4 +79,31 @@ export type CommandSettings = {
   /** Whether the server exposes the tool at all. */
   available: boolean
   approval_timeout_seconds: number
+  /** Whether the server allows desktop control (open/close apps, power, etc.). */
+  desktop_available: boolean
+  /** Whether the server allows location lookups at all. */
+  location_available: boolean
+  /**
+   * Which rung of the approval ladder the user is on. 1 Restricted, 2 Balanced,
+   * 3 Trusted. The server is the only authority on this; the client never
+   * decides what a level means, it renders what the server sent.
+   */
+  permission_level: number
+  /**
+   * The whole ladder, sent by the server so the names, ordering and wording
+   * shown here are the same ones the gates enforce. Rendering a hard-coded copy
+   * would let the two drift, which is exactly the kind of lie this UI must not
+   * tell: a user who picks "Trusted" has to be shown what Trusted really means.
+   */
+  permission_levels: PermissionLevel[]
+  /** The current rung's name, so a heading needs no lookup table. */
+  permission_name: string
+}
+
+/** One rung of the approval ladder, as described by the server. */
+export type PermissionLevel = {
+  level: number
+  name: string
+  summary: string
+  detail: string
 }

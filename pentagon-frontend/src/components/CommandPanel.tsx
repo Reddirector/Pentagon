@@ -35,15 +35,23 @@ export function CommandApproval({
         {pending.reason && (
           <p className="mb-2.5 text-small leading-5 text-zinc-400">{pending.reason}</p>
         )}
+        {/* Resolved on the server before the question was asked, so this names
+            the actual window rather than repeating the model's wording. */}
+        {pending.detail && (
+          <p className="mb-2.5 rounded-lg border border-amber-300/10 bg-amber-300/[0.03] px-3 py-2 text-small leading-5 text-amber-100/90">
+            <span className="text-zinc-500">This will affect: </span>
+            {pending.detail}
+          </p>
+        )}
         {/* Not user-select:hidden -- the whole point is that this can be read
             and copied before it runs. */}
         <pre className="select-text overflow-x-auto rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2.5 font-mono text-small leading-6 text-zinc-100">
           {pending.command}
         </pre>
         <p className="mt-2.5 text-micro leading-5 text-zinc-500">
-          This command is not read-only, so it is waiting for you. It runs with your own
-          user account. If you say nothing for {minutes} minute{minutes === 1 ? '' : 's'},
-          it will not run.
+          This is not read-only, so it is waiting for you. It runs with your own user account
+          and never asks for more authority than you have. If you say nothing for {minutes}{' '}
+          minute{minutes === 1 ? '' : 's'}, it will not run.
         </p>
         <div className="mt-3 flex items-center gap-2">
           <button

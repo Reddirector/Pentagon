@@ -30,6 +30,8 @@ from app.schemas import (
     SwitchConversationModelResponse,
 )
 from app.security.keys import resolve_api_key_or_http
+from app.services import command_runner
+from app.services.permissions import normalize_level
 from app.services.chat_graph import (
     build_chat_graph,
     initial_chat_state,
@@ -43,8 +45,66 @@ from app.services.speech import stream_speech
 
 
 router = APIRouter(prefix="/api", tags=["chat"])
+
+# The kinds ``public_sources()`` can fill. One of these holding something is the
+# difference between an answer with evidence behind it and one without.
+_SOURCE_KINDS = ("web", "documents", "image", "video")
+
+
+def _sources_json(sources: dict[str, Any]) -> str | None:
+    """Store citations alongside the answer, so a reload keeps its evidence.
+
+    The shape is exactly what the live ``metadata`` event sends -- the object
+    ``public_sources()`` builds -- so a reloaded message looks identical to the
+    one the user watched being written.
+
+    Nothing gathered means NULL. ``public_sources()`` always returns the ``web``
+    and ``documents`` keys, empty, so testing the mapping itself never fires:
+    every answer that used no search would be stored with an empty shell of
+    citations that says "sources" and lists nothing.
+    """
+    if not any(sources.get(kind) for kind in _SOURCE_KINDS):
+        return None
+    try:
+        return json.dumps(sources)
+    except (TypeError, ValueError):
+        return None
+
+
 _MAX_RATE_LIMIT_RETRIES = 3
 logger = logging.getLogger(__name__)
+
+# --- stream silence watchdog -------------------------------------------------
+# A bare ``async for`` over ``graph.astream`` waits forever when the provider
+# goes silent: no chunk arrives, nothing raises, and the response never ends.
+# Observed live: POST /api/chat returned 200, emitted only the ``conversation``
+# event, and then nothing -- no error event, no persisted reply -- until the
+# client gave up. These constants put a clock on that silence.
+
+# How often the silence clock is consulted while no chunk has arrived. Also the
+# cadence of the SSE keep-alive comment, so the client can tell "quiet" from
+# "gone".
+_STALL_POLL_SECONDS = 1.0
+# Padding on top of the approval window when a question is on the user's
+# screen, so a decision made right at the deadline still has room for the
+# follow-up model call.
+_STALL_SLACK_SECONDS = 60.0
+# What the client is told when the turn is ended for silence. The partial
+# answer, if any, is kept -- this names what happened, not what was lost.
+_STALL_MESSAGE = (
+    "The model stopped responding, so Pentagon ended this turn. "
+    "Any part of the answer that arrived has been kept. Please try again."
+)
+# An SSE comment, not an event: existing clients ignore it, and a client that
+# watches the wire can use it as a heartbeat.
+_SSE_KEEPALIVE = ": ping\n\n"
+# Yielded by ``_stream_graph_chunks`` for each quiet second, to distinguish
+# "nothing to stream yet" from a chunk on the wire.
+_STALL_TICK = object()
+
+
+class _UpstreamStalled(Exception):
+    """No chunk arrived for longer than every silence budget allows."""
 
 
 @router.post("/chat")
@@ -134,6 +194,12 @@ async def chat(
         and user is not None
         and user.command_tool_enabled
     )
+    # Read from the same row in the same breath, so the level in force for this
+    # turn is the one the user actually saved. A user with no row gets the
+    # default rather than a crash.
+    permission_level = normalize_level(
+        user.permission_level if user is not None else None
+    )
     graph = build_chat_graph(
         api_key,
         payload.model,
@@ -161,6 +227,7 @@ async def chat(
         context_raw_message_count=(min(len(prior_messages), 6) if conversation.summary_at_switch else 0),
         context_model=conversation.active_model,
         command_tool_enabled=command_tool_enabled,
+        permission_level=permission_level,
     )
 
     return StreamingResponse(
@@ -169,6 +236,7 @@ async def chat(
             graph_input,
             conversation.id,
             payload.model,
+            user_id=payload.user_id,
             api_key=api_key,
             respond_with_audio=payload.respond_with_audio,
             voice=payload.voice,
@@ -420,12 +488,109 @@ def get_conversation(
     }
 
 
+def _persist_assistant_reply(
+    conversation_id: str,
+    model: str,
+    answer: str,
+    final_state: dict[str, Any],
+) -> None:
+    """Write the assistant turn exactly as the live stream showed it.
+
+    Shared by the success path and the stall path so a turn that timed out
+    leaves behind the same kind of row a completed one does.
+    """
+    with SessionLocal() as db:
+        conversation = db.get(Conversation, conversation_id)
+        if conversation is None:
+            return
+        db.add(
+            Message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=answer,
+                model_used=model,
+                sources_used=_sources_json(public_sources(final_state)),
+            )
+        )
+        conversation.updated_at = utc_now()
+        db.commit()
+
+
+async def _stream_graph_chunks(
+    graph: Any,
+    graph_input: dict[str, Any],
+    *,
+    conversation_id: str,
+    user_id: str,
+) -> AsyncIterator[Any]:
+    """Yield graph chunks -- and a tick for every quiet second -- or give up.
+
+    The deadline is per-silence, not per-turn: every chunk resets it, so a slow
+    but living stream is never killed. It is extended while the graph is
+    legitimately blocked on the user, because from out here an unanswered
+    approval card looks identical to a dead provider: nothing streams until the
+    decision arrives, the command it authorises runs, and the model answers
+    again. That wait cannot grow without bound -- ``REGISTRY.wait`` resolves
+    every request at its own approval timeout -- so the extension is bounded by
+    the same settings the approval flow already enforces.
+
+    Extensions happen *before* any cancellation: cancelling ``__anext__`` would
+    end the langgraph generator, so once the deadline is enforced the stream is
+    over by design, not resumed.
+    """
+    stream = graph.astream(
+        graph_input,
+        stream_mode=["messages", "values"],
+        version="v2",
+    )
+    loop = asyncio.get_running_loop()
+    stall_budget = settings.nvidia_timeout_seconds
+    approval_budget = (
+        settings.command_approval_timeout_seconds
+        + settings.command_timeout_seconds
+        + settings.nvidia_timeout_seconds
+        + _STALL_SLACK_SECONDS
+    )
+    deadline = loop.time() + stall_budget
+    chunk_task: asyncio.Task | None = None
+    try:
+        while True:
+            if chunk_task is None:
+                chunk_task = asyncio.ensure_future(stream.__anext__())
+            done, _pending = await asyncio.wait(
+                {chunk_task}, timeout=_STALL_POLL_SECONDS
+            )
+            if done:
+                # A chunk wins any race with the clock: the stream is alive.
+                try:
+                    chunk = chunk_task.result()
+                except StopAsyncIteration:
+                    return
+                chunk_task = None
+                deadline = loop.time() + stall_budget
+                yield chunk
+                continue
+            now = loop.time()
+            if command_runner.REGISTRY.pending_for(conversation_id, user_id):
+                # Waiting on the user, not on NVIDIA. Cover the rest of the
+                # approval window, the command it authorises, and the model
+                # call that follows.
+                deadline = max(deadline, now + approval_budget)
+            if now >= deadline:
+                raise _UpstreamStalled
+            yield _STALL_TICK
+    finally:
+        if chunk_task is not None:
+            chunk_task.cancel()
+
+
 async def _stream_chat(
     graph: Any,
     graph_input: dict[str, Any],
     conversation_id: str,
     model: str,
     *,
+    user_id: str,
     api_key: str,
     respond_with_audio: bool = False,
     voice: str | None = None,
@@ -437,14 +602,21 @@ async def _stream_chat(
     llm_started: float | None = None
     first_token_ms: float | None = None
 
+    upstream_stalled = False
     for attempt in range(_MAX_RATE_LIMIT_RETRIES + 1):
         emitted_token = False
         try:
-            async for chunk in graph.astream(
+            async for chunk in _stream_graph_chunks(
+                graph,
                 graph_input,
-                stream_mode=["messages", "values"],
-                version="v2",
+                conversation_id=conversation_id,
+                user_id=user_id,
             ):
+                if chunk is _STALL_TICK:
+                    # A quiet second, not a dead one. The keep-alive comment
+                    # is what lets the client tell waiting from gone.
+                    yield _SSE_KEEPALIVE
+                    continue
                 if chunk["type"] == "messages":
                     message_chunk, _metadata = chunk["data"]
                     token_text = _content_as_text(message_chunk.content)
@@ -467,18 +639,44 @@ async def _stream_chat(
                         llm_started = time.perf_counter()
 
             break
+        except _UpstreamStalled:
+            upstream_stalled = True
+            break
         except Exception as exc:
             status_code = _status_code(exc)
+            # A 429 retry re-invokes the whole graph from the same input, so it
+            # would replay every command the failed attempt already executed --
+            # silently, at Trusted. ``command_runs`` in the final state is the
+            # audit trail of exactly that (shell, desktop and location runs all
+            # append to it), so its emptiness is the line between "nothing
+            # happened, safe to try again" and "the side effects already
+            # landed, must not repeat them". A graph cannot be resumed from
+            # here -- the input is the only entry point, and no resume would
+            # undo an external effect anyway -- so a turn whose commands have
+            # run is failed with an error instead of being repeated.
+            already_executed = bool(final_state.get("command_runs"))
             if (
                 status_code == 429
                 and not emitted_token
+                and not already_executed
                 and attempt < _MAX_RATE_LIMIT_RETRIES
             ):
+                logger.info(
+                    "chat 429 retry attempt=%d conversation=%s nothing_executed=true",
+                    attempt + 1,
+                    conversation_id,
+                )
                 await asyncio.sleep(min(2**attempt, 15))
                 continue
 
             if status_code == 429:
-                error_message = "NVIDIA is rate-limiting this request. Please try again shortly."
+                error_message = (
+                    "NVIDIA is rate-limiting this request, and this turn already "
+                    "ran commands, so it cannot be retried automatically -- the "
+                    "commands will not run twice. Please try again."
+                    if already_executed
+                    else "NVIDIA is rate-limiting this request. Please try again shortly."
+                )
             elif status_code in (401, 403):
                 error_message = "NVIDIA rejected the stored API key. Save a valid key and try again."
             else:
@@ -492,6 +690,31 @@ async def _stream_chat(
             )
             yield _sse("error", {"message": error_message})
             return
+
+    if upstream_stalled:
+        logger.warning(
+            "chat stream stalled conversation=%s model=%s partial_answer_chars=%d",
+            conversation_id,
+            model,
+            len(answer),
+        )
+        # The user's message was committed before the stream opened, so a stall
+        # must leave something behind or the thread reloads as a question with
+        # no reply at all. A partial answer is persisted so a reload keeps
+        # exactly what was streamed; an empty one persists nothing, because an
+        # empty bubble would read as a broken reply rather than as a turn that
+        # timed out.
+        if answer:
+            _persist_assistant_reply(conversation_id, model, answer, final_state)
+        yield _sse(
+            "metadata",
+            {
+                "sources_used": public_sources(final_state),
+                "execution_trace": final_state.get("execution_trace", {}),
+            },
+        )
+        yield _sse("error", {"message": _STALL_MESSAGE})
+        return
 
     if answer and not emitted_token:
         # Some compatible endpoints return one complete message even when
@@ -507,19 +730,7 @@ async def _stream_chat(
             "time_to_first_token_ms"
         ] = first_token_ms
 
-    with SessionLocal() as db:
-        conversation = db.get(Conversation, conversation_id)
-        if conversation is not None:
-            db.add(
-                Message(
-                    conversation_id=conversation_id,
-                    role="assistant",
-                    content=answer,
-                    model_used=model,
-                )
-            )
-            conversation.updated_at = utc_now()
-            db.commit()
+    _persist_assistant_reply(conversation_id, model, answer, final_state)
 
     if respond_with_audio and answer:
         synthesis_started = time.perf_counter()

@@ -78,6 +78,7 @@
       "node_modules/**/*"
     ],
     "linux": {
+      "artifactName": "Pentagon",
       "target": [
         "AppImage"
       ],

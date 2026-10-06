@@ -58,7 +58,7 @@ turned out to be wrong on both counts:
   There was never a need to repoint anything; the duplicate was simply a fork
   that had been left behind.
 - Packaging does run here. `npm run package:linux` in `pentagon-frontend`
-  completes on Node 20 and produces `release/Pentagon-0.1.0.AppImage`.
+  completes on Node 20 and produces `release/Pentagon`.
 
 So the directory was deleted rather than synchronised. The two files that had
 no counterpart in the frontend were checked first: `src/App.css` was imported

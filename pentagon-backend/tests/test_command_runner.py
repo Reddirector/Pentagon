@@ -144,6 +144,13 @@ MUST_ASK = [
     "npx tsc",
     "cargo build",
     "go build ./...",
+    # The sqlite3 CLI executes arbitrary SQL and its dot-commands escape to the
+    # shell (``.system``), so none of it is provably a read. Every useful form
+    # must ask.
+    "sqlite3 pentagon.db \"DELETE FROM messages\"",
+    "sqlite3 app.db .dump",
+    "sqlite3 app.db '.schema users'",
+    "sqlite3 x.db '.system touch /tmp/pwned'",
     # Environment dumps would hand every secret in the environment to the model.
     "env",
     "printenv",
@@ -192,6 +199,28 @@ def test_privilege_escalation_is_refused_even_when_approved() -> None:
         allowed, reason = classify(command)
         assert not allowed
         assert "privilege" in reason.lower() or "sudo" in reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sqlite3 pentagon.db \"DELETE FROM messages\"",
+        "sqlite3 app.db .dump",
+        "sqlite3 app.db '.schema users'",
+        "sqlite3 x.db '.system rm -rf /tmp/x'",
+    ],
+)
+def test_sqlite3_is_never_classified_read_only(command: str) -> None:
+    """The sqlite3 CLI is a SQL interpreter and a shell escape, not a reader.
+
+    It sat on the read-only allowlist, which meant ``sqlite3 app.db "DELETE
+    FROM messages"`` ran unattended at the default level: a silent data
+    destruction path. As a whole binary it is not provably a read, so it must
+    ask -- and the reason must name it, because that sentence is the card.
+    """
+    allowed, reason = classify(command)
+    assert not allowed, f"{command!r} classified as read-only"
+    assert "sqlite3" in reason
 
 
 def _fresh_runner() -> CommandRegistry:

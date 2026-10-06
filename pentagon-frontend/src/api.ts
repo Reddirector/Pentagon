@@ -41,8 +41,31 @@ export function apiUrl(path: string): string {
   return `${getApiBase()}${path}`
 }
 
+/**
+ * The backend's capability token.
+ *
+ * The desktop main process owns the secret and hands it over IPC; the page
+ * never reads it off disk and it is never fetched over HTTP, so it cannot be
+ * picked up by anything merely able to reach the API. Outside Electron (the
+ * Vite dev server) there is no such bridge, so the build-time value is used.
+ */
+let capabilityOnce: Promise<string> | null = null
+
+function getCapability(): Promise<string> {
+  if (!capabilityOnce) {
+    const bridge = (globalThis as { pentagon?: { capability?: () => Promise<string> } }).pentagon
+    capabilityOnce = bridge?.capability
+      ? bridge.capability().catch(() => '')
+      : Promise.resolve(String(import.meta.env.VITE_PENTAGON_CAPABILITY ?? '').trim())
+  }
+  return capabilityOnce
+}
+
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(apiUrl(path), init)
+  const capability = await getCapability()
+  const headers = new Headers(init?.headers)
+  if (capability) headers.set('X-Pentagon-Capability', capability)
+  const response = await fetch(apiUrl(path), { ...init, headers })
   if (!response.ok) {
     let message = `Request failed (${response.status})`
     try {
@@ -59,6 +82,12 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 }
 
 export function getLocalUserId(): string {
+  // The desktop app hands down an id that lives on disk with the installation.
+  // The packaged app serves itself from an ephemeral port, so its origin -- and
+  // therefore its localStorage -- is new on every launch; trusting that would
+  // hand the user a new identity, and a reset opt-in, each time they opened it.
+  const installed = (globalThis as { pentagonUserId?: string }).pentagonUserId
+  if (installed) return installed
   const key = 'pentagon.userId'
   const existing = localStorage.getItem(key)
   if (existing) return existing

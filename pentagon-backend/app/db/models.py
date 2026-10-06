@@ -5,6 +5,8 @@ from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
 
+from app.services.permissions import DEFAULT_PERMISSION_LEVEL
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -64,6 +66,11 @@ class User(Base):
     # here rather than in localStorage so the backend -- which is what decides
     # whether to hand the model a tool -- can see it.
     command_tool_enabled: Mapped[bool] = mapped_column(default=False)
+    # Which rung of the approval ladder this user is on: 1 Restricted,
+    # 2 Balanced, 3 Trusted. Defaults to Balanced, which is exactly how the
+    # gates behaved before levels existed, so an existing row that gains this
+    # column keeps its current posture rather than silently loosening.
+    permission_level: Mapped[int] = mapped_column(default=DEFAULT_PERMISSION_LEVEL)
 
     api_key: Mapped["ApiKey | None"] = relationship(back_populates="user", uselist=False)
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="user")
@@ -115,6 +122,10 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text)
     model_used: Mapped[str] = mapped_column(String(255))
     image_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # Web citations for an assistant turn, as JSON. They were only ever emitted
+    # on the live stream, so reloading a conversation lost every source it had
+    # shown -- the answer stayed and its evidence disappeared.
+    sources_used: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")

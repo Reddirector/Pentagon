@@ -154,7 +154,7 @@ def test_video_and_retrieval_branches_merge(video_setup, monkeypatch):
 @pytest.mark.parametrize(
     "filename,content,content_type,detail",
     [
-        ("large.mp4", b"x" * (MAX_VIDEO_BYTES + 1), "video/mp4", "50 MB"),
+        ("large.mp4", b"x" * (MAX_VIDEO_BYTES + 1), "video/mp4", f"{MAX_VIDEO_BYTES // (1024 * 1024)} MB"),
         ("clip.gif", b"GIF89a", "video/gif", "mp4, mov, webm, mkv, or avi"),
     ],
 )
@@ -181,7 +181,7 @@ def test_video_longer_than_limit_is_rejected_before_graph(video_setup, tmp_path,
     subprocess.run(
         [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "color=c=red:s=16x16:r=1:d=61",
+            "-f", "lavfi", "-i", f"color=c=red:s=16x16:r=1:d={int(settings.video_max_duration_seconds) + 1}",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip),
         ],
         check=True,
@@ -199,7 +199,7 @@ def test_video_longer_than_limit_is_rejected_before_graph(video_setup, tmp_path,
         )
 
     assert response.status_code == 400
-    assert "60 seconds or shorter" in response.json()["detail"]
+    assert f"{int(settings.video_max_duration_seconds)} seconds or shorter" in response.json()["detail"]
 
 
 def test_video_analysis_failure_does_not_stop_chat(video_setup, monkeypatch):
@@ -220,3 +220,17 @@ def test_video_analysis_failure_does_not_stop_chat(video_setup, monkeypatch):
     assert trace["status"] == "failed"
     assert trace["error"] == "TimeoutError"
     assert "At 0 seconds" in response.text
+
+
+def test_configured_size_can_lower_the_cap_but_never_raise_it(monkeypatch):
+    """The deployment setting is a ceiling, not a switch that removes the bound."""
+    from app.services import video
+
+    monkeypatch.setattr(settings, "video_max_bytes", 8 * 1024 * 1024)
+    assert video.max_bytes_limit() == 8 * 1024 * 1024
+
+    monkeypatch.setattr(settings, "video_max_bytes", 10 * 1024 * 1024 * 1024)
+    assert video.max_bytes_limit() == video.MAX_VIDEO_BYTES
+
+    monkeypatch.setattr(settings, "video_max_bytes", 0)
+    assert video.max_bytes_limit() == video.MAX_VIDEO_BYTES

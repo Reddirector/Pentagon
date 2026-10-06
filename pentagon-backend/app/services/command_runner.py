@@ -37,6 +37,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.config import settings
+from app.services.permissions import (
+    DEFAULT_PERMISSION_LEVEL,
+    is_destructive_command,
+    requires_approval,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -93,7 +98,13 @@ _READ_ONLY = frozenset({
     "which", "type", "whereis", "whoami", "id", "groups", "hostname",
     "uname", "date", "uptime", "realpath", "readlink", "echo",
     "basename", "dirname", "tr", "sort", "uniq", "cut", "column", "jq",
-    "git", "sqlite3", "ps", "lsof", "free", "vmstat", "iostat", "mount",
+    # ``sqlite3`` is deliberately NOT here. As a whole-binary allowlist entry it
+    # was a lie: the CLI executes arbitrary SQL (``sqlite3 app.db "DELETE FROM
+    # messages"``) and its dot-commands escape to the shell entirely
+    # (``sqlite3 x.db ".system rm -rf ~"``), so "read-only" let it destroy data
+    # at Balanced with no card. Any useful sqlite3 invocation is a write or a
+    # shell escape, so the whole tool asks.
+    "git", "ps", "lsof", "free", "vmstat", "iostat", "mount",
     "systemctl", "journalctl", "docker", "kubectl", "ffprobe",
     "nl", "od", "xxd", "strings",
 })
@@ -171,6 +182,9 @@ class CommandResult:
     timed_out: bool = False
     auto_approved: bool = False
     truncated: bool = False
+    # Structured extras for actions that produce something other than text,
+    # such as a resolved location. Handed to the client so it can render it.
+    value: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -200,6 +214,7 @@ class CommandResult:
             "auto_approved": self.auto_approved,
             "truncated": self.truncated,
             "ok": self.ok,
+            **({"value": self.value} if self.value else {}),
         }
 
 
@@ -220,14 +235,26 @@ class PendingRequest:
     created_at: float
     event: asyncio.Event = field(default_factory=asyncio.Event)
     decision: bool | None = None
+    # A precise, human description of what will actually happen if the user
+    # says yes. A shell command can describe itself, but a desktop action like
+    # "close window: code" cannot -- it has to name the window it resolved.
+    detail: str = ""
+    # What sort of question this is. "command" is the yes/no case the approval
+    # card already handles; "location" is a question the client answers with a
+    # value rather than a decision.
+    kind: str = "command"
+    # The answer, for kinds that carry one. Never read before ``resolved``.
+    value: dict[str, Any] = field(default_factory=dict)
 
     @property
     def resolved(self) -> bool:
         return self.decision is not None
 
-    def resolve(self, approved: bool) -> None:
+    def resolve(self, approved: bool, value: dict[str, Any] | None = None) -> None:
         if not self.resolved:
             self.decision = approved
+            if value is not None:
+                self.value = value
             self.event.set()
 
 
@@ -251,11 +278,17 @@ class CommandRegistry:
             return None
         return request
 
-    def resolve(self, request_id: str, user_id: str, approved: bool) -> bool:
+    def resolve(
+        self,
+        request_id: str,
+        user_id: str,
+        approved: bool,
+        value: dict[str, Any] | None = None,
+    ) -> bool:
         request = self.get(request_id, user_id)
         if request is None or request.resolved:
             return False
-        request.resolve(approved)
+        request.resolve(approved, value)
         logger.info(
             "command %s by user=%s",
             "approved" if approved else "denied",
@@ -272,6 +305,8 @@ class CommandRegistry:
                 "request_id": request.request_id,
                 "command": request.command,
                 "reason": request.reason,
+                "detail": request.detail,
+                "kind": request.kind,
             }
             for request in self._requests.values()
             if request.conversation_id == conversation_id
@@ -452,17 +487,26 @@ async def run_command(
     reason: str = "",
     auto_approve: bool = True,
     request_id: str | None = None,
+    permission_level: object = DEFAULT_PERMISSION_LEVEL,
 ) -> CommandResult:
-    """Run one command, asking the user first unless it is provably read-only.
+    """Run one command, gating it by the user's chosen permission level.
 
-    ``auto_approve=False`` forces the approval round-trip even for a read-only
-    command, which is what the "always ask" path uses.
+    ``services.permissions`` owns the ladder; this function only feeds it what
+    it knows about the command. ``auto_approve=False`` forces the approval
+    round-trip regardless, which is how a caller asks for the strict path
+    explicitly.
     """
     import time
     import uuid
 
-    auto_approved, explanation = classify(command)
-    should_auto_run = auto_approve and auto_approved
+    read_only, explanation = classify(command)
+    should_auto_run = auto_approve and not requires_approval(
+        # `read_only` is the inverse of "changes state": a command that only
+        # reads is the one that may run unattended.
+        changes_state=not read_only,
+        level=permission_level,
+        destructive=is_destructive_command(command),
+    )
 
     if not should_auto_run:
         pending = PendingRequest(

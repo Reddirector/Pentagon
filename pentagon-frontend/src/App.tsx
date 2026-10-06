@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
-import { ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, Mic, Paperclip, Plus, Square, Video, X } from 'lucide-react'
+import { ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, MessageSquare, Mic, Paperclip, Plus, ShieldCheck, Square, Video, X } from 'lucide-react'
 import { apiRequest, ApiError, apiUrl, getLocalUserId, pcmToWavUrl } from './api'
 import { AssistantDetails } from './components/MessageContent'
 import { CommandApproval, CommandLog } from './components/CommandPanel'
@@ -10,6 +10,7 @@ import { ThinkingIndicator } from './components/ThinkingIndicator'
 import { AmbientLayer } from './components/AmbientLayer'
 import { CommandPalette } from './components/CommandPalette'
 import { SettingsDialog } from './components/SettingsDialog'
+import { PermissionPanel } from './components/PermissionPanel'
 import { setAmbientSignal } from './lib/ambient'
 import { getPreferences, toggleSidebarCollapsed } from './lib/preferences'
 import type { ChatMessage, CommandRun, CommandSettings, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, PendingCommand, SourcesUsed } from './types'
@@ -22,6 +23,12 @@ type Validation = 'idle' | 'checking' | 'valid' | 'invalid'
     the answer through react-markdown, so this trades a little latency for a
     steady, inexpensive update rate. */
 const STREAM_FLUSH_MS = 45
+
+// The two panes of the main area. Permissions is a standing question about the
+// whole session rather than anything to do with the current turn, which is why
+// it lives beside the conversation instead of inside it.
+const WORKSPACE_TABS = ['Chat', 'Permissions'] as const
+type WorkspaceTab = (typeof WORKSPACE_TABS)[number]
 
 function titleFor(message: string) {
   const normalized = message.trim().replace(/\s+/g, ' ')
@@ -106,7 +113,14 @@ function App() {
     enabled: false,
     available: false,
     approval_timeout_seconds: 300,
+    desktop_available: false,
+    location_available: false,
+    permission_level: 2,
+    permission_levels: [],
+    permission_name: 'Balanced',
   })
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('Chat')
+  const [savingPermission, setSavingPermission] = useState(false)
   const [deciding, setDeciding] = useState<string | null>(null)
 
   // --- command tool bootstrap ---------------------------------------------
@@ -120,10 +134,90 @@ function App() {
       setCommandSettings(result)
     } catch {
       // A server without the tool simply has no settings; the toggle stays off.
-      setCommandSettings({ enabled: false, available: false, approval_timeout_seconds: 300 })
+      setCommandSettings({
+        enabled: false,
+        available: false,
+        approval_timeout_seconds: 300,
+        desktop_available: false,
+        location_available: false,
+        permission_level: 2,
+        permission_levels: [],
+        permission_name: 'Balanced',
+      })
     }
   }, [userId])
+
+  // Saving a level sends the current `enabled` alongside it, because the one
+  // endpoint owns both fields. The response replaces local state wholesale so
+  // the badge and the radio can never show a level the server did not accept.
+  const changePermissionLevel = useCallback(
+    async (level: number) => {
+      if (level === commandSettings.permission_level) return
+      const previous = commandSettings
+      // Optimistic, so the radio moves under the finger; reverted from the
+      // server's answer if the write fails, rather than left lying.
+      setCommandSettings((current) => ({ ...current, permission_level: level }))
+      setSavingPermission(true)
+      try {
+        const result = await apiRequest<CommandSettings>(
+          `/api/commands/settings?user_id=${encodeURIComponent(userId)}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              enabled: commandSettings.enabled,
+              permission_level: level,
+            }),
+          },
+        )
+        setCommandSettings(result)
+      } catch {
+        setCommandSettings(previous)
+        setError('Could not save that permission level. It has been put back.')
+      } finally {
+        setSavingPermission(false)
+      }
+    },
+    [commandSettings, userId, setError],
+  )
   const fileInput = useRef<HTMLInputElement>(null)
+  const answeredLocation = useRef<string | null>(null)
+
+  /**
+   * Answer the server's question with a position, or with nothing.
+   *
+   * The permission prompt belongs to this window, and a refusal is a normal
+   * answer rather than an error: the backend already treats "no answer" as
+   * permission to fall back to a coarse network estimate.
+   */
+  const answerLocationRequest = useCallback(async (requestId: string) => {
+    const send = async (approved: boolean, value?: Record<string, unknown>) => {
+      try {
+        await apiRequest('/api/commands/decide', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ request_id: requestId, approved, user_id: userId, value: value ?? {} }),
+        })
+      } catch {
+        /* The turn continues without a location; nothing to retry. */
+      }
+    }
+    if (!navigator.geolocation) {
+      await send(false)
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        void send(true, {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy_m: position.coords.accuracy,
+        })
+      },
+      () => { void send(false) },
+      { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 },
+    )
+  }, [userId])
   const recorder = useRef<MediaRecorder | null>(null)
   const streamAbort = useRef<AbortController | null>(null)
   const currentAssistantIndex = useRef(0)
@@ -271,10 +365,20 @@ function App() {
           + `&conversation_id=${encodeURIComponent(conversationId)}`,
         )
         if (cancelled || !rows.length) return
+        const locationRequest = rows.find((row) => row.kind === 'location')
+        if (locationRequest && answeredLocation.current !== locationRequest.request_id) {
+          // Only the window can ask the user for a fix, so the permission
+          // prompt belongs here rather than in the backend. Declining simply
+          // answers with nothing, and the server falls back to the network.
+          answeredLocation.current = locationRequest.request_id
+          void answerLocationRequest(locationRequest.request_id)
+        }
+        const showable = rows.find((row) => row.kind !== 'location')
+        if (!showable) return
         setMessages((current) =>
           current.map((item) =>
             item.role === 'assistant' && !item.pendingCommand && !item.content
-              ? { ...item, pendingCommand: rows[0] }
+              ? { ...item, pendingCommand: showable }
               : item,
           ),
         )
@@ -288,7 +392,7 @@ function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [streaming, commandSettings.enabled, active, userId])
+  }, [streaming, commandSettings.enabled, active, userId, answerLocationRequest])
   useEffect(() => () => streamAbort.current?.abort(), [])
   useEffect(() => {
     const live = new Set(messages.map((item) => item.audioUrl).filter((url): url is string => Boolean(url)))
@@ -730,14 +834,14 @@ function App() {
   }
 
   /** Answer the approval prompt. The turn stays blocked until the server hears this. */
-  async function decideCommand(requestId: string, approved: boolean) {
+  async function decideCommand(requestId: string, approved: boolean, value?: Record<string, unknown>) {
     if (deciding) return
     setDeciding(requestId)
     try {
       await apiRequest('/api/commands/decide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: requestId, approved, user_id: userId }),
+        body: JSON.stringify({ request_id: requestId, approved, user_id: userId, value: value ?? {} }),
       })
       // Clear the prompt whether or not the write landed: if the request failed
       // the server is no longer waiting, and a card the user cannot dismiss is
@@ -784,6 +888,25 @@ function App() {
     let bufferedText = ''
     let flushTimer: number | null = null
     let lastFlushAt = 0
+    // A stream that sends nothing at all is dead, not slow. The server emits a
+    // keep-alive comment every second while it waits (on the model, or on an
+    // approval card), so any real silence this long means the connection or
+    // the backend is gone and the UI must say so instead of spinning forever.
+    // Bytes of any kind -- tokens, events, pings -- re-arm the timer.
+    const SSE_READ_STALL_MS = 75_000
+    let stallTimer: number | null = null
+    let stallError: Error | null = null
+    const armStallTimer = () => {
+      if (stallTimer !== null) window.clearTimeout(stallTimer)
+      stallTimer = window.setTimeout(() => {
+        stallTimer = null
+        // Recorded, not thrown, from here: a timer callback cannot reject into
+        // the reader loop. The loop re-throws it once the abort lands.
+        stallError = new Error('The connection to Pentagon stopped responding. Please try again.')
+        streamAbort.current?.abort()
+      }, SSE_READ_STALL_MS)
+    }
+    armStallTimer()
     const update = (changes: Partial<ChatMessage>) => setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, ...changes } : item))
     const flushText = () => {
       if (flushTimer !== null) {
@@ -848,7 +971,9 @@ function App() {
     try {
       while (true) {
         const { value, done } = await reader.read()
+        if (stallError) throw stallError
         if (done) break
+        armStallTimer()
         if (streamAbort.current?.signal.aborted) break
         pending += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
         let boundary = pending.indexOf('\n\n')
@@ -860,7 +985,15 @@ function App() {
       }
       pending += decoder.decode()
       if (pending.trim()) dispatch(pending)
+      if (stallError) throw stallError
+    } catch (cause) {
+      // A stall aborts its own stream, so the read rejects with a plain
+      // AbortError; re-throw the recorded reason instead of letting that look
+      // like the user pressing Stop.
+      if (stallError) throw stallError
+      throw cause
     } finally {
+      if (stallTimer !== null) window.clearTimeout(stallTimer)
       flushText()
       streamAbort.current = null
     }
@@ -1009,7 +1142,62 @@ function App() {
         </div>
       </header>
 
-      <section className="relative flex min-h-0 flex-1 flex-col">
+      {/* Chat / Permissions. The permission level is a standing question rather
+          than a per-turn one, so it gets a first-class tab here instead of
+          being buried in Settings -- but it is the same component and the same
+          saved value that Settings edits, so the two can never disagree. */}
+      <div role="tablist" aria-label="Workspace" className="z-10 flex shrink-0 items-center gap-1 border-b border-white/[0.065] bg-[#000000]/90 px-3 backdrop-blur-xl sm:px-5 lg:px-7">
+        {WORKSPACE_TABS.map((name) => (
+          <button
+            key={name}
+            type="button"
+            role="tab"
+            id={`workspace-tab-${name}`}
+            aria-selected={workspaceTab === name}
+            aria-controls={`workspace-panel-${name}`}
+            onClick={() => setWorkspaceTab(name)}
+            className={`relative flex min-h-9 items-center gap-1.5 px-2.5 text-small transition ${
+              workspaceTab === name
+                ? 'text-zinc-100'
+                : 'text-zinc-500 hover:text-zinc-200'
+            }`}
+          >
+            {name === 'Chat' ? <MessageSquare size={13} /> : <ShieldCheck size={13} />}
+            {name}
+            {name === 'Permissions' && commandSettings.enabled && (
+              <span className="rounded-md border border-emerald-300/20 bg-emerald-300/[0.08] px-1.5 py-px text-caption-xs text-emerald-200">
+                {commandSettings.permission_name}
+              </span>
+            )}
+            {workspaceTab === name && (
+              <span aria-hidden="true" className="absolute inset-x-1.5 -bottom-px h-px bg-emerald-300/70" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {workspaceTab === 'Permissions' ? (
+        <section
+          id="workspace-panel-Permissions"
+          role="tabpanel"
+          aria-labelledby="workspace-tab-Permissions"
+          className="relative min-h-0 flex-1 overflow-y-auto"
+        >
+          <div className="mx-auto w-full max-w-[620px] px-4 py-6 sm:px-7 sm:py-8">
+            <PermissionPanel
+              settings={commandSettings}
+              busy={savingPermission}
+              onChange={changePermissionLevel}
+            />
+          </div>
+        </section>
+      ) : (
+      <section
+        id="workspace-panel-Chat"
+        role="tabpanel"
+        aria-labelledby="workspace-tab-Chat"
+        className="relative flex min-h-0 flex-1 flex-col"
+      >
         {(!atBottom && messages.length > 0) ? <button type="button" onClick={jumpToLatest} className="panel-enter absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/[0.1] bg-[#0f0f0f]/95 px-3 py-1.5 text-micro text-zinc-300 shadow-[0_10px_30px_rgba(0,0,0,.45)] backdrop-blur transition hover:border-emerald-300/30 hover:text-zinc-100">
           <ChevronDown size={12} className="rotate-180" />Jump to latest
         </button> : null}
@@ -1096,6 +1284,7 @@ function App() {
           </div>
         </div>
       </section>
+      )}
     </main>
     {paletteOpen ? <CommandPalette
       onNewThread={startThread}
@@ -1117,6 +1306,14 @@ function App() {
         onKeySaved={() => void refreshModels()}
         commandSettings={commandSettings}
         onCommandSettingsChange={(enabled) => setCommandSettings((current) => ({ ...current, enabled }))}
+        onPermissionLevelChange={(level) =>
+          setCommandSettings((current) => ({
+            ...current,
+            permission_level: level,
+            permission_name:
+              current.permission_levels.find((entry) => entry.level === level)?.name ?? current.permission_name,
+          }))
+        }
         onDocumentDeleted={(documentId) =>
           setDocuments((current) => current.filter((item) => item.document_id !== documentId))
         }

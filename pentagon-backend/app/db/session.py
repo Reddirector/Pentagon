@@ -34,6 +34,9 @@ def initialize_database() -> None:
     if "image_path" not in message_columns:
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE messages ADD COLUMN image_path VARCHAR(1024)"))
+    if "sources_used" not in message_columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE messages ADD COLUMN sources_used TEXT"))
     conversation_columns = {
         column["name"] for column in inspect(engine).get_columns("conversations")
     }
@@ -52,6 +55,20 @@ def initialize_database() -> None:
                 text(
                     "ALTER TABLE users ADD COLUMN command_tool_enabled "
                     "BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
+    # The approval level rides along with the same additive-migration rule.
+    # DEFAULT 2 is Balanced, the behaviour that already shipped, so upgrading
+    # neither tightens nor loosens anyone's existing setup. The column is
+    # intentionally not constrained in SQL: normalize_level() clamps a bad
+    # value on the way in, which keeps a hand-edited row from being able to
+    # hand the model more access than any of the three rungs allow.
+    if "permission_level" not in user_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN permission_level "
+                    "INTEGER NOT NULL DEFAULT 2"
                 )
             )
 

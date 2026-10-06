@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Any, Literal
 
@@ -108,6 +109,30 @@ class MessageResponse(BaseModel):
     role: Literal["user", "assistant"]
     content: str
     model_used: str
+    # Sources stored with the message. ``sources_used`` is the JSON column; it
+    # is decoded here so the client gets the same object the live stream sent.
+    # The shape is the one ``public_sources()`` builds and ``SourcesButton``
+    # reads: an object keyed by kind, never a bare list. A field typed as a
+    # list looked harmless, but the validator turned every real dict into null
+    # and the citations silently disappeared on reload -- the very bug this
+    # column was added to fix.
+    sources_used: dict[str, Any] | None = None
+
+    @field_validator("sources_used", mode="before")
+    @classmethod
+    def _decode_sources(cls, value: Any) -> Any:
+        """The column is JSON text; the client should get the object or nothing."""
+        if value is None or isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            if not value.strip():
+                return None
+            try:
+                decoded = json.loads(value)
+            except ValueError:
+                return None
+            return decoded if isinstance(decoded, dict) else None
+        return None
     # ``image_path`` is deliberately absent. It holds the absolute server path
     # the upload was written to (``image_uploads/<conversation id>/<id>.png``),
     # which ``from_attributes=True`` copied straight into every conversation

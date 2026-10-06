@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { AlertTriangle, Check, Copy, LockKeyhole, MoonStar, Pencil, Sun, Trash2, Waves, X } from 'lucide-react'
+import { AlertTriangle, Check, Copy, LockKeyhole, MapPin, MonitorSmartphone, MoonStar, Pencil, Sun, Trash2, Waves, X } from 'lucide-react'
 import { getAmbientMode, setAmbientMode, subscribeAmbient } from '../lib/ambient'
 import type { AmbientMode } from '../lib/ambient'
 import {
@@ -21,6 +21,7 @@ import type { Appearance, Contrast, Density, TextSize } from '../lib/preferences
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { apiRequest, getApiBase, getLocalUserId, setApiBase } from '../api'
 import type { CommandSettings, Conversation, DocumentInfo, ModelInfo } from '../types'
+import { PermissionPanel } from './PermissionPanel'
 
 const AMBIENT_OPTIONS: { mode: AmbientMode; label: string; description: string; icon: typeof Sun }[] = [
   { mode: 'full', label: 'Full', description: 'Aurora, orbit rings, a twinkling constellation, grain and a vignette.', icon: Sun },
@@ -36,7 +37,7 @@ const SHORTCUTS: [string, string][] = [
   ['Esc', 'Close a dialog'],
 ]
 
-const TABS = ['Account', 'Appearance', 'Model', 'Commands', 'Data', 'About'] as const
+const TABS = ['Account', 'Appearance', 'Model', 'Commands', 'Permissions', 'Data', 'About'] as const
 type Tab = (typeof TABS)[number]
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
@@ -189,6 +190,7 @@ export function SettingsDialog({
   onDeleteThread,
   commandSettings,
   onCommandSettingsChange,
+  onPermissionLevelChange,
 }: {
   userId: string
   models: ModelInfo[]
@@ -202,6 +204,7 @@ export function SettingsDialog({
   onRenameThread: (id: string, title: string) => void
   commandSettings: CommandSettings
   onCommandSettingsChange: (enabled: boolean) => void
+  onPermissionLevelChange: (level: number) => void
   onDeleteThread: (id: string) => void
 }) {
   const [tab, setTab] = useState<Tab>('Account')
@@ -397,6 +400,33 @@ export function SettingsDialog({
 
   const [commandBusy, setCommandBusy] = useState(false)
   const [commandError, setCommandError] = useState('')
+
+  async function setPermissionLevel(level: number) {
+    if (commandBusy || level === commandSettings.permission_level) return
+    setCommandBusy(true)
+    setCommandError('')
+    try {
+      const result = await apiRequest<CommandSettings>(
+        `/api/commands/settings?user_id=${encodeURIComponent(userId)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          // `enabled` rides along because one endpoint owns both fields; sending
+          // the value the server last reported means changing a level can never
+          // quietly switch commands on or off.
+          body: JSON.stringify({
+            enabled: commandSettings.enabled,
+            permission_level: level,
+          }),
+        },
+      )
+      onPermissionLevelChange(result.permission_level)
+    } catch (cause) {
+      setCommandError(cause instanceof Error ? cause.message : 'Could not change that permission level.')
+    } finally {
+      setCommandBusy(false)
+    }
+  }
 
   async function setCommandsEnabled(enabled: boolean) {
     if (commandBusy) return
@@ -884,15 +914,106 @@ export function SettingsDialog({
               </Section>
 
               <Section
+                title="Your desktop"
+                hint="Alongside the command line, it can drive the desktop: open and close applications, focus windows, take screenshots, change the volume, control playback, send notifications, lock the screen, switch dark mode and manage power."
+              >
+                {commandSettings.desktop_available ? (
+                  <>
+                    <ul className="space-y-2.5 text-small leading-6 text-zinc-500">
+                      <li className="flex gap-2.5">
+                        <MonitorSmartphone size={13} className="mt-1 shrink-0 text-zinc-500" />
+                        <span>
+                          <span className="text-zinc-300">Listing windows runs by itself.</span> Seeing
+                          which windows are open changes nothing, so it does not interrupt you.
+                        </span>
+                      </li>
+                      <li className="flex gap-2.5">
+                        <LockKeyhole size={13} className="mt-1 shrink-0 text-zinc-500" />
+                        <span>
+                          <span className="text-zinc-300">Everything else asks first.</span> Closing an
+                          app, locking the screen or shutting the machine down are shown to you as a
+                          plain description, not a command line, and do nothing if you decline.
+                        </span>
+                      </li>
+                      <li className="flex gap-2.5">
+                        <AlertTriangle size={13} className="mt-1 shrink-0 text-zinc-500" />
+                        <span>
+                          <span className="text-zinc-300">A fixed set, no shell.</span> These are named
+                          actions, not commands you can talk into. There is no way to phrase an
+                          instruction that turns into a shell command line.
+                        </span>
+                      </li>
+                    </ul>
+                    <p className="mt-3 text-micro leading-5 text-zinc-600">
+                      It closes a window by matching part of its title, so check what it picked before
+                      saying yes.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-small leading-6 text-zinc-500">
+                    Desktop control is switched off on the server, so the model cannot open or close
+                    anything on this machine. Command line access is unaffected.
+                  </p>
+                )}
+              </Section>
+
+              <Section
+                title="Where it thinks you are"
+                hint="For questions that depend on it — what is near me, what time is it there — it can look up your approximate position. It does this only when an answer actually needs it, never in the background."
+              >
+                {commandSettings.location_available ? (
+                  <>
+                    <ul className="space-y-2.5 text-small leading-6 text-zinc-500">
+                      <li className="flex gap-2.5">
+                        <MapPin size={13} className="mt-1 shrink-0 text-zinc-500" />
+                        <span>
+                          <span className="text-zinc-300">Your browser is asked first.</span> The app
+                          window shows you the usual permission prompt. If you decline, it falls back
+                          to a coarse estimate from your network connection.
+                        </span>
+                      </li>
+                      <li className="flex gap-2.5">
+                        <AlertTriangle size={13} className="mt-1 shrink-0 text-zinc-500" />
+                        <span>
+                          <span className="text-zinc-300">It is rarely precise.</span> This computer has
+                          no GPS, so a fallback is town-level at best. The answer always says which
+                          source produced it.
+                        </span>
+                      </li>
+                    </ul>
+                    <p className="mt-3 text-micro leading-5 text-zinc-600">
+                      Declining costs nothing: the model is told there is no location and is told to
+                      ask you rather than guess.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-small leading-6 text-zinc-500">
+                    Location is switched off on the server, so it cannot work out where you are. Every
+                    other capability is unaffected.
+                  </p>
+                )}
+              </Section>
+
+              <Section
                 title="Uploaded documents and web pages"
                 hint="The model reads whatever you attach and whatever it finds while searching, and text in either can try to instruct it. That is the main reason a command has to be shown to you before it runs."
               >
                 <p className="text-small leading-6 text-zinc-500">
-                  Read-only commands are the exception, and they are the reason to keep an eye on
-                  this panel: one of them can still list directories and print file contents.
+                  Which actions skip the approval card is set by your permission level, in the
+                  Permissions tab. Below Trusted, read-only commands are the only exception, and
+                  they are the reason to keep an eye on this panel: one of them can still list
+                  directories and print file contents.
                 </p>
               </Section>
             </>
+          )}
+
+          {tab === 'Permissions' && (
+            <PermissionPanel
+              settings={commandSettings}
+              busy={commandBusy}
+              onChange={(level) => void setPermissionLevel(level)}
+            />
           )}
 
           {tab === 'Data' && (

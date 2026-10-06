@@ -7,7 +7,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from functools import lru_cache
