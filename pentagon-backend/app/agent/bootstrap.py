@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from app.agent.registry import ToolRegistry
-from app.services import sandbox_runner
+from app.services import browser, sandbox_runner
 from app.tools import (
     ask_user,
+    browse_page,
     calculator,
     create_artifact,
     fetch_url,
@@ -30,6 +31,10 @@ def build_registry() -> ToolRegistry:
     registry.register(read_result.TOOL_SPEC, read_result.run)
     registry.register(update_plan.TOOL_SPEC, update_plan.run)
     registry.register(ask_user.TOOL_SPEC, ask_user.run)
+    # T9: the JS-rendering browser needs Playwright plus its Chromium, so it
+    # exists only when they do; fetch_url covers plain documents without them.
+    if browser.browser_available():
+        registry.register(browse_page.TOOL_SPEC, browse_page.run)
     # T8: code execution exists only when the Docker sandbox does. Without
     # Docker the tools are simply not registered -- there is no host-code
     # path to fall back to (python_exec would DENIED anyway if it raced a
