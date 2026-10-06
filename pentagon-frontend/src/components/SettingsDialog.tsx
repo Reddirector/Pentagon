@@ -20,7 +20,7 @@ import {
 import type { Appearance, Contrast, Density, TextSize } from '../lib/preferences'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { apiRequest, getApiBase, getLocalUserId, setApiBase } from '../api'
-import type { CommandSettings, Conversation, DocumentInfo, ModelInfo } from '../types'
+import type { CommandSettings, Conversation, DocumentInfo, MemoryInfo, ModelInfo } from '../types'
 import { PermissionPanel } from './PermissionPanel'
 
 const AMBIENT_OPTIONS: { mode: AmbientMode; label: string; description: string; icon: typeof Sun }[] = [
@@ -329,6 +329,43 @@ export function SettingsDialog({
   // Deleting a document used to fail silently, so a broken request looked
   // exactly like a click that did nothing.
   const [documentError, setDocumentError] = useState('')
+  // Memories are loaded once when the dialog opens: null means "still
+  // loading", an empty array means the store is genuinely empty.
+  const [memories, setMemories] = useState<MemoryInfo[] | null>(null)
+  const [memoryError, setMemoryError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    void apiRequest<MemoryInfo[]>(`/api/memories?user_id=${encodeURIComponent(userId)}`)
+      .then((rows) => {
+        if (active) setMemories(rows)
+      })
+      .catch((cause) => {
+        if (!active) return
+        setMemoryError(
+          cause instanceof Error ? cause.message : 'Could not load memories.',
+        )
+        setMemories([])
+      })
+    return () => {
+      active = false
+    }
+  }, [userId])
+
+  async function removeMemory(memoryId: string) {
+    setMemoryError('')
+    try {
+      await apiRequest(
+        `/api/memories/${encodeURIComponent(memoryId)}?user_id=${encodeURIComponent(userId)}`,
+        { method: 'DELETE' },
+      )
+      setMemories((rows) => (rows ?? []).filter((row) => row.id !== memoryId))
+    } catch (cause) {
+      setMemoryError(
+        cause instanceof Error ? cause.message : 'Could not delete that memory.',
+      )
+    }
+  }
   const [sessionEmail, setSessionEmail] = useState<string | null>(null)
 
   useEffect(() => {
@@ -1040,6 +1077,47 @@ export function SettingsDialog({
                   </ul>
                 )}
                 {documentError && <p className="mt-2 text-small text-amber-300/90">{documentError}</p>}
+              </Section>
+
+              <Section
+                title="Memories"
+                hint="Facts the model kept with remember. A memory enters a conversation only when the model asks for it with recall; nothing here loads on its own."
+              >
+                {memoryError && <p className="mb-2 text-small text-amber-300/90">{memoryError}</p>}
+                {memories === null ? (
+                  <p className="text-small text-zinc-600">Loading…</p>
+                ) : memories.length === 0 ? (
+                  <p className="text-small text-zinc-600">Nothing stored yet.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {memories.map((memory) => (
+                      <li
+                        key={memory.id}
+                        className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                      >
+                        <span className="min-w-0 flex-1">
+                          {memory.label && (
+                            <span className="mr-2 rounded border border-white/[0.1] px-1.5 py-0.5 text-micro text-zinc-500">
+                              {memory.label}
+                            </span>
+                          )}
+                          <span className="text-small-lg text-zinc-300">{memory.text}</span>
+                          <span className="mt-0.5 block text-micro text-zinc-600">
+                            {memory.created_at.slice(0, 10)}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void removeMemory(memory.id)}
+                          aria-label={`Delete memory: ${memory.text.slice(0, 40)}`}
+                          className="shrink-0 rounded-md p-1 text-zinc-600 transition hover:bg-white/[0.06] hover:text-zinc-200"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </Section>
 
               <Section

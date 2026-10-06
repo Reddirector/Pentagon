@@ -48,6 +48,13 @@ export type DocumentInfo = {
   created_at?: string
 }
 
+export type MemoryInfo = {
+  id: string
+  label: string
+  text: string
+  created_at: string
+}
+
 /** What the backend recorded about one command it ran, or refused to run. */
 export type CommandRun = {
   command: string

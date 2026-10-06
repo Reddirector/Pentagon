@@ -194,3 +194,23 @@ class Document(Base):
     filename: Mapped[str] = mapped_column(String(255))
     chunk_count: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+
+
+class Memory(Base):
+    """A durable fact the user chose to keep (T11 memory).
+
+    One flat row per memory: ``recall`` scores the user's rows in Python
+    (keyword overlap, recency as the tie-break) instead of reaching for
+    embeddings, so retrieval is deterministic, testable, and the settings
+    UI can list -- and delete -- exactly what is stored. Nothing else in
+    the app reads this table: memories never enter a conversation unless
+    the model calls ``recall``.
+    """
+
+    __tablename__ = "memories"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(120), default="")
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)

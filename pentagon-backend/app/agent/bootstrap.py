@@ -9,11 +9,14 @@ from app.tools import (
     browse_page,
     calculator,
     create_artifact,
+    deep_research,
     fetch_url,
     get_current_time,
     python_exec,
     read_document,
     read_result,
+    recall,
+    remember,
     search_documents,
     update_plan,
     web_search,
@@ -31,6 +34,13 @@ def build_registry() -> ToolRegistry:
     registry.register(read_result.TOOL_SPEC, read_result.run)
     registry.register(update_plan.TOOL_SPEC, update_plan.run)
     registry.register(ask_user.TOOL_SPEC, ask_user.run)
+    # T11: durable memory. remember is write-tier (the ladder asks at
+    # Restricted/Balanced); recall is a plain read of the user's own rows.
+    registry.register(remember.TOOL_SPEC, remember.run)
+    registry.register(recall.TOOL_SPEC, recall.run)
+    # T11: bounded research. Always registered -- a missing key or a missed
+    # deadline is an honest per-call failure, not a missing capability.
+    registry.register(deep_research.TOOL_SPEC, deep_research.run)
     # T9: the JS-rendering browser needs Playwright plus its Chromium, so it
     # exists only when they do; fetch_url covers plain documents without them.
     if browser.browser_available():
