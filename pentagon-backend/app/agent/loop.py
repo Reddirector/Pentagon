@@ -19,6 +19,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from app.agent.executor import ExecutedCall, Executor
 from app.agent.llm import ModelReply, assemble_tool_calls, content_as_text
 from app.agent.registry import ToolRegistry
+from app.agent.context import ScratchStore, ToolScratchNote
 from app.agent.schemas import AgentEvent, Budget, BudgetExceeded, ToolContext
 from app.agent.traces import TraceRecorder
 from app.agent.validate import RepairTracker, validate_call
@@ -92,12 +93,14 @@ async def run_turn(
 ) -> AsyncIterator[AgentEvent]:
     """Run one agent turn; yields the SSE-facing event stream."""
     budget = budget or Budget()
+    scratch = ScratchStore()
     ctx = ToolContext(
         user_id=request.user_id,
         conversation_id=request.conversation_id,
         turn_id=request.turn_id,
         permission_level=request.permission_level,
         cancel=cancel,
+        scratch=scratch,
     )
     recorder = trace or TraceRecorder(request.user_id, request.conversation_id, request.turn_id)
     executor = Executor(registry, budget)
@@ -181,6 +184,13 @@ async def run_turn(
                 spec = registry.get(executed.tool).spec if registry.has(executed.tool) else None
                 max_chars = spec.max_result_chars if spec else _FALLBACK_RESULT_CHARS
                 content = executed.result.compact(max_chars)
+                # Oversized results go to the scratch store whole; the model
+                # sees a head excerpt plus a handle it can read_result().
+                stored = scratch.store(executed.tool, content)
+                if stored is not None:
+                    content = ToolScratchNote(
+                        executed.tool, content[:ScratchStore.head_chars()], stored
+                    ).as_content()
                 status = executed.status
                 elapsed = executed.elapsed_ms
             else:

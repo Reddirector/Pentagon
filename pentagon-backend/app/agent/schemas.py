@@ -103,13 +103,18 @@ class ToolSpec:
 
 @dataclass(frozen=True)
 class ToolContext:
-    """What a tool invocation knows about the turn it runs inside."""
+    """What a tool invocation knows about the turn it runs inside.
+
+    ``scratch`` is the turn's store for oversized tool results (see
+    ``app.agent.context``); read_result pages through it.
+    """
 
     user_id: str
     conversation_id: str
     turn_id: str
     permission_level: int
     cancel: asyncio.Event | None = None
+    scratch: Any = None
 
 
 class ResultMeta(BaseModel):

@@ -8,6 +8,7 @@ from app.tools import (
     fetch_url,
     get_current_time,
     read_document,
+    read_result,
     search_documents,
     web_search,
 )
@@ -21,4 +22,5 @@ def build_registry() -> ToolRegistry:
     registry.register(fetch_url.TOOL_SPEC, fetch_url.run)
     registry.register(search_documents.TOOL_SPEC, search_documents.run)
     registry.register(read_document.TOOL_SPEC, read_document.run)
+    registry.register(read_result.TOOL_SPEC, read_result.run)
     return registry
