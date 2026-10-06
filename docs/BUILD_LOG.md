@@ -14,3 +14,6 @@
 - test isolation: `tests/conftest.py` points the suite at a temporary database; a full run now leaves the real `pentagon.db` byte-identical
 - corrected `.env.example`, which named `IMAGE_UPLOADS_DIRECTORY` while the config field is `image_upload_directory` — the variable was silently ignored
 - added MIT LICENSE and rewrote the README; refreshed the docs to current test counts and limitations
+- tools T0 scaffolding: `pentagon-backend/app/agent/` (schemas: ToolSpec/ToolContext/result envelope/Budget/AgentEvent; registry with registration validation + OpenAI-schema export; TraceRecorder with secret-redaction), `app/tools/`, `app/evals/` (deterministic mock LLM whose astream fragments content and tool_call_chunks per-index like the real OpenAI-compatible stream, plus a YAML task loader/runner skeleton), and a `tool_traces` table (SQLAlchemy, SQLite base per DECISIONS #1)
+- tools T0 gate: 34 new tests (registry validation/dup/unknown-name listing, envelope shapes + truncation flag, budget caps, redaction, trace persistence, mock stream reassembly) — 470 passed exit 0, pyflakes clean; committed
+- tools baseline: pending permission-feature + audit-fix work committed first as its own commit (488ad21) so phase commits stay clean

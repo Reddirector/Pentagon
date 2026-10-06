@@ -9,6 +9,9 @@
 | 5 | Master prompt's `/api/chat/{id}/stream` and JWT auth not implemented this run | Existing contract is `POST /api/chat` with user_id; SSE chat-mount and per-route Supabase-JWT auth are the honest next slice on the Supabase path |
 | 6 | No phase commits published | Worktree root (`Desktop/Pentagon`) has no `.git`; files are left uncommitted for git-aware review |
 | 7 | Conversation creation auto-provisions the local user row when the server key fallback is configured | Live preview showed `create_conversation` still 404ing for fallback-key users; chat must start before any personal key is stored |
+| 8 | Agent upgrade (T0-T13) keeps the SQLite base: new tables (`tool_traces`, later `model_capabilities`, `memories`, artifacts) are SQLAlchemy models beside the existing ones; the prompt's Supabase DDL is treated as its schema spec, RLS-equivalent ownership enforced by user_id scoping in queries | Standing decision #1: local-first SQLite base, Supabase path beside it; a mid-run rewrite would risk the working app |
+| 9 | Prompt's `backend/app/...` paths map to `pentagon-backend/app/...`; `evals/` lives at `pentagon-backend/app/evals/` per the prompt's tree, run as `python -m app.evals.run_evals` | Follows the prompt's layout with the repo's actual package root |
+| 10 | Mock LLM (`app/evals/mock_llm.py`) fragments streamed content and tool-call deltas exactly like the OpenAI-compatible SSE stream; all automated tests and evals use it, live-model behavior is listed under Needs live verification | Prompt rule 4: no real key in tests |
 
 ---
 

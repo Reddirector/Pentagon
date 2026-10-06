@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
 
@@ -129,6 +130,36 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class ToolTrace(Base):
+    """One tool invocation inside an agent turn.
+
+    Written by ``app.agent.traces.TraceRecorder`` after each call; arguments
+    are redacted before they get here (secret-shaped keys masked, long values
+    cut). SQLite has no row-level security, so ownership is enforced the same
+    way every other table's is: queries scope by ``user_id``.
+    """
+
+    __tablename__ = "tool_traces"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    turn_id: Mapped[str] = mapped_column(String(36), index=True)
+    step: Mapped[int] = mapped_column(default=0)
+    tool: Mapped[str] = mapped_column(String(128))
+    args_redacted: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # ok | error | denied | cached | timeout
+    status: Mapped[str] = mapped_column(String(16))
+    duration_ms: Mapped[int | None] = mapped_column(nullable=True)
+    tokens_in: Mapped[int | None] = mapped_column(nullable=True)
+    tokens_out: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
 
 
 class Document(Base):
