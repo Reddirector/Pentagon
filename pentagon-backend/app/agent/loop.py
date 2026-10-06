@@ -156,16 +156,28 @@ async def run_turn(
             break
 
         messages.append(_assistant_message(reply))
-        for call in reply.tool_calls:
-            checked = validate_call(call, _lookup(registry), tracker, registry.names())
+        checked_calls = [
+            validate_call(call, _lookup(registry), tracker, registry.names())
+            for call in reply.tool_calls
+        ]
+        for checked in checked_calls:
             if checked.executable:
                 yield AgentEvent(
                     "tool_start",
                     {"tool": checked.tool, "id": checked.tool_call_id},
                 )
-                executed = await executor.run_one(
-                    {"name": checked.tool, "args": checked.args, "id": checked.tool_call_id}, ctx
-                )
+        batch = [
+            {"name": checked.tool, "args": checked.args, "id": checked.tool_call_id}
+            for checked in checked_calls
+            if checked.executable
+        ]
+        executed_calls = await executor.run_many(batch, ctx) if batch else []
+        executed_by_id = {
+            executed.tool_call_id: executed for executed in executed_calls
+        }
+        for checked in checked_calls:
+            executed = executed_by_id.get(checked.tool_call_id)
+            if executed is not None:
                 spec = registry.get(executed.tool).spec if registry.has(executed.tool) else None
                 max_chars = spec.max_result_chars if spec else _FALLBACK_RESULT_CHARS
                 content = executed.result.compact(max_chars)
