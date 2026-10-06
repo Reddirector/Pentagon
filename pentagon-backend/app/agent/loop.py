@@ -90,10 +90,12 @@ async def run_turn(
     budget: Budget | None = None,
     trace: TraceRecorder | None = None,
     cancel: asyncio.Event | None = None,
+    pause_gate: Any | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """Run one agent turn; yields the SSE-facing event stream."""
     budget = budget or Budget()
     scratch = ScratchStore()
+    shared: dict[str, Any] = {}
     ctx = ToolContext(
         user_id=request.user_id,
         conversation_id=request.conversation_id,
@@ -101,6 +103,8 @@ async def run_turn(
         permission_level=request.permission_level,
         cancel=cancel,
         scratch=scratch,
+        shared=shared,
+        pause_gate=pause_gate,
     )
     recorder = trace or TraceRecorder(request.user_id, request.conversation_id, request.turn_id)
     executor = Executor(registry, budget)
@@ -222,6 +226,14 @@ async def run_turn(
                     "elapsed_ms": elapsed,
                 },
             )
+            if checked.tool == "update_plan" and isinstance(shared.get("plan"), list):
+                yield AgentEvent("plan", {"steps": shared["plan"]})
+            if (
+                checked.tool == "ask_user"
+                and isinstance(shared.get("ask_user"), dict)
+                and not shared["ask_user"].get("answered")
+            ):
+                yield AgentEvent("ask_user", shared["ask_user"])
 
     if reply is not None and not reply.text.strip() and not budget.out_of_time():
         # The final answer must be prose for the user, never nothing.

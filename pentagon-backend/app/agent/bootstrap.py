@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from app.agent.registry import ToolRegistry
 from app.tools import (
+    ask_user,
     calculator,
     fetch_url,
     get_current_time,
     read_document,
     read_result,
     search_documents,
+    update_plan,
     web_search,
 )
 
@@ -23,4 +25,6 @@ def build_registry() -> ToolRegistry:
     registry.register(search_documents.TOOL_SPEC, search_documents.run)
     registry.register(read_document.TOOL_SPEC, read_document.run)
     registry.register(read_result.TOOL_SPEC, read_result.run)
+    registry.register(update_plan.TOOL_SPEC, update_plan.run)
+    registry.register(ask_user.TOOL_SPEC, ask_user.run)
     return registry

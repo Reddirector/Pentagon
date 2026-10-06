@@ -106,7 +106,10 @@ class ToolContext:
     """What a tool invocation knows about the turn it runs inside.
 
     ``scratch`` is the turn's store for oversized tool results (see
-    ``app.agent.context``); read_result pages through it.
+    ``app.agent.context``); read_result pages through it. ``shared`` is the
+    loop's per-turn dict where update_plan publishes the checklist and
+    ask_user records its question. ``pause_gate`` is how ask_user stops the
+    turn until the user answers.
     """
 
     user_id: str
@@ -115,6 +118,35 @@ class ToolContext:
     permission_level: int
     cancel: asyncio.Event | None = None
     scratch: Any = None
+    shared: Any = None
+    pause_gate: Any = None
+
+
+class AskUserGate:
+    """The pause/answer channel between ask_user and the answering HTTP route.
+
+    The tool handler awaits ``wait_for_answer``; the route resolves it with
+    ``provide`` when the user answers. A timeout returns ``None`` so the tool
+    can fail with a hint instead of hanging the turn forever; user Stop cancels
+    the awaiting task from outside (executor-level cancellation).
+    """
+
+    def __init__(self) -> None:
+        self._future: asyncio.Future | None = None
+
+    async def wait_for_answer(self, timeout: float) -> dict[str, Any] | None:
+        loop = asyncio.get_running_loop()
+        self._future = loop.create_future()
+        try:
+            return await asyncio.wait_for(self._future, timeout)
+        except asyncio.TimeoutError:
+            return None
+
+    def provide(self, answer: dict[str, Any]) -> bool:
+        if self._future is not None and not self._future.done():
+            self._future.set_result(answer)
+            return True
+        return False
 
 
 class ResultMeta(BaseModel):
