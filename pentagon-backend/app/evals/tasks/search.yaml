@@ -1,0 +1,78 @@
+# web_search runs against a deterministic fixture; no network is touched and
+# the citation host (example.com) is one the verifier can check.
+- id: search-grounded-citation
+  prompt: 'How much did revenue grow last year?'
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'annual report revenue growth'}
+          id: s1
+    - text: Revenue grew 12 percent last year [1].
+  expect:
+    tools: [web_search]
+    verification: {ok: true}
+    mentions: ['12 percent']
+    native_bound: true
+  live: true
+  live_expect:
+    tools: [web_search]
+
+- id: search-empty-honest
+  prompt: 'Find the archived press release.'
+  search_results: []
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'archived press release 1998'}
+          id: s1
+    - text: I could not find any pages about that.
+  expect:
+    tools: [web_search]
+    tool_status: {web_search: ok}
+    verification: false
+    mentions: ['could not find']
+
+- id: search-error-honest
+  prompt: 'Search for the latest news.'
+  search_error: true
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'latest news today'}
+          id: s1
+    - text: Search is unavailable right now, so I have no results to show.
+  expect:
+    tools: [web_search]
+    tool_status: {web_search: error}
+    verification: false
+    mentions: ['unavailable']
+
+- id: search-results-arrive-spotlighted
+  prompt: 'What does the annual report say?'
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'annual report revenue'}
+          id: s1
+    - text: The report says revenue grew 12 percent [1].
+  expect:
+    tools: [web_search]
+    result_contains: ['<<<UNTRUSTED']
+    verification: {ok: true}
+
+- id: search-then-calc-combined
+  prompt: 'Find the growth figure and double it.'
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'annual report growth figure'}
+          id: s1
+    - tool_calls:
+        - name: calculator
+          args: {expression: '12*10'}
+          id: c1
+    - text: Growth was 12 percent, and doubled that math gives 120 [1].
+  expect:
+    tools: [web_search, calculator]
+    verification: {ok: true}
+    mentions: ['120']

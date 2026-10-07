@@ -39,6 +39,23 @@ export type ChatMessage = {
   pendingCommand?: PendingCommand | null
   /** What the commands actually did, once the turn finished. */
   commandRuns?: CommandRun[]
+  /** Agent mode (the loop route): this turn's identity, needed to answer an
+      approval card or a question while the stream is still open. */
+  turnId?: string
+  /** Tool calls this turn, in order: the timeline under the answer. */
+  agentSteps?: AgentToolStep[]
+  /** The plan the model published through update_plan. */
+  agentPlan?: AgentPlanStep[]
+  /** Files the turn wrote through create_artifact. */
+  agentArtifacts?: AgentArtifact[]
+  /** A question the turn is waiting on (ask_user). */
+  agentQuestion?: AgentQuestion | null
+  /** Tool calls the turn asked to run, waiting for yes/no. */
+  pendingToolApproval?: PendingToolApproval | null
+  /** The grounding verdict carried by the turn's done event. */
+  verification?: Verification
+  /** Human-readable notes the turn emitted (wrap-up, repair). */
+  statusNotes?: string[]
 }
 
 export type DocumentInfo = {
@@ -113,4 +130,48 @@ export type PermissionLevel = {
   name: string
   summary: string
   detail: string
+}
+
+/** One tool call in an agent turn's timeline. */
+export type AgentToolStep = {
+  id: string
+  tool: string
+  status?: 'running' | 'ok' | 'error'
+  summary?: string
+  elapsed_ms?: number
+}
+
+/** One step of the plan the model published. */
+export type AgentPlanStep = {
+  text: string
+  status?: string
+}
+
+/** A file the turn wrote, on the server's disk. */
+export type AgentArtifact = {
+  id: string
+  name: string
+  path?: string
+  bytes?: number
+}
+
+/** A question the turn asked and is waiting on. */
+export type AgentQuestion = {
+  question: string
+  options?: string[]
+  answered?: boolean
+}
+
+/** Tool calls on an approval card, pending yes/no. */
+export type PendingToolApproval = {
+  turn_id: string
+  calls: Array<{ id: string; tool: string; tier?: string }>
+}
+
+/** The turn's grounding verdict, straight from the done event. */
+export type Verification = {
+  ok: boolean
+  citations?: number[]
+  sources?: number
+  problems?: string[]
 }

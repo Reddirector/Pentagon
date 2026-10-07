@@ -33,6 +33,12 @@ server-fallback paths are complete and go live the moment an authorized key is i
 - Valid NVIDIA key end-to-end: store-key gate → streamed answer with the default model.
 - Supabase project: apply schema, RLS isolation test between two real users, storage uploads.
 - RLS isolation between real users (prompt §1, phase 1 gate) — the schema's policies are in place but were not exercised against a live Supabase Postgres.
+- Agent evals in live mode (`python -m app.evals.run_evals --live`, 3 tasks): spends NVIDIA
+  quota, human-run only — never exercised in this run.
+- Prompted-tool protocol quality against a real model: parser, corrective round and
+  capability routing are verified with the mock LLM and by unit tests only.
+- Approval flow against a real model: gate wiring, batch announcements and decline semantics
+  are verified with the mock LLM only.
 
 ---
 
@@ -105,3 +111,28 @@ five of them fail against the previous implementation.
   returned `422`, silently, because the error was swallowed; that is fixed, and
   a failed delete now shows a message. Thread deletion there already required a
   confirmation dialog. Back up `pentagon.db` before destructive testing.
+
+---
+
+## Update — agent eval baseline (tools pass, T0–T13)
+
+The tool-calling/agent stack has a wired eval suite: `python -m app.evals.run_evals` drives
+the real `run_turn` with the deterministic mock LLM over YAML tasks (no key, no network),
+plus the 28-case injection suite. `--filter <substr>` narrows to one task; `--live` runs only
+the tasks marked `live: true` against the real model (see Needs live verification).
+
+| Suite | File(s) | Tasks | Result |
+| --- | --- | --- | --- |
+| Chat basics | `tasks/chat.yaml` | 5 | 5/5 |
+| Core tools | `tasks/core_tools.yaml` | 5 | 5/5 |
+| Web/document search | `tasks/search.yaml` | 5 | 5/5 |
+| Prompted protocol | `tasks/prompted.yaml` | 7 | 7/7 |
+| Approvals & permissions | `tasks/approvals.yaml` | 6 | 6/6 |
+| Budgets | `tasks/budgets.yaml` | 5 | 5/5 |
+| Answer verification | `tasks/verification.yaml` | 5 | 5/5 |
+| Plan / ask-user / artifacts / memory | `tasks/side_effects.yaml` | 5 | 5/5 |
+| Safety & injection | `tasks/safety.yaml` + `injection_suite.yaml` | 4 + 28 | 32/32 |
+| **Total** | | **75** | **75/75 passed** |
+
+Verification for this run: backend pytest **755 passed**, `pyflakes app/` clean,
+evals **75/75**, frontend `tsc` + `oxlint` clean (0 warnings, 0 errors).

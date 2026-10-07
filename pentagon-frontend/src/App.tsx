@@ -11,9 +11,10 @@ import { AmbientLayer } from './components/AmbientLayer'
 import { CommandPalette } from './components/CommandPalette'
 import { SettingsDialog } from './components/SettingsDialog'
 import { PermissionPanel } from './components/PermissionPanel'
+import { AgentActivity } from './components/AgentActivity'
 import { setAmbientSignal } from './lib/ambient'
 import { getPreferences, toggleSidebarCollapsed } from './lib/preferences'
-import type { ChatMessage, CommandRun, CommandSettings, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, PendingCommand, SourcesUsed } from './types'
+import type { AgentPlanStep, ChatMessage, CommandRun, CommandSettings, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, PendingCommand, PendingToolApproval, SourcesUsed, Verification } from './types'
 
 type ConversationDetail = Conversation & { messages: ChatMessage[]; summary_at_switch: string | null }
 type TranscriptInfo = { durationMs: number; provider: string }
@@ -122,6 +123,28 @@ function App() {
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('Chat')
   const [savingPermission, setSavingPermission] = useState(false)
   const [deciding, setDeciding] = useState<string | null>(null)
+  // Agent mode: the same composer, a different route. The agent loop's events
+  // (tool timeline, plan, approvals, questions, artifacts) render under the
+  // answer instead of the graph's plain token stream. The choice is ours to
+  // remember across reloads -- it is a way of working, not a per-turn flag.
+  const [agentMode, setAgentMode] = useState(() => {
+    try { return window.localStorage.getItem('pentagon.agentMode') === '1' } catch { return false }
+  })
+  const [agentBadges, setAgentBadges] = useState<Record<string, { badge: string }>>({})
+  const [canRetry, setCanRetry] = useState(false)
+  const lastSend = useRef<{ question: string; threadId: string; assistantId: string } | null>(null)
+
+  // Capability badges come from the server's probe cache -- a plain GET, no
+  // network beyond our own backend -- so the header can say how a model
+  // tool-calls without spending anything to find out.
+  const refreshBadges = useCallback(async () => {
+    try {
+      const data = await apiRequest<Record<string, { badge: string }>>('/api/agent/badges', { method: 'GET' })
+      setAgentBadges(data ?? {})
+    } catch {
+      // Decoration: a failed read leaves badges absent, never wrong.
+    }
+  }, [])
 
   // --- command tool bootstrap ---------------------------------------------
   // Defined with useCallback so the effect can depend on it honestly rather
@@ -257,6 +280,7 @@ function App() {
         // own. It is deliberately not fatal: a failure here must not stop the
         // app from loading models and threads, and the toggle simply stays off.
         await loadCommandSettings()
+        await refreshBadges()
         const modelResult = await apiRequest<{ models: ModelInfo[]; default_model?: string | null }>(`/api/models?user_id=${encodeURIComponent(userId)}`)
         if (cancelled) return
         setModels(modelResult.models)
@@ -304,7 +328,7 @@ function App() {
     }
     void hydrate()
     return () => { cancelled = true }
-  }, [userId, loadCommandSettings])
+  }, [userId, loadCommandSettings, refreshBadges])
 
   useEffect(() => {
     if (!keyValue.trim()) return
@@ -757,6 +781,10 @@ function App() {
     event?.preventDefault()
     const typed = draft.trim()
     if (streaming || transcribing || uploading || !active || !selectedModel || (!typed && !media)) return
+    if (agentMode && media) {
+      setError('Agent mode is text-only for now — switch back to Standard chat to attach media.')
+      return
+    }
     const question = typed || (media && isVideo(media) ? 'Describe what happens in this video with timestamps.' : 'Describe what is in this image.')
     const pendingDocs = [...queuedDocuments]
     const mediaForMessage = media
@@ -780,6 +808,8 @@ function App() {
     let messageShown = false
     try {
       const thread = await createRemoteThread(question)
+      lastSend.current = { question, threadId: thread.id, assistantId }
+      setCanRetry(false)
       let uploaded = 0
       for (const file of pendingDocs) {
         await uploadDocument(file, thread.id)
@@ -799,7 +829,7 @@ function App() {
       form.set('message', question)
       // Web search is not a user toggle: omitting the field lets the backend
       // router decide when a question actually needs live results.
-      if (transcriptInfo) form.set('respond_with_audio', 'true')
+      if (transcriptInfo && !agentMode) form.set('respond_with_audio', 'true')
       if (mediaForMessage) form.set(isVideo(mediaForMessage) ? 'video' : 'image', mediaForMessage)
       if (transcriptInfo) {
         form.set('transcription_duration_ms', String(transcriptInfo.durationMs))
@@ -817,6 +847,7 @@ function App() {
       } else {
         setError(cause instanceof Error ? cause.message : 'The chat request failed.')
         if (messageShown) {
+          setCanRetry(true)
           setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'I could not complete that request.' } : item))
         } else {
           // Nothing reached the thread -- creating it or uploading an
@@ -825,12 +856,127 @@ function App() {
           setDraft((current) => (current.trim() ? current : question))
         }
       }
-    } finally { setStreaming(false) }
+    } finally {
+      setStreaming(false)
+      // A finished agent turn is when a new badge may exist: the first turn
+      // with a model probes it once and caches the result.
+      if (agentMode) void refreshBadges()
+    }
   }
 
   function stopStreaming() {
     setStoppedReply(true)
     streamAbort.current?.abort()
+  }
+
+  function toggleAgentMode() {
+    setAgentMode((current) => {
+      const next = !current
+      try { window.localStorage.setItem('pentagon.agentMode', next ? '1' : '0') } catch { /* Private browsing refuses writes. */ }
+      return next
+    })
+  }
+
+  /** Answer an agent turn's approval card. The turn stays blocked until the server hears this. */
+  async function decideAgentTools(turnId: string, callIds: string[]) {
+    if (deciding) return
+    setDeciding(turnId)
+    try {
+      await apiRequest('/api/agent/decisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, turn_id: turnId, call_ids: callIds }),
+      })
+      setMessages((current) => current.map((item) => (item.turnId === turnId && item.pendingToolApproval ? { ...item, pendingToolApproval: null } : item)))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not send your approval.')
+    } finally {
+      setDeciding(null)
+    }
+  }
+
+  /** Decline: an empty list means nothing on the card may run. */
+  async function denyAgentTools(turnId: string) {
+    if (deciding) return
+    setDeciding(turnId)
+    try {
+      await apiRequest('/api/agent/decisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, turn_id: turnId, call_ids: [] }),
+      })
+      setMessages((current) => current.map((item) => (item.turnId === turnId && item.pendingToolApproval ? { ...item, pendingToolApproval: null } : item)))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not send your decision.')
+    } finally {
+      setDeciding(null)
+    }
+  }
+
+  /** Answer a question the turn asked through ask_user. */
+  async function answerAgentQuestion(turnId: string, text: string) {
+    if (deciding) return
+    setDeciding(turnId)
+    try {
+      await apiRequest('/api/agent/answers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, turn_id: turnId, answer: text }),
+      })
+      setMessages((current) => current.map((item) => (item.turnId === turnId && item.agentQuestion ? { ...item, agentQuestion: { ...item.agentQuestion, answered: true } } : item)))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not send your answer.')
+    } finally {
+      setDeciding(null)
+    }
+  }
+
+  /** Re-ask the question that just failed -- the answer is what was missing. */
+  async function retryLastMessage() {
+    const last = lastSend.current
+    if (!last || streaming || !selectedModel) return
+    setError('')
+    setNotice('')
+    setCanRetry(false)
+    setStreaming(true)
+    setStoppedReply(false)
+    setMessages((current) => current.map((item) => (item.id === last.assistantId
+      ? {
+          ...item,
+          content: '',
+          turnId: undefined,
+          agentSteps: undefined,
+          agentPlan: undefined,
+          agentArtifacts: undefined,
+          agentQuestion: null,
+          pendingToolApproval: null,
+          verification: undefined,
+          statusNotes: undefined,
+        }
+      : item)))
+    const form = new FormData()
+    form.set('user_id', userId)
+    form.set('conversation_id', last.threadId)
+    form.set('model', selectedModel)
+    form.set('message', last.question)
+    // Regenerate: the question is already the thread's last row.
+    form.set('regenerate', 'true')
+    try {
+      await streamResponse(form, last.assistantId)
+      const list = await refreshThreads()
+      const refreshed = list.find((item) => item.id === last.threadId)
+      if (refreshed) setActive((current) => current && current.id === refreshed.id ? { ...current, title: refreshed.title, updated_at: refreshed.updated_at } : current)
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        setNotice('Stopped. The partial answer above was kept.')
+      } else {
+        setError(cause instanceof Error ? cause.message : 'The chat request failed.')
+        setCanRetry(true)
+      }
+    } finally {
+      setStreaming(false)
+      if (agentMode) void refreshBadges()
+    }
   }
 
   /** Answer the approval prompt. The turn stays blocked until the server hears this. */
@@ -867,7 +1013,7 @@ function App() {
   async function streamResponse(form: FormData, assistantId: string) {
     const controller = new AbortController()
     streamAbort.current = controller
-    const response = await fetch(apiUrl('/api/chat'), {
+    const response = await fetch(apiUrl(agentMode ? '/api/agent/chat' : '/api/chat'), {
       method: 'POST',
       body: form,
       headers: { Accept: 'text/event-stream' },
@@ -908,6 +1054,8 @@ function App() {
     }
     armStallTimer()
     const update = (changes: Partial<ChatMessage>) => setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, ...changes } : item))
+    /** Functional variant: appending to an agent timeline needs the previous item, not a patch. */
+    const mutate = (fn: (item: ChatMessage) => ChatMessage) => setMessages((current) => current.map((item) => (item.id === assistantId ? fn(item) : item)))
     const flushText = () => {
       if (flushTimer !== null) {
         window.clearTimeout(flushTimer)
@@ -964,6 +1112,78 @@ function App() {
         audioChunks = []
       } else if (eventName === 'audio_error') {
         setError(String(payload.message || 'The text response is ready, but speech synthesis failed.'))
+      } else if (eventName === 'conversation' && typeof payload.turn_id === 'string') {
+        // Graph replies carry no turn id; agent turns carry the one the
+        // decision routes need.
+        mutate((item) => ({ ...item, turnId: payload.turn_id as string }))
+      } else if (eventName === 'tool_start') {
+        mutate((item) => ({
+          ...item,
+          agentSteps: [...(item.agentSteps ?? []), { id: String(payload.id ?? crypto.randomUUID()), tool: String(payload.tool ?? 'tool'), status: 'running' }],
+        }))
+      } else if (eventName === 'tool_result') {
+        mutate((item) => ({
+          ...item,
+          agentSteps: (item.agentSteps ?? []).map((step) => step.id === String(payload.id)
+            ? {
+                ...step,
+                status: payload.ok ? 'ok' : 'error',
+                summary: typeof payload.summary === 'string' ? payload.summary : step.summary,
+                elapsed_ms: typeof payload.elapsed_ms === 'number' ? payload.elapsed_ms : step.elapsed_ms,
+              }
+            : step),
+        }))
+      } else if (eventName === 'status') {
+        const note = typeof payload.message === 'string' ? payload.message : ''
+        const revised = typeof payload.answer === 'string' ? payload.answer : null
+        // A repaired answer supersedes the tokens that already streamed.
+        if (revised !== null) bufferedText = ''
+        mutate((item) => ({
+          ...item,
+          ...(note ? { statusNotes: [...(item.statusNotes ?? []), note] } : {}),
+          ...(revised !== null ? { content: revised } : {}),
+        }))
+      } else if (eventName === 'plan') {
+        mutate((item) => ({ ...item, agentPlan: Array.isArray(payload.steps) ? payload.steps as AgentPlanStep[] : item.agentPlan }))
+      } else if (eventName === 'ask_user') {
+        mutate((item) => ({
+          ...item,
+          agentQuestion: {
+            question: String(payload.question ?? ''),
+            options: Array.isArray(payload.options) ? payload.options.map(String) : [],
+            answered: false,
+          },
+        }))
+      } else if (eventName === 'artifact') {
+        mutate((item) => {
+          const id = String(payload.id ?? payload.name ?? 'artifact')
+          if ((item.agentArtifacts ?? []).some((entry) => entry.id === id)) return item
+          return {
+            ...item,
+            agentArtifacts: [...(item.agentArtifacts ?? []), {
+              id,
+              name: String(payload.name ?? id),
+              path: typeof payload.path === 'string' ? payload.path : undefined,
+              bytes: typeof payload.bytes === 'number' ? payload.bytes : undefined,
+            }],
+          }
+        })
+      } else if (eventName === 'approval_required') {
+        mutate((item) => ({
+          ...item,
+          pendingToolApproval: {
+            turn_id: String(payload.turn_id ?? item.turnId ?? ''),
+            calls: Array.isArray(payload.calls) ? payload.calls as PendingToolApproval['calls'] : [],
+          },
+        }))
+      } else if (eventName === 'done') {
+        mutate((item) => ({
+          ...item,
+          ...(payload.verification ? { verification: payload.verification as Verification } : {}),
+          // Whatever was still waiting is closed by the turn's end.
+          pendingToolApproval: null,
+          agentQuestion: null,
+        }))
       } else if (eventName === 'error') {
         throw new Error(String(payload.message || 'The model request failed.'))
       }
@@ -1136,6 +1356,7 @@ function App() {
           </div>
           
           {activeModel?.supports_vision && <span className="hidden items-center gap-1.5 rounded-full border border-violet-300/15 bg-violet-300/[0.06] px-2.5 py-1.5 text-micro text-violet-200 md:inline-flex"><ImageIcon size={11} />Vision ready</span>}
+          {agentBadges[selectedModel]?.badge && <span title="Cached capability probe: how this model tool-calls" className="hidden items-center gap-1.5 rounded-full border border-emerald-300/15 bg-emerald-300/[0.06] px-2.5 py-1.5 text-micro text-emerald-200 md:inline-flex"><ShieldCheck size={11} />{agentBadges[selectedModel]?.badge}</span>}
         </div>
         <div className="flex shrink-0 items-center gap-2 max-sm:gap-1.5">
           <button onClick={startThread} className="grid size-8 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.06] hover:text-white md:hidden" title="New thread"><Plus size={16} /></button>
@@ -1204,7 +1425,7 @@ function App() {
         <div ref={conversationViewport} onScroll={handleConversationScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="Conversation" role="log" aria-live="off">
           <div className="mx-auto flex w-full max-w-[850px] flex-1 flex-col px-4 pb-5 pt-5 sm:px-7 sm:pt-8">
             {notice && <div role="status" className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-small text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
-            {error && <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-small leading-5 text-rose-200"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></div>}
+            {error && <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-small leading-5 text-rose-200"><span>{error}</span><span className="flex shrink-0 items-center gap-2">{canRetry && !streaming && lastSend.current && <button type="button" onClick={() => void retryLastMessage()} className="rounded-lg border border-rose-300/25 px-2.5 py-1 text-caption text-rose-100 transition hover:bg-rose-300/10">Try again</button>}<button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></span></div>}
             {/*
               The token stream itself is deliberately not a live region: it fires
               many times a second and would drown a screen reader in fragments.
@@ -1236,8 +1457,11 @@ function App() {
                   const pending = message.pendingCommand
                   if (pending) void decideCommand(pending.request_id, approved)
                 }}
+                onApproveTools={(turnId, callIds) => void decideAgentTools(turnId, callIds)}
+                onDenyTools={(turnId) => void denyAgentTools(turnId)}
+                onAnswerQuestion={(turnId, text) => void answerAgentQuestion(turnId, text)}
                 commandTimeoutSeconds={commandSettings.approval_timeout_seconds}
-                deciding={Boolean(message.pendingCommand && deciding === message.pendingCommand.request_id)}
+                deciding={Boolean((message.pendingCommand && deciding === message.pendingCommand.request_id) || (message.turnId && deciding === message.turnId))}
               />)}
             </div> : <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-16 text-center">
               <div className="mb-7 grid size-[66px] place-items-center"><Logomark size={60} /></div>
@@ -1267,6 +1491,7 @@ function App() {
             <div className="flex items-center justify-between gap-2 px-1 pb-0.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.txt" multiple hidden onChange={(event) => void handleAttachmentChange(event)} />
+                <button type="button" onClick={toggleAgentMode} aria-pressed={agentMode} disabled={streaming || transcribing} title={agentMode ? 'Agent mode: plan, tool timeline, approval cards. Text only.' : 'Standard chat: direct answers with sources.'} className={`flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro transition disabled:opacity-40 ${agentMode ? 'border border-emerald-300/30 bg-emerald-300/[0.08] text-emerald-200' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'}`}>Agent</button>
                 <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, or document"><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
                 <button type="button" onClick={() => void toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
               </div>
@@ -1322,12 +1547,15 @@ function App() {
   </div>
 }
 
-function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, onDecideCommand, commandTimeoutSeconds = 300, deciding = false }: {
+function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, onDecideCommand, onApproveTools, onDenyTools, onAnswerQuestion, commandTimeoutSeconds = 300, deciding = false }: {
   message: ChatMessage
   isStreaming?: boolean
   copied?: boolean
   onCopy?: () => void
   onDecideCommand?: (approved: boolean) => void
+  onApproveTools?: (turnId: string, callIds: string[]) => void
+  onDenyTools?: (turnId: string) => void
+  onAnswerQuestion?: (turnId: string, text: string) => void
   commandTimeoutSeconds?: number
   deciding?: boolean
 }) {
@@ -1341,6 +1569,13 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
         {message.attachmentName && <div className="mt-2 flex items-center gap-1.5 text-caption text-zinc-500"><Paperclip size={11} />{message.attachmentName}</div>}
       </div> : <div className="min-w-0 pt-0.5">
         {message.content ? <div className={isStreaming ? 'streaming-answer' : undefined}><AssistantDetails message={message} /></div> : <ThinkingIndicator model={message.model_used} />}
+      <AgentActivity
+        message={message}
+        busy={deciding}
+        onApprove={(turnId, callIds) => onApproveTools?.(turnId, callIds)}
+        onDeny={(turnId) => onDenyTools?.(turnId)}
+        onAnswer={(turnId, text) => onAnswerQuestion?.(turnId, text)}
+      />
       {/* Above the answer: while a command is pending there is nothing to read
           yet, so the prompt has to be the thing the eye lands on. */}
       {message.pendingCommand && onDecideCommand ? <CommandApproval

@@ -1,0 +1,81 @@
+# The always-available local tools on the native path (no capability row is
+# seeded, so the loop binds schemas and never probes anything).
+- id: core-calc-multiply
+  prompt: 'What is 6 times 7?'
+  script:
+    - tool_calls:
+        - name: calculator
+          args: {expression: '6*7'}
+          id: c1
+    - text: The answer is 42.
+  expect:
+    tools: [calculator]
+    tool_status: {calculator: ok}
+    mentions: ['42']
+    native_bound: true
+  live: true
+  live_expect:
+    tools: [calculator]
+    mentions: ['42']
+
+- id: core-time-then-calc
+  prompt: 'Check the time, then compute 15 times 3.'
+  script:
+    - tool_calls:
+        - name: get_current_time
+          args: {}
+          id: t1
+    - tool_calls:
+        - name: calculator
+          args: {expression: '15*3'}
+          id: c1
+    - text: The time is checked, and 15*3 is 45.
+  expect:
+    tools: [get_current_time, calculator]
+    mentions: ['45']
+    native_bound: true
+
+- id: core-native-parallel-batch
+  prompt: 'Compute 2+2 and check the time in one go.'
+  script:
+    - tool_calls:
+        - name: calculator
+          args: {expression: '2+2'}
+          id: c1
+        - name: get_current_time
+          args: {}
+          id: t1
+    - text: 'Both calls ran: 2+2 is 4 and the clock was read.'
+  expect:
+    tools: [calculator, get_current_time]
+    events: {approval_required: 0}
+    mentions: ['clock was read']
+    native_bound: true
+
+- id: core-unknown-tool-refused
+  prompt: 'Launch the rocket now.'
+  script:
+    - tool_calls:
+        - name: launch_rocket
+          args: {}
+          id: x1
+    - text: I cannot launch anything; there is no such tool available here.
+  expect:
+    tools: [launch_rocket]
+    tool_status: {launch_rocket: error}
+    mentions: ['no such tool']
+    native_bound: true
+
+- id: core-bad-args-refused
+  prompt: 'Multiply nothing by nothing.'
+  script:
+    - tool_calls:
+        - name: calculator
+          args: {}
+          id: c1
+    - text: 'That calculation could not run: the expression was missing.'
+  expect:
+    tools: [calculator]
+    tool_status: {calculator: error}
+    mentions: ['missing']
+    native_bound: true

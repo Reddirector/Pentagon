@@ -118,6 +118,11 @@ async def chat(
         message_content = "Describe what's in this image."
     elif not message_content and video is not None:
         message_content = "Describe what's happening in this video with timestamps."
+    if payload.regenerate and (image is not None or video is not None):
+        raise HTTPException(
+            status_code=422,
+            detail="Regenerating a reply is text-only; retry without media.",
+        )
 
     api_key = resolve_api_key_or_http(db, payload.user_id)
 
@@ -169,12 +174,16 @@ async def chat(
         model_used=payload.model,
         image_path=str(image_path) if image_path is not None else None,
     )
-    if conversation.title == "New conversation":
+    if conversation.title == "New conversation" and not payload.regenerate:
         conversation.title = " ".join(message_content.split())[:120] or "New conversation"
-    conversation.updated_at = utc_now()
-    db.add(user_message)
+    if not payload.regenerate:
+        # A retry stores no second copy of the question; it exists as the last
+        # row already, and the assistant row is what was missing.
+        conversation.updated_at = utc_now()
+        db.add(user_message)
     try:
-        db.commit()
+        if not payload.regenerate:
+            db.commit()
     except Exception:
         db.rollback()
         if image_path is not None:
@@ -182,7 +191,17 @@ async def chat(
         raise HTTPException(status_code=500, detail="Could not save this message.") from None
 
     graph_history: list[BaseMessage] = build_model_history(
-        prior_messages,
+        # A retry re-asks the question that is already the thread's last row:
+        # keep it as the turn's message, not as history as well, so the model
+        # sees the question once.
+        prior_messages[
+            : -1
+            if payload.regenerate
+            and prior_messages
+            and prior_messages[-1].role == "user"
+            and prior_messages[-1].content == message_content
+            else len(prior_messages)
+        ],
         summary_at_switch=conversation.summary_at_switch,
         active_model=conversation.active_model,
     )

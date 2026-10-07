@@ -189,6 +189,7 @@ async def parse_chat_submission(
             "message",
             "use_web_search",
             "respond_with_audio",
+            "regenerate",
             "voice",
             "transcription_duration_ms",
             "transcription_provider",

@@ -1,0 +1,81 @@
+# The side channels the UI listens to: plan, ask_user, artifacts, memories,
+# and exact stream assembly from fragmented tokens.
+- id: side-effect-plan-steps-emitted
+  prompt: 'Make a plan for the report.'
+  script:
+    - tool_calls:
+        - name: update_plan
+          args:
+            steps:
+              - text: Gather sources
+                status: done
+              - text: Write the summary
+                status: in_progress
+          id: p1
+    - text: The plan is on screen now.
+  expect:
+    tools: [update_plan]
+    events: {plan: 1}
+    plan:
+      - text: Gather sources
+        status: done
+      - text: Write the summary
+        status: in_progress
+
+- id: side-effect-ask-user-question
+  prompt: 'Which calendar should I use?'
+  script:
+    - tool_calls:
+        - name: ask_user
+          args:
+            question: Which calendar should I use?
+            options: [Work, Personal]
+          id: q1
+    - text: I asked you to pick a calendar.
+  expect:
+    tools: [ask_user]
+    events: {ask_user: 1}
+    mentions: ['asked']
+
+- id: side-effect-artifact-written
+  prompt: 'Write the summary to a file.'
+  level: 2
+  approve: [a1]
+  script:
+    - tool_calls:
+        - name: create_artifact
+          args:
+            name: summary.md
+            content: "# Summary
+
+              Forty-two is the answer."
+          id: a1
+    - text: The artifact has been written.
+  expect:
+    events: {approval_required: 1, artifact: 1}
+    approval_calls: [create_artifact]
+    tools: [create_artifact]
+    tool_status: {create_artifact: ok}
+
+- id: side-effect-recall-empty-is-honest
+  prompt: 'What do you remember about my kitchen?'
+  script:
+    - tool_calls:
+        - name: recall
+          args: {query: 'kitchen renovation budget'}
+          id: r1
+    - text: There is nothing saved about that yet.
+  expect:
+    tools: [recall]
+    tool_status: {recall: ok}
+    mentions: ['nothing saved']
+    verification: false
+
+- id: side-effect-stream-assembles-exactly
+  prompt: 'Give me one clean sentence.'
+  script:
+    - text: Deterministic streams reassemble into exactly this sentence, byte for byte.
+  expect:
+    answer_is: 'Deterministic streams reassemble into exactly this sentence, byte for byte.'
+    tokens_min: 3
+    events: {tool_result: 0}

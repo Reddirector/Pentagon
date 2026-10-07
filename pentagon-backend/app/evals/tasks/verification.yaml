@@ -1,0 +1,73 @@
+# Grounding verification: the verdict rides the done event, a repair is
+# budgeted and announced, and no sources means no verdict -- never a guess.
+- id: verification-grounded-answer-passes
+  prompt: 'How much did revenue grow?'
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'annual report revenue'}
+          id: s1
+    - text: Revenue grew 12 percent last year [1], per the annual report.
+  expect:
+    tools: [web_search]
+    verification: {ok: true}
+    events: {status: 0}
+    mentions: ['12 percent']
+
+- id: verification-out-of-range-citation-repaired
+  prompt: 'What does the report say?'
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'annual report content'}
+          id: s1
+    - text: Everything you could want is in the report [7].
+    - text: Revenue grew 12 percent [1], per the annual report.
+  expect:
+    tools: [web_search]
+    verification: {ok: true}
+    status_contains: ['revised']
+    events: {status: 1}
+
+- id: verification-foreign-host-repaired
+  prompt: 'Where should I read more?'
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'annual report sources'}
+          id: s1
+    - text: See reuters.com for the full story [1].
+    - text: The annual report covers that question [1].
+  expect:
+    tools: [web_search]
+    verification: {ok: true}
+    status_contains: ['revised']
+    events: {status: 1}
+
+- id: verification-no-sources-no-verdict
+  prompt: 'Find the archived press release.'
+  search_results: []
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'archived press release'}
+          id: s1
+    - text: No sources turned up, so here is a plain answer.
+  expect:
+    tools: [web_search]
+    verification: false
+
+- id: verification-unsourced-stays-unverified
+  prompt: 'What does the report say?'
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'annual report content'}
+          id: s1
+    - text: Growth is a complex topic with many facets.
+    - text: ''
+  expect:
+    tools: [web_search]
+    verification: {ok: false}
+    events: {status: 0}
+    llm_calls_max: 4

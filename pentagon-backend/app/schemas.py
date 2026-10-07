@@ -76,6 +76,9 @@ class ChatRequest(BaseModel):
     message: str = Field(default="", max_length=100_000)
     use_web_search: bool | None = None
     respond_with_audio: bool = False
+    # Retry: re-run the answer for a question that is already the last row of
+    # the thread instead of storing a second copy of it.
+    regenerate: bool = False
     voice: str | None = Field(default=None, max_length=100)
     transcription_duration_ms: float | None = Field(default=None, ge=0)
     transcription_provider: str | None = Field(default=None, max_length=100)

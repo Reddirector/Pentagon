@@ -59,9 +59,37 @@ cd pentagon-frontend
 npm run dev      # http://127.0.0.1:5173
 ```
 
-## 5. Tests
+## 5. Tests, evals, agent route
 
 ```bash
-cd pentagon-backend && ../pentagon/bin/python -m pytest tests -q   # 31 passed
+# backend unit/integration tests + lint
+cd pentagon-backend
+../pentagon/bin/python -m pytest tests -q        # 755 passed
+../pentagon/bin/python -m pyflakes app/          # clean
+
+# eval suite (mock LLM, no key, no network) — fails on any red case
+../pentagon/bin/python -m app.evals.run_evals            # 75/75 (47 YAML tasks + 28 injection)
+../pentagon/bin/python -m app.evals.run_evals --filter prompted   # one suite/substring
+../pentagon/bin/python -m app.evals.run_evals --live     # only the 3 `live: true` tasks;
+                                                         # spends NVIDIA quota, human-run only
+
+# frontend
 cd pentagon-frontend && npm run check && npm run lint && npm run build
 ```
+
+### Agent mode
+
+The composer's **Agent** chip toggles `pentagon.agentMode`, which sends turns to the agent
+SSE endpoint instead of `/api/chat`:
+
+- `POST /api/agent/chat` — streamed agent turn (same request shape as `/api/chat`, plus
+  `regenerate`); emits `conversation`, `plan`, `status`, `tool_start`, `tool_result`,
+  `ask_user`, `approval_required`, `artifact`, `done` (with the verification verdict) and
+  `error` events, and pings every 1s while idle.
+- `POST /api/agent/decisions` — answer an approval gate; `call_ids: []` means **decline**.
+- `POST /api/agent/answers` — answer an `ask_user` question.
+- `GET /api/agent/badges` — cached model-capability badges (Strong/Basic/Prompted-only);
+  reads the `model_capabilities` table only, never the network.
+
+Approval cards, the plan checklist, the tool timeline, artifacts and the verification badge
+render in `pentagon-frontend/src/components/AgentActivity.tsx`.

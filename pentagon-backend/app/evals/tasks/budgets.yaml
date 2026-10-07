@@ -1,0 +1,58 @@
+# Budgets: every cap ends the turn with an honest message, never silence,
+# and a model failure surfaces as an error the layer above can retry.
+- id: budget-llm-cap-wraps-up
+  prompt: 'Say hello.'
+  budget: {max_llm_calls: 1}
+  script:
+    - text: Wrapped up with what I had.
+  expect:
+    events: {status: 1, tool_result: 0}
+    status_contains: ['wrapping up']
+    llm_calls_max: 1
+    mentions: ['Wrapped up']
+
+- id: budget-tool-cap-wraps-up
+  prompt: 'Compute 6 times 7.'
+  budget: {max_tool_calls: 1}
+  script:
+    - tool_calls:
+        - name: calculator
+          args: {expression: '6*7'}
+          id: c1
+    - text: That was the one step I had budget for.
+  expect:
+    tools: [calculator]
+    events: {status: 1}
+    status_contains: ['wrapping up']
+    tool_calls_max: 1
+    llm_calls_max: 3
+
+- id: budget-out-of-time-wraps-up
+  prompt: 'Say hello.'
+  budget: {max_seconds: 0}
+  script:
+    - text: All done within the time I had.
+  expect:
+    events: {status: 1, tool_result: 0}
+    llm_calls_max: 1
+
+- id: budget-model-error-surfaces
+  prompt: 'Say hello.'
+  script:
+    - error: 'eval model failure'
+  expect:
+    raises: 'eval model failure'
+
+- id: budget-repair-blocked-by-the-llm-cap
+  prompt: 'What does the report say?'
+  budget: {max_llm_calls: 2}
+  script:
+    - tool_calls:
+        - name: web_search
+          args: {query: 'annual report'}
+          id: s1
+    - text: A claim with no source attached to it.
+  expect:
+    tools: [web_search]
+    verification: {ok: false}
+    llm_calls_max: 2

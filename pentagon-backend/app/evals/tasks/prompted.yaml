@@ -1,0 +1,98 @@
+# Prompted-protocol tasks: the seeded probe row says this model has no native
+# tool calling, so the system prompt carries the protocol and no native tool
+# descriptor is ever offered (native_bound must stay false).
+# The protocol block is: <tool_call>{"name": ..., "arguments": {...}}</tool_call>
+- id: prompted-time-call
+  prompt: 'What time is it?'
+  capabilities: {native_tools: false, parallel_tools: false}
+  script:
+    - text: |-
+        Checking the clock now.
+        <tool_call>{"name": "get_current_time", "arguments": {}}</tool_call>
+    - text: The time has been checked.
+  expect:
+    tools: [get_current_time]
+    tool_status: {get_current_time: ok}
+    native_bound: false
+    events: {tool_result: 1}
+
+- id: prompted-fenced-block
+  prompt: 'What is 9 times 9?'
+  capabilities: {native_tools: false, parallel_tools: true}
+  script:
+    - text: |-
+        Working it out.
+        <tool_call>```json
+        {"name": "calculator", "arguments": {"expression": "9*9"}}
+        ```</tool_call>
+    - text: Eighty-one.
+  expect:
+    tools: [calculator]
+    mentions: ['Eighty-one']
+    native_bound: false
+
+- id: prompted-malformed-then-corrected
+  prompt: 'What is 2 plus 2?'
+  capabilities: {native_tools: false, parallel_tools: false}
+  script:
+    - text: |-
+        Let me compute.
+        <tool_call>{"name": "calculator", "arguments": {broken}</tool_call>
+    - text: '<tool_call>{"name": "calculator", "arguments": {"expression": "2+2"}}</tool_call>'
+    - text: The answer is 4.
+  expect:
+    tools: [calculator]
+    tool_status: {calculator: ok}
+    native_bound: false
+    llm_calls_max: 3
+
+- id: prompted-prose-only
+  prompt: 'Summarize this in one sentence.'
+  capabilities: {native_tools: false, parallel_tools: false}
+  script:
+    - text: 'In one sentence: nothing here needs a tool, only words.'
+  expect:
+    events: {tool_start: 0, tool_result: 0}
+    native_bound: false
+    mentions: ['words']
+
+- id: prompted-parallel-two-blocks
+  prompt: 'Compute 3 times 3 and check the time.'
+  capabilities: {native_tools: false, parallel_tools: true}
+  script:
+    - text: |-
+        <tool_call>{"name": "calculator", "arguments": {"expression": "3*3"}}</tool_call>
+        <tool_call>{"name": "get_current_time", "arguments": {}}</tool_call>
+    - text: 'Both are done: 3*3 is 9 and the clock was read.'
+  expect:
+    tools: [calculator, get_current_time]
+    native_bound: false
+    mentions: ['clock was read']
+
+- id: prompted-sequential-keeps-first
+  prompt: 'Compute 3 times 3 and check the time.'
+  capabilities: {native_tools: false, parallel_tools: false}
+  script:
+    - text: |-
+        <tool_call>{"name": "calculator", "arguments": {"expression": "3*3"}}</tool_call>
+        <tool_call>{"name": "get_current_time", "arguments": {}}</tool_call>
+    - text: 'I did the first step: 3*3 is 9.'
+  expect:
+    tools: [calculator]
+    events: {tool_start: 1, tool_result: 1}
+    native_bound: false
+    mentions: ['first step']
+
+- id: prompted-search-citation
+  prompt: 'How much did revenue grow?'
+  capabilities: {native_tools: false, parallel_tools: false}
+  script:
+    - text: |-
+        Searching the documents.
+        <tool_call>{"name": "web_search", "arguments": {"query": "annual report revenue"}}</tool_call>
+    - text: Revenue grew 12 percent [1].
+  expect:
+    tools: [web_search]
+    verification: {ok: true}
+    native_bound: false
+    mentions: ['12 percent']

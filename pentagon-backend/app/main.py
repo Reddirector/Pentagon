@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import cors_origin_list
 from app.db.session import initialize_database
-from app.routes import chat, commands, documents, keys, memories, models, voice
+from app.routes import agent, chat, commands, documents, keys, memories, models, voice
 from app.services import mcp_bridge
 
 
@@ -66,6 +66,7 @@ async def sanitized_validation_error(
 app.include_router(keys.router)
 app.include_router(models.router)
 app.include_router(chat.router)
+app.include_router(agent.router)
 app.include_router(documents.router)
 app.include_router(voice.router)
 app.include_router(commands.router)

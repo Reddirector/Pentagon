@@ -1,0 +1,102 @@
+# The permission ladder as the user lives it: Restricted asks for everything,
+# Balanced asks only for state changes, Trusted runs writes on its own, and a
+# batch's approval card covers only the calls that actually need one.
+- id: approval-write-denied-without-a-human
+  prompt: 'Remember that I prefer metric units.'
+  level: 2
+  script:
+    - tool_calls:
+        - name: remember
+          args: {text: 'The user prefers metric units.', label: 'units'}
+          id: m1
+    - text: I need your approval before saving a memory.
+  expect:
+    events: {approval_required: 1}
+    approval_calls: [remember]
+    tools: [remember]
+    tool_status: {remember: error}
+    mentions: ['approval']
+
+- id: approval-write-approved-then-recalled
+  prompt: 'Remember that I prefer metric units, then read it back.'
+  level: 2
+  approve: [m1]
+  script:
+    - tool_calls:
+        - name: remember
+          args: {text: 'The user prefers metric units.', label: 'units'}
+          id: m1
+    - tool_calls:
+        - name: recall
+          args: {query: 'preferred units'}
+          id: r1
+    - text: 'Saved and read back: you prefer metric units.'
+  expect:
+    events: {approval_required: 1}
+    approval_calls: [remember]
+    tools: [remember, recall]
+    tool_status: {remember: ok, recall: ok}
+    mentions: ['metric units']
+
+- id: approval-read-asks-at-restricted
+  prompt: 'What time is it?'
+  level: 1
+  script:
+    - tool_calls:
+        - name: get_current_time
+          args: {}
+          id: t1
+    - text: I could not run that without your approval.
+  expect:
+    events: {approval_required: 1}
+    approval_calls: [get_current_time]
+    tools: [get_current_time]
+    tool_status: {get_current_time: error}
+    mentions: ['approval']
+
+- id: approval-read-runs-at-balanced
+  prompt: 'What time is it?'
+  level: 2
+  script:
+    - tool_calls:
+        - name: get_current_time
+          args: {}
+          id: t1
+    - text: The clock has been read.
+  expect:
+    events: {approval_required: 0, tool_result: 1}
+    tools: [get_current_time]
+    tool_status: {get_current_time: ok}
+
+- id: approval-write-runs-at-trusted
+  prompt: 'Remember that I prefer metric units.'
+  level: 3
+  script:
+    - tool_calls:
+        - name: remember
+          args: {text: 'The user prefers metric units.', label: 'units'}
+          id: m1
+    - text: Saved.
+  expect:
+    events: {approval_required: 0}
+    tools: [remember]
+    tool_status: {remember: ok}
+
+- id: approval-batch-card-covers-only-the-write
+  prompt: 'Check the time and remember my unit preference.'
+  level: 2
+  script:
+    - tool_calls:
+        - name: get_current_time
+          args: {}
+          id: t1
+        - name: remember
+          args: {text: 'The user prefers metric units.', label: 'units'}
+          id: m1
+    - text: The clock was read; the memory still needs your approval.
+  expect:
+    events: {approval_required: 1}
+    approval_calls: [remember]
+    tools: [get_current_time, remember]
+    tool_status: {get_current_time: ok, remember: error}
+    mentions: ['approval']

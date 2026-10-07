@@ -204,11 +204,6 @@ async def run_turn(
             text="".join(parts),
             tool_calls=assemble_tool_calls(chunks) if chunks else [],
         )
-        if sequential and len(reply.tool_calls) > 1:
-            # The probe says this model cannot weigh several calls at once.
-            # Keep the first: the transcript then honestly contains only the
-            # call that was actually made, with a real result.
-            reply = ModelReply(text=reply.text, tool_calls=reply.tool_calls[:1])
         if prompted and reply.text:
             parsed, problems = prompted_tools.parse_tool_calls(reply.text)
             if not parsed and problems:
@@ -229,6 +224,12 @@ async def run_turn(
                 continue
             if parsed:
                 reply = ModelReply(text=reply.text, tool_calls=parsed)
+        if sequential and len(reply.tool_calls) > 1:
+            # The probe says this model cannot weigh several calls at once.
+            # Keep the first: the transcript then honestly contains only the
+            # call that was actually made, with a real result. The cap lands
+            # after parsing too -- it is about the model, not the transport.
+            reply = ModelReply(text=reply.text, tool_calls=reply.tool_calls[:1])
 
         if not reply.tool_calls:
             break
@@ -321,7 +322,41 @@ async def run_turn(
             for checked in checked_calls
             if checked.executable
         ]
-        executed_calls = await executor.run_many(batch, ctx) if batch else []
+        if not batch:
+            executed_calls = []
+        else:
+            # ask_user blocks until an answer arrives, so the question has to
+            # reach the wire while the batch is still running: waiting for
+            # the tool to finish would hide the question from the only channel
+            # that could answer it. The batch runs as its own task and the
+            # shared dict is watched while it does; a batch without an ask in
+            # flight simply completes on the first wait.
+            run_batch = asyncio.ensure_future(executor.run_many(batch, ctx))
+            announced = False
+            try:
+                while not run_batch.done():
+                    question = shared.get("ask_user")
+                    if (
+                        isinstance(question, dict)
+                        and not announced
+                        and not question.get("answered")
+                        and not question.get("announced")
+                    ):
+                        question["announced"] = True
+                        announced = True
+                        yield AgentEvent(
+                            "ask_user",
+                            {
+                                "question": question.get("question", ""),
+                                "options": list(question.get("options") or []),
+                                "answered": False,
+                            },
+                        )
+                    await asyncio.wait({run_batch}, timeout=0.1)
+                executed_calls = run_batch.result()
+            except BaseException:
+                run_batch.cancel()
+                raise
         executed_by_id = {
             executed.tool_call_id: executed for executed in executed_calls
         }
@@ -391,7 +426,11 @@ async def run_turn(
                 checked.tool == "ask_user"
                 and isinstance(shared.get("ask_user"), dict)
                 and not shared["ask_user"].get("answered")
+                and not shared["ask_user"].get("announced")
             ):
+                # Only reached when the question never got announced live
+                # (the tool failed before the first watch tick, e.g. no gate):
+                # one announcement per question, never a duplicate.
                 yield AgentEvent("ask_user", shared["ask_user"])
             if checked.tool == "create_artifact" and isinstance(
                 shared.get("artifact"), dict
@@ -420,7 +459,11 @@ async def run_turn(
                         yield AgentEvent(
                             "status",
                             {
-                                "message": "The answer was revised to match the sources it cites."
+                                "message": "The answer was revised to match the sources it cites.",
+                                # The tokens already streamed the old text;
+                                # this is the answer of record now, and the
+                                # route/UI replace the bubble with it.
+                                "answer": rewritten,
                             },
                         )
                 except BudgetExceeded:
