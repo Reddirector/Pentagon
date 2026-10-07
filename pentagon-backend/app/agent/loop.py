@@ -16,12 +16,14 @@ from typing import Any, AsyncIterator
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
+from app.agent import capabilities, prompted_tools, verify
 from app.agent.executor import ExecutedCall, Executor
 from app.agent.injection import detector_note, detect_injection, spotlight
 from app.agent.llm import ModelReply, assemble_tool_calls, content_as_text
 from app.agent.registry import ToolRegistry
 from app.agent.context import ScratchStore, ToolScratchNote
 from app.agent.schemas import AgentEvent, Budget, BudgetExceeded, ToolContext, ToolResult
+from app.agent.system_prompt import default_system_prompt
 from app.agent.traces import TraceRecorder
 from app.agent.validate import RepairTracker, validate_call
 from app.services.permissions import requires_tool_approval
@@ -54,10 +56,16 @@ class TurnRequest:
     turn_id: str
     permission_level: int
     user_message: str
-    system_prompt: str
+    # The default is app/agent/prompts/system.md; callers with a specialized
+    # prompt (tests, focused routes) still pass their own.
+    system_prompt: str = field(default_factory=default_system_prompt)
     history: list[BaseMessage] = field(default_factory=list)
     # Tool retrieval (T4) passes an explicit selection; None means every tool.
     tool_names: list[str] | None = None
+    # T12 routing: when the caller names the model, its cached capability
+    # probe decides native vs prompted tool calling. None keeps the native
+    # path -- an unprobed model is never punished with the prompted protocol.
+    model_id: str | None = None
 
 
 def _assistant_message(reply: ModelReply) -> AIMessage:
@@ -123,11 +131,34 @@ async def run_turn(
     tracker = RepairTracker()
 
     schemas = registry.openai_schemas(request.tool_names) if request.tool_names is not None else registry.openai_schemas()
+    # T12 capability-aware routing: a cached probe (probed on first use of
+    # this model id) picks the tool-calling protocol. A failed probe falls
+    # back to native -- the status quo -- and surfaces as the turn's own
+    # model errors, never as a silently degraded prompt.
+    caps = None
+    if request.model_id is not None:
+        try:
+            caps = capabilities.ensure_probed(model, request.model_id)
+        except Exception:
+            caps = None
+    prompted = caps is not None and not caps.get("native_tools")
+    sequential = caps is not None and not caps.get("parallel_tools")
     messages: list[BaseMessage] = [
         SystemMessage(content=request.system_prompt),
         *request.history,
         HumanMessage(content=request.user_message),
     ]
+    if prompted:
+        selected = (
+            request.tool_names if request.tool_names is not None else registry.names()
+        )
+        specs = [registry.get(name).spec for name in selected]
+        messages[0] = SystemMessage(
+            content=f"{request.system_prompt}\n\n{prompted_tools.prompt_for_tools(specs)}"
+        )
+    # Evidence gathered this turn, fed to the grounding verification at the
+    # end (T12). Raw ToolResult data, not the compacted text the model saw.
+    gathered: list[tuple[str, ToolResult]] = []
 
     reply: ModelReply | None = None
     while True:
@@ -157,7 +188,10 @@ async def run_turn(
             )
             break
 
-        bound = model.bind_tools(schemas) if schemas else model
+        # Prompted-capable routing: a model the probe flagged as unable to
+        # call tools natively never receives native tool descriptors -- its
+        # protocol lives entirely in the system prompt.
+        bound = model.bind_tools(schemas) if schemas and not prompted else model
         chunks: list[Any] = []
         parts: list[str] = []
         async for chunk in bound.astream(messages):
@@ -170,6 +204,31 @@ async def run_turn(
             text="".join(parts),
             tool_calls=assemble_tool_calls(chunks) if chunks else [],
         )
+        if sequential and len(reply.tool_calls) > 1:
+            # The probe says this model cannot weigh several calls at once.
+            # Keep the first: the transcript then honestly contains only the
+            # call that was actually made, with a real result.
+            reply = ModelReply(text=reply.text, tool_calls=reply.tool_calls[:1])
+        if prompted and reply.text:
+            parsed, problems = prompted_tools.parse_tool_calls(reply.text)
+            if not parsed and problems:
+                # A broken block gets a corrective round, like the native
+                # path's INVALID_ARGS repair -- it never becomes prose.
+                messages.append(_assistant_message(reply))
+                messages.append(
+                    ToolMessage(
+                        content=(
+                            "Your tool_call blocks were malformed: "
+                            + "; ".join(problems[:2])
+                            + " Reply with exactly one well-formed block: "
+                            '<tool_call>{"name": "web_search", "arguments": {"query": "..."}}</tool_call>'
+                        ),
+                        tool_call_id="prompted_malformed",
+                    )
+                )
+                continue
+            if parsed:
+                reply = ModelReply(text=reply.text, tool_calls=parsed)
 
         if not reply.tool_calls:
             break
@@ -269,6 +328,7 @@ async def run_turn(
         for checked in checked_calls:
             executed = executed_by_id.get(checked.tool_call_id)
             if executed is not None:
+                gathered.append((checked.tool, executed.result))
                 spec = registry.get(executed.tool).spec if registry.has(executed.tool) else None
                 max_chars = spec.max_result_chars if spec else _FALLBACK_RESULT_CHARS
                 content = executed.result.compact(max_chars)
@@ -338,6 +398,49 @@ async def run_turn(
             ):
                 yield AgentEvent("artifact", shared["artifact"])
 
+    # T12 grounding verification: only meaningful when this turn actually
+    # gathered sources, and never allowed to break the turn it observes.
+    verification = None
+    if reply is not None and reply.text.strip() and gathered:
+        sources = verify.gather_sources(gathered)
+        if sources:
+            verification = verify.verify_answer(reply.text, sources)
+            if not verification.ok:
+                try:
+                    rewritten = await verify.repair(
+                        model,
+                        answer=reply.text,
+                        sources=sources,
+                        verification=verification,
+                        budget=budget,
+                    )
+                    if rewritten.strip() and rewritten != reply.text:
+                        reply = ModelReply(text=rewritten, tool_calls=[])
+                        verification = verify.verify_answer(reply.text, sources)
+                        yield AgentEvent(
+                            "status",
+                            {
+                                "message": "The answer was revised to match the sources it cites."
+                            },
+                        )
+                except BudgetExceeded:
+                    # No budget for a rewrite: keep the answer and let the
+                    # verdict on the done event carry the finding.
+                    pass
+                except Exception:
+                    # Verification is an observer: a model or parse failure
+                    # leaves the original answer untouched.
+                    pass
+            recorder.record_tool_call(
+                budget.tool_calls,
+                "verify",
+                {
+                    "sources": verification.sources,
+                    "problems": verification.problems[:3],
+                },
+                "ok" if verification.ok else "error",
+            )
+
     if reply is not None and not reply.text.strip() and not budget.out_of_time():
         # The final answer must be prose for the user, never nothing.
         yield AgentEvent(
@@ -345,11 +448,11 @@ async def run_turn(
             {"message": "The model stopped without answering. Please try again."},
         )
     recorder.flush()
-    yield AgentEvent(
-        "done",
-        {
-            "turn_id": request.turn_id,
-            "llm_calls": budget.llm_calls,
-            "tool_calls": budget.tool_calls,
-        },
-    )
+    done_payload: dict[str, Any] = {
+        "turn_id": request.turn_id,
+        "llm_calls": budget.llm_calls,
+        "tool_calls": budget.tool_calls,
+    }
+    if verification is not None:
+        done_payload["verification"] = verification.as_dict()
+    yield AgentEvent("done", done_payload)
