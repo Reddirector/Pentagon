@@ -127,3 +127,55 @@ legacy counts **before** deleting anything, and is safe to re-run after an
 interruption. It has been exercised on the test fixtures and as a dry-run
 against a real database; the destructive apply on your own `pentagon.db`
 yourside is deliberate — back the file up first.
+
+## 7. Skills
+
+Skills are self-contained folders under `pentagon-backend/skills/`:
+
+```
+skills/
+  public/            # shipped with Pentagon, always available
+    document-writing/SKILL.md
+    web-research/SKILL.md
+    code-generation/SKILL.md
+    data-analysis/SKILL.md
+    citation-and-sourcing/SKILL.md
+  user/              # created via Settings → Skills (gitignored)
+    <slug>/SKILL.md
+```
+
+Each `SKILL.md` is YAML frontmatter plus a Markdown body:
+
+```markdown
+---
+name: my-skill
+description: One sentence (≤200 chars) — the ONLY part always visible to the model.
+triggers: [keyword, another keyword, a phrase a user might say]
+risk_category: read | write | destructive | external_send
+requires_tools: [web_search, shell_exec]
+---
+
+Full instructions body…
+```
+
+Runtime behavior: the loader parses frontmatter only into an in-memory
+index and re-checks file stamps on access, so a new or edited file is live
+on your **next message** — no backend restart. The `skill_router` node
+(after `intent_router`) scores the turn's text against `description` +
+`triggers`, takes the best matches up to 3, and injects only those bodies
+into the context **for that turn** — never into stored thread history.
+Disabled skills are excluded from matching entirely.
+
+Manage skills at **Settings → Skills**: toggle skills on/off, or use the
+Add-skill form (writes `skills/user/<slug>/SKILL.md` with correct
+frontmatter). Validation: description ≤200 chars, ≥1 trigger,
+`risk_category` must be a permission tier (`read`, `write`, `destructive`,
+`external_send`).
+
+API: `GET /api/skills?user_id=`, `POST /api/skills`,
+`PATCH /api/skills/{id}` (toggle), `DELETE /api/skills/{id}`
+(user skills only — public skills answer 409).
+
+Tuning: every turn logs `skills fired: [...]` on logger `app.skills.router`
+(empty list = no match). Watch it to adjust triggers or the score threshold
+(`SCORE_THRESHOLD`, `MAX_SKILLS_PER_TURN` in `app/skills/loader.py`).

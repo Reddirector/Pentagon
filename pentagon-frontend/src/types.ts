@@ -72,6 +72,18 @@ export type MemoryInfo = {
   created_at: string
 }
 
+export type SkillInfo = {
+  id: string
+  name: string
+  description: string
+  triggers: string[]
+  // One of the permission system's tiers: read | write | destructive | external_send
+  risk_category: string
+  requires_tools: string[]
+  source: 'public' | 'user'
+  enabled: boolean
+}
+
 /** What the backend recorded about one command it ran, or refused to run. */
 export type CommandRun = {
   command: string

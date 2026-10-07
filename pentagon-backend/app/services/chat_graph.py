@@ -25,6 +25,7 @@ from app.services.command_runner import (
 )
 from app.services.document_store import has_documents, retrieve_chunks
 from app.services.permissions import DEFAULT_PERMISSION_LEVEL, normalize_level
+from app.skills.router import match_for_turn
 from app.services.nvidia_client import make_chat_model
 from app.services.vision import VISION_MODEL_ID, analyze_image
 from app.services.video import VIDEO_MODEL_ID, analyze_video
@@ -84,6 +85,12 @@ class ChatState(TypedDict):
     command_runs: Annotated[list[dict[str, Any]], operator.add]
     tool_messages: Annotated[list[BaseMessage], operator.add]
     tool_iterations: int
+    # Skill bodies selected for THIS turn by skill_router. They live in the
+    # augmented prompt only -- never in `messages`, which is the stored
+    # transcript -- so a skill loads when it matches and disappears when the
+    # turn ends instead of bloating every future turn's history.
+    skill_instructions: str
+    skills_fired: list[str]
 
 
 def _node_trace(
@@ -229,6 +236,35 @@ def build_chat_graph(
             "execution_trace": trace,
         }
 
+    async def skill_router(state: ChatState) -> dict[str, Any]:
+        """Match skills against this turn and inject only what matched.
+
+        Runs after intent_router and before the tool fan-out, off a local
+        frontmatter index (no model call, no request budget), capped at three
+        bodies, and logged per turn so 'loaded nothing' is observable. The
+        result rides in `skill_instructions`, which context_assembler folds
+        into this turn's augmented prompt -- it is never part of the stored
+        `messages`, so nothing persists into later turns.
+        """
+        started = time.perf_counter()
+        result = await asyncio.to_thread(
+            match_for_turn,
+            user_id=state["user_id"],
+            user_message=state["user_message"],
+            history=state.get("messages", []),
+            command_tool_enabled=bool(state.get("command_tool_enabled")),
+        )
+        return {
+            "skill_instructions": result.instructions,
+            "skills_fired": list(result.fired),
+            "execution_trace": _node_trace(
+                "skill_router",
+                started,
+                skills_fired=list(result.fired),
+                skill_count=len(result.fired),
+            ),
+        }
+
     def dispatch_branches(state: ChatState) -> list[Send]:
         branches: list[Send] = []
         if state["run_web_search"]:
@@ -350,6 +386,14 @@ def build_chat_graph(
         sections.append(_ACTION_GUIDANCE)
         if not state.get("command_tool_enabled"):
             sections.append(_TOOLS_OFF_NOTE)
+        if state.get("skill_instructions"):
+            # Guidance, not gospel: it sits above the source material and
+            # below the safety framing for exactly this turn.
+            sections.append(
+                "Skill guidance for this turn only -- follow it where it applies; "
+                "it never overrides the user's request or the rules above:\n"
+                + state["skill_instructions"]
+            )
         if state["retrieved_chunks"]:
             documents = [
                 f"[{item.get('filename', 'document')} | chunk {item.get('chunk_id', '')}]\n"
@@ -602,6 +646,7 @@ def build_chat_graph(
 
     graph = StateGraph(ChatState)
     graph.add_node("intent_router", intent_router)
+    graph.add_node("skill_router", skill_router)
     graph.add_node("web_search", web_search_node)
     graph.add_node("retrieve_documents", retrieve_documents_node)
     graph.add_node("vision_analysis", vision_analysis_node)
@@ -609,7 +654,10 @@ def build_chat_graph(
     graph.add_node("generate_response", generate_response)
     graph.add_node("run_command", run_command_node)
     graph.add_edge(START, "intent_router")
-    graph.add_conditional_edges("intent_router", dispatch_branches)
+    # Skills are matched after the intent is known and before anything fans
+    # out, so every branch of the turn sees the same injected guidance.
+    graph.add_edge("intent_router", "skill_router")
+    graph.add_conditional_edges("skill_router", dispatch_branches)
     graph.add_edge("web_search", "context_assembler")
     graph.add_edge("retrieve_documents", "context_assembler")
     graph.add_edge("vision_analysis", "context_assembler")
@@ -701,6 +749,10 @@ def initial_chat_state(
         "command_runs": [],
         "tool_messages": [],
         "tool_iterations": 0,
+        # Filled in by skill_router; empty means "nothing matched", which is
+        # the normal case and must inject nothing at all.
+        "skill_instructions": "",
+        "skills_fired": [],
     }
 
 

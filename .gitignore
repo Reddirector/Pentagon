@@ -53,3 +53,6 @@ dev_samples/
 npm-debug.log*
 # Preserved local history of the old nested backend repo (not published)
 .git.local-backup/
+
+# User-created skills (Settings -> Skills) are runtime data, like pentagon.db.
+pentagon-backend/skills/user/

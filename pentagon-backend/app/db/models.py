@@ -353,3 +353,20 @@ class IndexJob(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+
+
+class SkillSetting(Base):
+    """A user's on/off switch for one skill.
+
+    Absence of a row means enabled -- a fresh install works with everything
+    on, and a skill that ships later needs no backfill. Off is a stored row,
+    not a hint: the router excludes these before it applies the per-turn cap,
+    so a disabled skill cannot load no matter how well it matches.
+    """
+
+    __tablename__ = "skill_settings"
+    __table_args__ = (PrimaryKeyConstraint("user_id", "skill_id"),)
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    skill_id: Mapped[str] = mapped_column(String(120))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)

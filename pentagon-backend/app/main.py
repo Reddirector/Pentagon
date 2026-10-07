@@ -18,6 +18,7 @@ from app.routes import (
     keys,
     memories,
     models,
+    skills,
     voice,
 )
 from app.services import mcp_bridge
@@ -99,3 +100,4 @@ app.include_router(voice.router)
 app.include_router(commands.router)
 app.include_router(memories.router)
 app.include_router(collections.router)
+app.include_router(skills.router)

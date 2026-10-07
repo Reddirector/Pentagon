@@ -11,6 +11,7 @@ langgraph>=1.1,<2
 langchain-text-splitters>=1.0,<2
 langchain-tavily>=0.2,<1
 chromadb>=1.0,<2
+PyYAML>=6,<7
 ddgs>=9,<10
 trafilatura>=1.12,<3
 playwright>=1.45,<2

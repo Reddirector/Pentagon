@@ -136,3 +136,30 @@ the tasks marked `live: true` against the real model (see Needs live verificatio
 
 Verification for this run: backend pytest **755 passed**, `pyflakes app/` clean,
 evals **75/75**, frontend `tsc` + `oxlint` clean (0 warnings, 0 errors).
+
+---
+
+## Update — modular skills system
+
+Pentagon now has a skills library: `skills/public/*/SKILL.md` folders
+(five shipped: document-writing, web-research, code-generation,
+data-analysis, citation-and-sourcing — all with real instruction bodies)
+plus user-created skills under `skills/user/` (gitignored). Only each
+skill's one-line `description` + `triggers` sit in the always-cheap index;
+a `skill_router` LangGraph node (after `intent_router`) scores the turn
+locally, loads at most 3 matched bodies into the system/context window
+**for that turn only**, and never into the checkpointer's stored thread
+history (confirmed by inspecting stored state after a skill-firing turn).
+Missing `requires_tools` get an honest `Capability note:` prepended instead
+of blocking the load; disabled skills are excluded before the cap; every
+turn logs `skills fired: [...]`.
+
+Verified this run: hot reload (a file dropped into `skills/user/` matches
+without a backend restart), zero/one/many-match behavior via the log,
+disable-then-no-longer-fires, missing-tool note, and the Settings → Skills
+UI live in the browser — list of 5 with toggles, PATCH toggle round-trip,
+Add-skill form writing valid frontmatter the matcher picks up immediately,
+DELETE cleaning up (public skill delete correctly 409s).
+
+Verification: backend pytest **852 passed** (30 new skills tests),
+`pyflakes app/` clean, evals **75/75**, frontend `tsc` + `oxlint` clean.
