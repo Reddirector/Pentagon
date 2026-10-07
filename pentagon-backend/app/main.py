@@ -1,14 +1,25 @@
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+import asyncio
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.config import cors_origin_list
+from app.config import cors_origin_list, settings
 from app.db.session import initialize_database
-from app.routes import agent, chat, commands, documents, keys, memories, models, voice
+from app.routes import (
+    agent,
+    chat,
+    collections,
+    commands,
+    documents,
+    keys,
+    memories,
+    models,
+    voice,
+)
 from app.services import mcp_bridge
 
 
@@ -19,7 +30,23 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # their tools. A broken server is recorded in the bridge's problems,
     # never a startup failure.
     await mcp_bridge.connect_all()
+    # R0: index jobs left `running` by a crash go back to `queued` (they are
+    # idempotent per batch), then the worker starts. Tests disable the worker
+    # so jobs are driven deterministically instead of racing a poll loop.
+    worker_stop: asyncio.Event | None = None
+    worker_task: asyncio.Task[object] | None = None
+    if settings.job_worker_enabled:
+        from app.rag2.jobs import default_queue, start_worker
+
+        default_queue.requeue_interrupted()
+        worker_stop, worker_task = start_worker()
     yield
+    if worker_stop is not None and worker_task is not None:
+        worker_stop.set()
+        try:
+            await asyncio.wait_for(worker_task, timeout=5)
+        except (TimeoutError, asyncio.CancelledError):
+            worker_task.cancel()
     await mcp_bridge.shutdown()
 
 
@@ -71,3 +98,4 @@ app.include_router(documents.router)
 app.include_router(voice.router)
 app.include_router(commands.router)
 app.include_router(memories.router)
+app.include_router(collections.router)

@@ -42,6 +42,7 @@ from app.services.conversation_context import build_model_history
 from app.services.image_inputs import parse_chat_submission
 from app.services.nvidia_client import make_chat_model
 from app.services.permissions import normalize_level
+from app.services.rate_limiter import LANE_INTERACTIVE, RateLimitTimeout, rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +187,16 @@ async def agent_chat(request: Request, db: Session = Depends(get_db)) -> Streami
     message_content = payload.message.strip()
     if not message_content:
         raise HTTPException(status_code=422, detail="message is required.")
+
+    # Same admission control as /api/chat: interactive turns outrank index
+    # jobs for the shared request budget (RAG §0 rule 3).
+    try:
+        await rate_limiter.acquire(LANE_INTERACTIVE)
+    except RateLimitTimeout:
+        raise HTTPException(
+            status_code=429,
+            detail="The model is handling a lot of requests right now. Please try again shortly.",
+        ) from None
 
     api_key = resolve_api_key_or_http(db, payload.user_id)
 

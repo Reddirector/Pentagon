@@ -41,6 +41,7 @@ from app.services.conversation_context import build_model_history, summarize_for
 from app.services.document_store import purge_conversation_collection
 from app.services.image_inputs import parse_chat_submission
 from app.services.nvidia_client import NvidiaApiError, list_models_for_user
+from app.services.rate_limiter import LANE_INTERACTIVE, RateLimitTimeout, rate_limiter
 from app.services.speech import stream_speech
 
 
@@ -113,6 +114,16 @@ async def chat(
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     payload, image, video = await parse_chat_submission(request)
+    # Admission control: chat shares the NVIDIA request budget with background
+    # indexing, and this lane always outranks it (RAG §0 rule 3). A wait that
+    # outlasts the budget is an honest 429, never a hang.
+    try:
+        await rate_limiter.acquire(LANE_INTERACTIVE)
+    except RateLimitTimeout:
+        raise HTTPException(
+            status_code=429,
+            detail="The model is handling a lot of requests right now. Please try again shortly.",
+        ) from None
     message_content = payload.message.strip()
     if not message_content and image is not None:
         message_content = "Describe what's in this image."

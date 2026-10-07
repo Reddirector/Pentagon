@@ -2,7 +2,18 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    PrimaryKeyConstraint,
+    String,
+    Text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
 
@@ -214,3 +225,131 @@ class Memory(Base):
     label: Mapped[str] = mapped_column(String(120), default="")
     text: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+
+
+class Collection(Base):
+    """A named, user-owned scope for retrieval (RAG 2).
+
+    SQLite has no row-level security, so the RLS "own rows" policy that
+    ``supabase/migrations/rag2.sql`` declares for Supabase is enforced here the
+    same way the rest of the app enforces it: every query filters on
+    ``user_id``. The two must stay in agreement -- the SQL file is the schema
+    spec, this row is the local-first behaviour.
+
+    ``embedding_model`` is ``id@version`` (see ``app.rag2.embeddings``). A
+    different value means the collection's vectors live in a different space,
+    so a change is a reindex, never a silent mix.
+    """
+
+    __tablename__ = "collections"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_model: Mapped[str] = mapped_column(String(255))
+    # Graph building is opt-in per collection and never runs automatically:
+    # extraction is the one place indexing spends model calls.
+    graph_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+
+
+class CollectionFile(Base):
+    """Which uploaded file belongs to which collection.
+
+    ``file_id`` points at ``documents`` -- the local-first stand-in for the
+    Supabase ``files`` table that ``rag2.sql`` references (DECISIONS #8/#9):
+    one row per uploaded document, owned by the same user.
+    """
+
+    __tablename__ = "collection_files"
+    __table_args__ = (PrimaryKeyConstraint("collection_id", "file_id"),)
+
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), index=True
+    )
+    file_id: Mapped[str] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+
+
+class ConversationCollection(Base):
+    """Collections attached to a conversation -- the retrieval scope.
+
+    The retriever may only ever search collections linked to the conversation
+    in play; this join table is that link, and it is also where an implicit
+    per-conversation collection is recorded.
+    """
+
+    __tablename__ = "conversation_collections"
+    __table_args__ = (PrimaryKeyConstraint("conversation_id", "collection_id"),)
+
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+
+
+class Chunk(Base):
+    """One retrievable passage, source of truth for text and metadata.
+
+    Vectors live in Chroma (tagged with the embedding model), the keyword index
+    is built from these rows, and citations resolve back to them -- so this
+    table, not the vector store, is what an answer is grounded in.
+    """
+
+    __tablename__ = "chunks"
+    # The ordering index retrieval pages through: per file, in order.
+    __table_args__ = (Index("ix_chunks_collection_file_ord", "collection_id", "file_id", "ord"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), index=True
+    )
+    file_id: Mapped[str] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    ord: Mapped[int] = mapped_column(Integer)
+    page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    section: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    text: Mapped[str] = mapped_column(Text)
+    # BCP-47, or "hi-Latn" for romanized Hindi; script is the Unicode block
+    # (Latn, Deva, Arab, ...). Both are detected per chunk (RAG §5.2).
+    lang: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    script: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+
+
+class IndexJob(Base):
+    """A background indexing job with a visible budget and honest status.
+
+    Every kind of indexing work (ingest, embed, graph extraction, communities,
+    summaries, reindex) is queued as one of these so it can be estimated,
+    capped, paused, resumed, cancelled and resumed after a crash -- and so an
+    LLM-spending job always shows how many calls it has used against its cap.
+    """
+
+    __tablename__ = "index_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32))
+    # queued | running | paused | done | failed | cancelled
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    progress: Mapped[float] = mapped_column(Float, default=0.0)
+    llm_calls_estimated: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_calls_used: Mapped[int] = mapped_column(Integer, default=0)
+    llm_calls_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)

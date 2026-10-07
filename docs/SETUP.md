@@ -93,3 +93,37 @@ SSE endpoint instead of `/api/chat`:
 
 Approval cards, the plan checklist, the tool timeline, artifacts and the verification badge
 render in `pentagon-frontend/src/components/AgentActivity.tsx`.
+
+## 6. RAG collections (R0)
+
+New backend settings (all optional; defaults shown in `.env.example`):
+
+```ini
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2  # default for new collections; a change means reindex
+RATE_LIMIT_PER_MINUTE=40        # the shared request budget (NVIDIA free tier ≈ 40/min)
+GRAPH_INDEX_RATE_FRACTION=0.5   # the most background indexing may spend of it; chat is always served first
+RATE_LIMIT_WAIT_SECONDS=30      # wait for a permit before the API answers 429
+JOB_WORKER_ENABLED=true         # background index-job worker (tests turn it off)
+```
+
+Collections are managed at `/api/collections` (POST create, GET list/detail,
+PATCH rename, DELETE), with `/files` and `/conversations` sub-resources to
+assign documents and to scope a conversation's retrieval. Every route takes
+`user_id` and answers 404 for somebody else's row.
+
+### Migrating existing uploads
+
+Conversations uploaded before R0 keep their chunks in the old per-conversation
+Chroma stores. Move them into collections with:
+
+```bash
+cd pentagon-backend
+../pentagon/bin/python scripts/migrate_rag2.py --dry-run   # report only; changes nothing
+../pentagon/bin/python scripts/migrate_rag2.py             # apply; verifies before deleting
+```
+
+The apply verifies both the table counts and the new vector store against the
+legacy counts **before** deleting anything, and is safe to re-run after an
+interruption. It has been exercised on the test fixtures and as a dry-run
+against a real database; the destructive apply on your own `pentagon.db`
+yourside is deliberate — back the file up first.

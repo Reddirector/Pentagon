@@ -40,6 +40,27 @@ class Settings(BaseSettings):
     nvidia_server_api_key: SecretStr | None = None
     default_chat_model: str | None = None
 
+    # --- RAG 2: collections, multilingual/hybrid/graph retrieval ------------
+    # Default embedding model for new collections (EMBEDDING_MODEL, RAG §18).
+    # Stored per collection as ``id@version``; changing it is a reindex, and
+    # vectors from two different models are never mixed in one collection.
+    # Defaults to the local model so indexing works with no key at all.
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # NVIDIA's free tier is roughly 40 requests/minute, shared across
+    # everything. Chat is admitted from this bucket; background indexing may
+    # spend at most ``graph_index_rate_fraction`` of it, so an index job can
+    # never spend a person's answer. Chat waiters are served before indexing
+    # waiters whenever a token frees up.
+    rate_limit_per_minute: int = 40
+    graph_index_rate_fraction: float = 0.5
+    # How long a caller waits for a permit before the request is refused with
+    # a 429 instead of hanging behind a queue.
+    rate_limit_wait_seconds: float = 30.0
+    # The background index-job worker. Tests turn this off (tests/conftest.py)
+    # so jobs are claimed and driven deterministically instead of racing a
+    # poll loop; the app runs with it on.
+    job_worker_enabled: bool = True
+
     # --- MCP bridge -------------------------------------------------------
     # External MCP servers to bridge, as a JSON array. Only these commands
     # are ever spawned -- never one a model or a web page asks for. Example:
