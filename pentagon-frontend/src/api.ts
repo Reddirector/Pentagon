@@ -9,6 +9,10 @@ export class ApiError extends Error {
 
 const API_BASE_KEY = 'pentagon.apiBase'
 
+// Local-forward declarations so api.ts can be imported without its own type file.
+// (types.ts is the canonical source; these exist to keep api.ts self-contained.)
+import type { AutonomySettings, PendingApprovalsResponse, AuditLogEntry } from './types'
+
 /**
  * The backend origin to talk to.
  *
@@ -118,3 +122,96 @@ export function pcmToWavUrl(chunks: Uint8Array[], sampleRate: number, channels: 
   new Uint8Array(wav, 44).set(data)
   return URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }))
 }
+
+/** Per-category autonomy settings for the current user. */
+export async function fetchAutonomySettings(userId: string): Promise<AutonomySettings> {
+  return apiRequest<AutonomySettings>('/api/autonomy-settings?user_id=' + encodeURIComponent(userId))
+}
+
+/** Update one category's autonomy level. */
+export async function putAutonomySetting(
+  userId: string,
+  category: string,
+  level: string,
+): Promise<{ status: string; category: string; level: string }> {
+  return apiRequest<{ status: string; category: string; level: string }>(
+    '/api/autonomy-settings/' + encodeURIComponent(category),
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, level }),
+    },
+  )
+}
+
+/** Apply a preset across all six categories. */
+export async function applyAutonomyPreset(
+  userId: string,
+  preset: string,
+): Promise<AutonomySettings> {
+  const current = await fetchAutonomySettings(userId)
+  const presetDef = current.presets[preset]
+  if (!presetDef) throw new Error('Unknown preset: ' + preset)
+  for (const [category, level] of Object.entries(presetDef.levels)) {
+    await putAutonomySetting(userId, category, level)
+  }
+  return fetchAutonomySettings(userId)
+}
+
+/** Pending approvals for a conversation. */
+export async function fetchPendingApprovals(
+  userId: string,
+  conversationId: string,
+): Promise<PendingApprovalsResponse> {
+  return apiRequest<PendingApprovalsResponse>(
+    '/api/pending-approvals?user_id=' + encodeURIComponent(userId)
+    + '&conversation_id=' + encodeURIComponent(conversationId),
+  )
+}
+
+/** Approve a pending approval and resume the graph. */
+export async function approvePendingApproval(
+  approvalId: string,
+  userId: string,
+): Promise<{ status: string; id: string }> {
+  return apiRequest<{ status: string; id: string }>(
+    '/api/pending-approvals/' + encodeURIComponent(approvalId) + '/approve',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, decision: 'approved', approved_this_session: true }),
+    },
+  )
+}
+
+/** Deny a pending approval and resume the graph. */
+export async function denyPendingApproval(
+  approvalId: string,
+  userId: string,
+): Promise<{ status: string; id: string }> {
+  return apiRequest<{ status: string; id: string }>(
+    '/api/pending-approvals/' + encodeURIComponent(approvalId) + '/deny',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, decision: 'denied', approved_this_session: false }),
+    },
+  )
+}
+
+/** Paginated audit log. */
+export async function fetchAuditLog(
+  userId: string,
+  limit = 100,
+  before?: string,
+  category?: string,
+  decision?: string,
+): Promise<{ rows: AuditLogEntry[]; limit: number }> {
+  const params = new URLSearchParams({ user_id: userId, limit: String(limit) })
+  if (before) params.set('before', before)
+  if (category) params.set('category', category)
+  if (decision) params.set('decision', decision)
+  return apiRequest<{ rows: AuditLogEntry[]; limit: number }>('/api/audit-log?' + params.toString())
+}
+
+

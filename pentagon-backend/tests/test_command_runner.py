@@ -435,6 +435,32 @@ def test_pending_lists_only_your_own_unresolved_requests() -> None:
     assert [row["request_id"] for row in pending] == ["r0"]
 
 
+def test_server_secrets_are_stripped_from_the_command_environment(
+    monkeypatch,
+) -> None:
+    """A command that dumps the environment must not carry Pentagon's own keys.
+
+    Even an approved command inherits the process environment, so a future
+    allowlist change that let ``env`` through would exfiltrate the NVIDIA key or
+    the database URL unless they are removed first. Ordinary variables still
+    pass through, so the stripping is not a blanket wipe.
+    """
+    monkeypatch.setenv("NVIDIA_SERVER_API_KEY", "nvapi-should-never-appear")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///should-never-appear.db")
+    monkeypatch.setenv("PENTAGON_HARMLESS_PROBE", "visible-to-the-command")
+
+    async def scenario() -> str:
+        _fresh_runner()
+        result = await command_runner._execute("env", auto_approved=True)
+        return result.stdout
+
+    output = asyncio.run(scenario())
+
+    assert "nvapi-should-never-appear" not in output
+    assert "should-never-appear.db" not in output
+    assert "visible-to-the-command" in output, "ordinary variables were stripped too"
+
+
 def test_output_is_capped_and_keeps_the_tail() -> None:
     """A runaway command must not blow out the conversation context.
 

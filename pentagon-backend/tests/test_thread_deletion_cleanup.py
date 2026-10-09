@@ -8,6 +8,10 @@ was embedded into a Chroma collection named after a hash of the conversation
 id. Both survived the delete, so the full text of an indexed document and every
 picture sent to a thread stayed on disk indefinitely after the UI promised it
 was gone.
+
+Now the delete path also clears the langgraph checkpointer state for that
+conversation id, so a deleted thread cannot be resumed from a stale interrupt
+snapshot.
 """
 
 from pathlib import Path
@@ -21,6 +25,20 @@ from app.db.models import Conversation, Message, User
 from app.db.session import SessionLocal, initialize_database
 from app.main import app
 from app.services import document_store
+from app.services.checkpointer import is_sqlite_backend, sqlite_checkpoint_path
+
+pytestmark = pytest.mark.skipif(
+    not is_sqlite_backend(),
+    reason=(
+        "asserts the SQLite checkpoint file on disk; the Postgres purge path is "
+        "covered by tests/test_postgres_backend.py"
+    ),
+)
+
+
+def _checkpoint_db_path() -> Path:
+    """The SQLite checkpointer the chat route uses for interrupt state."""
+    return Path(sqlite_checkpoint_path())
 
 
 @pytest.fixture
@@ -155,3 +173,86 @@ def test_purge_conversation_collection_drops_an_indexed_thread(
 
     assert document_store.purge_conversation_collection(conversation_id) is True
     assert document_store.has_documents(conversation_id) is False
+
+
+def test_delete_conversation_clears_its_checkpoint_state(
+    client: TestClient,
+) -> None:
+    """A deleted conversation must not keep its interrupt/approval state.
+
+    The chat route builds its langgraph config as
+    ``{"configurable": {"thread_id": conversation.id}}`` and never passes a
+    namespace of its own, and ``adelete_thread(thread_id)`` is what the delete
+    path calls. This writes a synthetic interrupt into the same thread, then
+    proves the delete path actually clears it.
+    """
+    import asyncio
+
+    from langgraph.checkpoint.base import Checkpoint
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from langgraph.types import Interrupt
+
+    user_id, conversation_id = _seed_conversation_with_image()
+    db_path = _checkpoint_db_path()
+    checkpoint_config = {
+        "configurable": {
+            "thread_id": conversation_id,
+            "checkpoint_ns": "",
+            "checkpoint_id": "test-checkpoint",
+        },
+    }
+
+    async def _write_interrupt_state() -> None:
+        # Writing first is what creates langgraph's lazily-created tables in a
+        # fresh database, so the read below must never hit "no such table".
+        async with AsyncSqliteSaver.from_conn_string(str(db_path)) as saver:
+            await saver.aput(
+                checkpoint_config,
+                checkpoint=Checkpoint(
+                    v=0,
+                    id="test-checkpoint",
+                    ts="0",
+                    channel_values={},
+                    channel_versions={},
+                    versions_seen={},
+                    updated_channels=None,
+                ),
+                metadata={"source": "test", "step": 0},
+                new_versions={},
+            )
+            await saver.aput_writes(
+                checkpoint_config,
+                writes=(
+                    (
+                        "__ interrupt __",
+                        Interrupt(
+                            value={
+                                "type": "approval_required",
+                                "tool_call_id": "pending",
+                                "user_id": user_id,
+                                "label": "Some tool",
+                                "summary": "Do something.",
+                            }
+                        ),
+                    ),
+                ),
+                task_id="test-task",
+            )
+
+    async def _read_interrupt_state() -> object | None:
+        async with AsyncSqliteSaver.from_conn_string(str(db_path)) as saver:
+            stored = await saver.aget_tuple(checkpoint_config)
+            if stored is None or not stored.pending_writes:
+                return None
+            for _task_id, _channel, payload in stored.pending_writes:
+                return payload
+            return None
+
+    asyncio.run(_write_interrupt_state())
+    before = asyncio.run(_read_interrupt_state())
+    assert before is not None
+
+    response = client.delete(f"/api/conversations/{conversation_id}?user_id={user_id}")
+    assert response.status_code == 204
+
+    assert asyncio.run(_read_interrupt_state()) is None

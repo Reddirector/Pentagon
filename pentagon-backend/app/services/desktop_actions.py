@@ -1276,6 +1276,11 @@ DESKTOP_TOOL_SCHEMA = {
     },
 }
 
+# Desktop actions control the user's machine (open/close apps, screenshot,
+# volume, power). They are local_shell operations. Per-action read-only vs
+# write is handled inside run_desktop_action via ACTIONS/needs_approval.
+DESKTOP_TOOL_SCHEMA["_risk_category"] = "local_shell"
+
 
 def action_names() -> list[str]:
     return sorted(ACTIONS)
@@ -1289,6 +1294,7 @@ async def run_desktop_action(
     user_id: str,
     reason: str = "",
     permission_level: object = DEFAULT_PERMISSION_LEVEL,
+    gate_decision: str | None = None,
 ) -> CommandResult:
     """Look up an action, gate it, and run it.
 
@@ -1296,6 +1302,11 @@ async def run_desktop_action(
     the user's chosen level and whether the action changes state or is
     destructive. The default is Balanced, so a caller that forgets to pass a
     level gets today's behaviour rather than a silent loosening.
+
+    ``gate_decision`` is set by the chat graph's permission gate when it has
+    already decided this call for the turn, in which case the REGISTRY
+    round-trip below is skipped: asking again would time out into a denial
+    after the user had already answered.
     """
     arguments = dict(arguments or {})
     # Keys the dispatcher injects for itself. The model's arguments are
@@ -1359,7 +1370,12 @@ async def run_desktop_action(
         detail = _describe_windows(windows)
         arguments["_resolved"] = windows
 
-    if requires_approval(
+    if gate_decision:
+        # Already decided by the chat graph's permission gate for this turn.
+        # ``auto_approved`` still reports whether the user was asked: True only
+        # for the gate's own auto-approve, False when a card was approved.
+        auto_approved = gate_decision == "auto_approved"
+    elif requires_approval(
         changes_state=entry.needs_approval,
         level=permission_level,
         destructive=entry.destructive,

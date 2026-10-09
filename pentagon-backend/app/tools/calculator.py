@@ -112,7 +112,8 @@ TOOL_SPEC = ToolSpec(
         "required": ["expression"],
     },
     tier="read",
-    timeout_s=5,
+
+    risk_category="read_only_info",    timeout_s=5,
     cacheable=True,
     cache_ttl_s=300,
     idempotent=True,

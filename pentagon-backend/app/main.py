@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 import asyncio
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -9,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import cors_origin_list, settings
 from app.db.session import initialize_database
+from app.services.checkpointer import prepare_checkpointer
 from app.routes import (
     agent,
     chat,
@@ -23,10 +25,25 @@ from app.routes import (
 )
 from app.services import mcp_bridge
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     initialize_database()
+    # The chat checkpointer's tables are created here, not on the first chat
+    # turn: its setup runs CREATE INDEX CONCURRENTLY, which waits for every
+    # transaction that is already open -- and a streaming turn keeps its own
+    # session open while the response is being read. A no-op on SQLite, and a
+    # failure is logged rather than fatal, so a locked or unreachable database
+    # does not stop the rest of the app from starting.
+    try:
+        await prepare_checkpointer()
+    except Exception:
+        logger.exception(
+            "Could not create the chat checkpoint tables; a paused approval "
+            "cannot be stored until this succeeds (it is retried on the next turn)"
+        )
     # T10: connect configured MCP servers once, before any turn can ask for
     # their tools. A broken server is recorded in the bridge's problems,
     # never a startup failure.

@@ -2,6 +2,15 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
 import { ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, MessageSquare, Mic, Paperclip, Plus, ShieldCheck, Square, Video, X } from 'lucide-react'
 import { apiRequest, ApiError, apiUrl, getLocalUserId, pcmToWavUrl } from './api'
+import {
+  fetchAutonomySettings,
+  applyAutonomyPreset,
+  putAutonomySetting,
+  fetchPendingApprovals,
+  approvePendingApproval,
+  denyPendingApproval,
+} from './api'
+import type { AutonomySettings, PendingApproval } from './types'
 import { AssistantDetails } from './components/MessageContent'
 import { CommandApproval, CommandLog } from './components/CommandPanel'
 import { Sidebar } from './components/Sidebar'
@@ -120,8 +129,11 @@ function App() {
     permission_levels: [],
     permission_name: 'Balanced',
   })
+  const [autonomySettings, setAutonomySettings] = useState<AutonomySettings | null>(null)
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
+  const [pendingApprovalsError, setPendingApprovalsError] = useState('')
+  const [autonomyBusy, setAutonomyBusy] = useState(false)
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('Chat')
-  const [savingPermission, setSavingPermission] = useState(false)
   const [deciding, setDeciding] = useState<string | null>(null)
   // Agent mode: the same composer, a different route. The agent loop's events
   // (tool timeline, plan, approvals, questions, artifacts) render under the
@@ -170,39 +182,48 @@ function App() {
     }
   }, [userId])
 
+  const loadAutonomySettings = useCallback(async () => {
+    try {
+      const settings = await fetchAutonomySettings(userId)
+      setAutonomySettings(settings)
+    } catch {
+      // A server without the autonomy system returns nothing; the panel shows
+      // the fallback empty state rather than crashing.
+      setAutonomySettings(null)
+    }
+  }, [userId])
+
+  // The per-category setters delegate to the API and then refresh the local
+  // snapshot so the six rows always show what the server accepted.
+  const changeAutonomySetting = useCallback(
+    async (category: string, level: string) => {
+      setAutonomyBusy(true)
+      try {
+        await putAutonomySetting(userId, category, level)
+        await loadAutonomySettings()
+      } finally {
+        setAutonomyBusy(false)
+      }
+    },
+    [userId, loadAutonomySettings],
+  )
+
+  const changeAutonomyPreset = useCallback(
+    async (preset: string) => {
+      setAutonomyBusy(true)
+      try {
+        await applyAutonomyPreset(userId, preset)
+        await loadAutonomySettings()
+      } finally {
+        setAutonomyBusy(false)
+      }
+    },
+    [userId, loadAutonomySettings],
+  )
+
   // Saving a level sends the current `enabled` alongside it, because the one
   // endpoint owns both fields. The response replaces local state wholesale so
   // the badge and the radio can never show a level the server did not accept.
-  const changePermissionLevel = useCallback(
-    async (level: number) => {
-      if (level === commandSettings.permission_level) return
-      const previous = commandSettings
-      // Optimistic, so the radio moves under the finger; reverted from the
-      // server's answer if the write fails, rather than left lying.
-      setCommandSettings((current) => ({ ...current, permission_level: level }))
-      setSavingPermission(true)
-      try {
-        const result = await apiRequest<CommandSettings>(
-          `/api/commands/settings?user_id=${encodeURIComponent(userId)}`,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              enabled: commandSettings.enabled,
-              permission_level: level,
-            }),
-          },
-        )
-        setCommandSettings(result)
-      } catch {
-        setCommandSettings(previous)
-        setError('Could not save that permission level. It has been put back.')
-      } finally {
-        setSavingPermission(false)
-      }
-    },
-    [commandSettings, userId, setError],
-  )
   const fileInput = useRef<HTMLInputElement>(null)
   const answeredLocation = useRef<string | null>(null)
 
@@ -280,6 +301,7 @@ function App() {
         // own. It is deliberately not fatal: a failure here must not stop the
         // app from loading models and threads, and the toggle simply stays off.
         await loadCommandSettings()
+        await loadAutonomySettings()
         await refreshBadges()
         const modelResult = await apiRequest<{ models: ModelInfo[]; default_model?: string | null }>(`/api/models?user_id=${encodeURIComponent(userId)}`)
         if (cancelled) return
@@ -417,6 +439,48 @@ function App() {
       window.clearInterval(timer)
     }
   }, [streaming, commandSettings.enabled, active, userId, answerLocationRequest])
+
+  // Live approval-queue banner. Unlike the older command-only prompt, this reads
+  // the new /api/pending-approvals endpoint, which surfaces the autonomy gate's
+  // interrupt card (the always_ask / ask_first_time branch) anywhere in the app.
+  useEffect(() => {
+    if (!active || !commandSettings.enabled) return
+    const conversationId = active.id
+    let cancelled = false
+    const poll = async () => {
+      if (cancelled) return
+      try {
+        const response = await fetchPendingApprovals(userId, conversationId)
+        if (cancelled) return
+        setPendingApprovals(response.pending)
+        setPendingApprovalsError('')
+      } catch (cause) {
+        if (cancelled) return
+        setPendingApprovals([])
+        setPendingApprovalsError(cause instanceof Error ? cause.message : 'Could not load pending approvals.')
+      }
+    }
+    void poll()
+    const timer = window.setInterval(poll, 2000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [active, commandSettings.enabled, userId])
+
+  function dismissPendingApproval(approval: PendingApproval, approved: boolean) {
+    setPendingApprovals((current) => current.filter((item) => item.id !== approval.id))
+    void (approved
+      ? approvePendingApproval(approval.id, userId)
+      : denyPendingApproval(approval.id, userId))
+      .catch(() => {
+        // Re-fetch so a failed resolve does not leave the banner stale.
+        void fetchPendingApprovals(userId, active?.id ?? '')
+          .then((response) => setPendingApprovals(response.pending))
+          .catch(() => setPendingApprovals([]))
+      })
+  }
+
   useEffect(() => () => streamAbort.current?.abort(), [])
   useEffect(() => {
     const live = new Set(messages.map((item) => item.audioUrl).filter((url): url is string => Boolean(url)))
@@ -1385,9 +1449,9 @@ function App() {
           >
             {name === 'Chat' ? <MessageSquare size={13} /> : <ShieldCheck size={13} />}
             {name}
-            {name === 'Permissions' && commandSettings.enabled && (
+            {name === 'Permissions' && (
               <span className="rounded-md border border-emerald-300/20 bg-emerald-300/[0.08] px-1.5 py-px text-caption-xs text-emerald-200">
-                {commandSettings.permission_name}
+                {autonomySettings?.preset ?? 'Custom'}
               </span>
             )}
             {workspaceTab === name && (
@@ -1405,11 +1469,16 @@ function App() {
           className="relative min-h-0 flex-1 overflow-y-auto"
         >
           <div className="mx-auto w-full max-w-[620px] px-4 py-6 sm:px-7 sm:py-8">
-            <PermissionPanel
-              settings={commandSettings}
-              busy={savingPermission}
-              onChange={changePermissionLevel}
-            />
+            {autonomySettings ? (
+              <PermissionPanel
+                settings={autonomySettings}
+                busy={autonomyBusy}
+                onChange={changeAutonomySetting}
+                onPresetChange={changeAutonomyPreset}
+              />
+            ) : (
+              <p className="text-small text-zinc-500">Loading permissions…</p>
+            )}
           </div>
         </section>
       ) : (
@@ -1426,6 +1495,51 @@ function App() {
           <div className="mx-auto flex w-full max-w-[850px] flex-1 flex-col px-4 pb-5 pt-5 sm:px-7 sm:pt-8">
             {notice && <div role="status" className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-small text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
             {error && <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-small leading-5 text-rose-200"><span>{error}</span><span className="flex shrink-0 items-center gap-2">{canRetry && !streaming && lastSend.current && <button type="button" onClick={() => void retryLastMessage()} className="rounded-lg border border-rose-300/25 px-2.5 py-1 text-caption text-rose-100 transition hover:bg-rose-300/10">Try again</button>}<button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></span></div>}
+            {pendingApprovals.length > 0 && (
+              <div className="mb-4 space-y-2" role="region" aria-label="Pending approval">
+                <div className="flex gap-2 rounded-xl border border-amber-300/20 bg-amber-300/[0.05] px-3.5 py-2.5">
+                  <LockKeyhole size={13} className="mt-0.5 shrink-0 text-amber-300" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-small font-medium text-amber-100/90">
+                      Pentagon wants to {pendingApprovals.length === 1
+                        ? `do this:`
+                        : `do these ${pendingApprovals.length} things:`}
+                    </p>
+                    <ul className="mt-1 space-y-0.5">
+                      {pendingApprovals.map((approval) => (
+                        <li key={approval.id} className="font-mono text-[11px] text-amber-100/70">
+                          {approval.label}
+                          <span className="ml-2 text-amber-100/40">· {approval.tool_name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {pendingApprovals.map((approval) => (
+                    <span key={approval.id} className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void dismissPendingApproval(approval, true)}
+                        className="rounded-lg bg-amber-200/90 px-3 py-1.5 text-caption font-semibold text-black transition hover:bg-amber-100"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void dismissPendingApproval(approval, false)}
+                        className="rounded-lg border border-white/[0.12] px-3 py-1.5 text-caption text-zinc-300 transition hover:bg-white/[0.06]"
+                      >
+                        Deny
+                      </button>
+                    </span>
+                  ))}
+                  {pendingApprovalsError && (
+                    <p className="ml-auto text-micro text-amber-200/80">{pendingApprovalsError}</p>
+                  )}
+                </div>
+              </div>
+            )}
             {/*
               The token stream itself is deliberately not a live region: it fires
               many times a second and would drown a screen reader in fragments.
@@ -1531,14 +1645,9 @@ function App() {
         onKeySaved={() => void refreshModels()}
         commandSettings={commandSettings}
         onCommandSettingsChange={(enabled) => setCommandSettings((current) => ({ ...current, enabled }))}
-        onPermissionLevelChange={(level) =>
-          setCommandSettings((current) => ({
-            ...current,
-            permission_level: level,
-            permission_name:
-              current.permission_levels.find((entry) => entry.level === level)?.name ?? current.permission_name,
-          }))
-        }
+        autonomySettings={autonomySettings}
+        onAutonomySettingChange={changeAutonomySetting}
+        onAutonomyPresetChange={changeAutonomyPreset}
         onDocumentDeleted={(documentId) =>
           setDocuments((current) => current.filter((item) => item.document_id !== documentId))
         }

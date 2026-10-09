@@ -12,9 +12,12 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from langchain_core.messages import BaseMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.types import Command
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -30,13 +33,46 @@ from app.schemas import (
     SwitchConversationModelResponse,
 )
 from app.security.keys import resolve_api_key_or_http
-from app.services import command_runner
+from app.services import command_runner, capability
 from app.services.permissions import normalize_level
 from app.services.chat_graph import (
     build_chat_graph,
     initial_chat_state,
     public_sources,
 )
+from app.services.checkpointer import open_checkpointer
+from app.services.permission_gate import permission_gate
+from app.services.autonomy import (
+    CATEGORY_DESCRIPTIONS,
+    CATEGORY_LABELS,
+    DEFAULT_LEVEL_FOR_CATEGORY,
+    LEVEL_DESCRIPTIONS,
+    LEVEL_LABELS,
+    PRESETS,
+    VALID_CATEGORIES,
+    VALID_DECISIONS,
+    VALID_LEVELS,
+)
+
+
+async def require_capability(
+    x_pentagon_capability: str | None = Header(default=None),
+) -> None:
+    """Gate the authorising surface: knowing a user_id is not enough.
+
+    The same bar as /api/commands: approving a tool call, reading what is
+    waiting for a decision, or changing autonomy settings all need the app's
+    secret, not just a user id that leaks in config files and screenshots.
+    """
+    if not capability.verify(x_pentagon_capability):
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "This request needs the Pentagon capability token. It proves "
+                "the call came from the app rather than from someone who merely "
+                "knows a user id."
+            ),
+        )
 from app.services.conversation_context import build_model_history, summarize_for_model_switch
 from app.services.document_store import purge_conversation_collection
 from app.services.image_inputs import parse_chat_submission
@@ -230,35 +266,56 @@ async def chat(
     permission_level = normalize_level(
         user.permission_level if user is not None else None
     )
-    graph = build_chat_graph(
-        api_key,
-        payload.model,
-        user_id=payload.user_id,
-        use_web_search=payload.use_web_search,
-        command_tool_enabled=command_tool_enabled,
-    )
-    graph_input = initial_chat_state(
-        user_id=payload.user_id,
-        conversation_id=conversation.id,
-        message=message_content,
-        history=graph_history,
-        use_web_search=payload.use_web_search,
-        image_data_uri=image.data_uri if image is not None else None,
-        video_data_uri=video.data_uri if video is not None else None,
-        video_duration_seconds=video.duration_seconds if video is not None else None,
-        video_frames_sent=video.frames_sent if video is not None else None,
-        video_sampling_fps=video.fps if video is not None else None,
-        transcription_duration_ms=payload.transcription_duration_ms,
-        transcription_provider=payload.transcription_provider,
-        context_summary_used=conversation.summary_at_switch is not None,
-        context_summary_word_count=(
-            len(conversation.summary_at_switch.split()) if conversation.summary_at_switch else 0
-        ),
-        context_raw_message_count=(min(len(prior_messages), 6) if conversation.summary_at_switch else 0),
-        context_model=conversation.active_model,
-        command_tool_enabled=command_tool_enabled,
-        permission_level=permission_level,
-    )
+    # Permission/autonomy gate uses a checkpointer so a paused approval
+    # survives the user closing and reopening the app. thread_id is the
+    # conversation id: one stream at a time per conversation is fine for the
+    # chat route (the agent route uses its own session ids).
+    # The checkpointer has to outlive this function: ``_stream_chat`` does not
+    # start consuming until the client reads the response, so the context
+    # manager is entered here and closed by the stream's ``finally``. Wrapping
+    # the stream in ``async with`` would close the connection before the first
+    # superstep ran, and every graph operation would fail with a bare 200 and
+    # an error event instead of an answer.
+    saver_cm = open_checkpointer()
+    saver = await saver_cm.__aenter__()
+    try:
+        graph = build_chat_graph(
+            api_key,
+            payload.model,
+            user_id=payload.user_id,
+            use_web_search=payload.use_web_search,
+            command_tool_enabled=command_tool_enabled,
+            checkpointer=saver,
+        )
+        graph_input = initial_chat_state(
+            user_id=payload.user_id,
+            conversation_id=conversation.id,
+            message=message_content,
+            history=graph_history,
+            use_web_search=payload.use_web_search,
+            image_data_uri=image.data_uri if image is not None else None,
+            video_data_uri=video.data_uri if video is not None else None,
+            video_duration_seconds=video.duration_seconds if video is not None else None,
+            video_frames_sent=video.frames_sent if video is not None else None,
+            video_sampling_fps=video.fps if video is not None else None,
+            transcription_duration_ms=payload.transcription_duration_ms,
+            transcription_provider=payload.transcription_provider,
+            context_summary_used=conversation.summary_at_switch is not None,
+            context_summary_word_count=(
+                len(conversation.summary_at_switch.split()) if conversation.summary_at_switch else 0
+            ),
+            context_raw_message_count=(min(len(prior_messages), 6) if conversation.summary_at_switch else 0),
+            context_model=conversation.active_model,
+            command_tool_enabled=command_tool_enabled,
+            permission_level=permission_level,
+        )
+    except BaseException:
+        await saver_cm.__aexit__(None, None, None)
+        raise
+
+    config: RunnableConfig = {
+        "configurable": {"thread_id": conversation.id},
+    }
 
     return StreamingResponse(
         _stream_chat(
@@ -270,6 +327,9 @@ async def chat(
             api_key=api_key,
             respond_with_audio=payload.respond_with_audio,
             voice=payload.voice,
+            config=config,
+            saver=saver,
+            saver_cm=saver_cm,
         ),
         media_type="text/event-stream",
         headers={
@@ -381,6 +441,7 @@ def delete_conversation(
             "Vector cleanup failed for a deleted conversation (%s); the chunks remain on disk",
             type(exc).__name__,
         )
+    _purge_conversation_checkpoint_state(conversation_id)
     logger.info("conversation deleted conversation=%s", conversation_id)
     return Response(status_code=204)
 
@@ -406,6 +467,39 @@ def _purge_conversation_uploads(conversation_id: str) -> None:
     if resolved != root / conversation_id or root not in resolved.parents:
         return
     shutil.rmtree(resolved, ignore_errors=True)
+
+
+def _purge_conversation_checkpoint_state(conversation_id: str) -> None:
+    """Delete the langgraph checkpointer state for a deleted conversation.
+
+    A thread that was interrupted at the permission gate keeps its approval
+    state in the checkpointer, keyed by the conversation id. Without this, a
+    deleted conversation could still be resumed from a stale interrupt snapshot
+    (for example by an old in-flight SSE stream, or by a reopened checkpoint).
+
+    The checkpointer surface we use here is ``adelete_thread(thread_id)``: it
+    removes the checkpoint **and** its pending writes (which is where the
+    interrupt payload lives), so a deleted conversation cannot be resumed from
+    a stale interrupt snapshot.
+
+    Purging is best-effort: if the checkpointer is unavailable or misconfigured,
+    the delete still succeeds -- we just stop trying to clean up the leftover
+    state rather than surfacing it to the client.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", conversation_id):
+        logger.warning("Refusing to purge checkpoint state for an unexpected id %r", conversation_id)
+        return
+    try:
+        async def _purge() -> None:
+            async with open_checkpointer() as saver:
+                await saver.adelete_thread(conversation_id)
+
+        asyncio.run(_purge())
+    except Exception as exc:
+        logger.warning(
+            "Checkpoint cleanup failed for a deleted conversation (%s); the interrupt state may remain",
+            type(exc).__name__,
+        )
 
 
 @router.patch(
@@ -546,12 +640,50 @@ def _persist_assistant_reply(
         db.commit()
 
 
+async def _persist_resumed_turn(
+    graph: Any,
+    config: RunnableConfig,
+    conversation_id: str,
+) -> None:
+    """Write the assistant reply a resumed approval turn produced.
+
+    The response to an approval card is made out of band, while the original
+    SSE stream has already closed, so nothing else persists what the model
+    says after the decision. Without this the conversation would lose the
+    reply -- and the next turn would not see it either.
+
+    Best-effort, and deliberately quiet: a resume that pauses again (the model
+    asked for another command) persists nothing here; that turn's answer is
+    written when the next decision resumes the thread.
+    """
+    try:
+        final = await graph.aget_state(config)
+    except Exception:
+        logger.exception(
+            "failed to read resumed state conversation=%s", conversation_id
+        )
+        return
+    if final.next and final.interrupts:
+        return
+    values = final.values or {}
+    answer = values.get("answer") or ""
+    if not answer:
+        return
+    with SessionLocal() as db:
+        conversation = db.get(Conversation, conversation_id)
+        if conversation is None:
+            return
+        model = conversation.active_model or ""
+    _persist_assistant_reply(conversation_id, model, answer, values)
+
+
 async def _stream_graph_chunks(
     graph: Any,
     graph_input: dict[str, Any],
     *,
     conversation_id: str,
     user_id: str,
+    config: RunnableConfig,
 ) -> AsyncIterator[Any]:
     """Yield graph chunks -- and a tick for every quiet second -- or give up.
 
@@ -570,6 +702,7 @@ async def _stream_graph_chunks(
     """
     stream = graph.astream(
         graph_input,
+        config=config,
         stream_mode=["messages", "values"],
         version="v2",
     )
@@ -624,6 +757,49 @@ async def _stream_chat(
     api_key: str,
     respond_with_audio: bool = False,
     voice: str | None = None,
+    config: RunnableConfig | None = None,
+    saver: Any | None = None,
+    saver_cm: Any | None = None,
+) -> AsyncIterator[str]:
+    """Stream one turn while the checkpointer stays open.
+
+    The route enters the saver's async context manager before it returns the
+    response, because this generator's body does not run until the client reads
+    from it. This wrapper keeps that connection alive for the whole turn and
+    closes it exactly once: on completion, on error, and when the client
+    disconnects and the generator is closed.
+    """
+    try:
+        async for event in _stream_turn(
+            graph,
+            graph_input,
+            conversation_id,
+            model,
+            user_id=user_id,
+            api_key=api_key,
+            respond_with_audio=respond_with_audio,
+            voice=voice,
+            config=config,
+            saver=saver,
+        ):
+            yield event
+    finally:
+        if saver_cm is not None:
+            await saver_cm.__aexit__(None, None, None)
+
+
+async def _stream_turn(
+    graph: Any,
+    graph_input: dict[str, Any],
+    conversation_id: str,
+    model: str,
+    *,
+    user_id: str,
+    api_key: str,
+    respond_with_audio: bool = False,
+    voice: str | None = None,
+    config: RunnableConfig | None = None,
+    saver: Any | None = None,
 ) -> AsyncIterator[str]:
     yield _sse("conversation", {"conversation_id": conversation_id})
     answer = ""
@@ -641,6 +817,7 @@ async def _stream_chat(
                 graph_input,
                 conversation_id=conversation_id,
                 user_id=user_id,
+                config=config,
             ):
                 if chunk is _STALL_TICK:
                     # A quiet second, not a dead one. The keep-alive comment
@@ -721,6 +898,28 @@ async def _stream_chat(
             yield _sse("error", {"message": error_message})
             return
 
+    # Detect a permission-gate interrupt: after the stream ends, check the
+    # persisted state. If snap.next is truthy and snap.interrupts is non-empty,
+    # the graph is paused waiting for an approval decision.
+    interrupted = False
+    interrupt_value: dict[str, Any] = {}
+    if config is not None and saver is not None:
+        try:
+            snap = await graph.aget_state(config)
+            if snap.next and snap.interrupts:
+                interrupted = True
+                interrupt_value = (
+                    snap.interrupts[0].value if snap.interrupts else {}
+                )
+                logger.info(
+                    "chat stream interrupted for approval conversation=%s",
+                    conversation_id,
+                )
+        except Exception:
+            logger.exception(
+                "failed to check interrupt state conversation=%s", conversation_id
+            )
+
     if upstream_stalled:
         logger.warning(
             "chat stream stalled conversation=%s model=%s partial_answer_chars=%d",
@@ -760,7 +959,12 @@ async def _stream_chat(
             "time_to_first_token_ms"
         ] = first_token_ms
 
-    _persist_assistant_reply(conversation_id, model, answer, final_state)
+    # A turn paused at the permission gate has no final answer yet: the graph
+    # stops before the model's follow-up, and persisting the partial (usually
+    # empty) text here would leave a stray bubble and duplicate the real reply
+    # that ``_persist_resumed_turn`` writes once the decision resumes the turn.
+    if not interrupted:
+        _persist_assistant_reply(conversation_id, model, answer, final_state)
 
     if respond_with_audio and answer:
         synthesis_started = time.perf_counter()
@@ -844,6 +1048,24 @@ async def _stream_chat(
             **({"command_runs": command_runs} if command_runs else {}),
         },
     )
+    if interrupted:
+        # Pause the SSE stream here: the graph is waiting for a permission
+        # decision. Emit an approval_required event so the frontend can render
+        # the approval card. The stream stays open (the SSE connection is still
+        # live) until the user approves/denies via /api/pending-approvals, at
+        # which point the chat route's resume endpoint replays the graph.
+        yield _sse(
+            "approval_required",
+            {
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+                "interrupt": interrupt_value,
+            },
+        )
+        # Do NOT yield done yet: the turn is not finished. The approval queue
+        # endpoint will resume the graph and re-enter this route's streaming.
+        return
+
     yield _sse("done", {"conversation_id": conversation_id})
 
 
@@ -871,3 +1093,372 @@ def _content_as_text(content: Any) -> str:
             if isinstance(item, dict) and isinstance(item.get("text"), str)
         )
     return ""
+
+
+class ResumeRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    decision: str = Field(min_length=1, max_length=32)
+    # For ask_first_time: whether to mark this tool approved for the rest of
+    # the session (always true when the user approves; the gate handles it).
+    approved_this_session: bool = True
+
+
+@router.get("/pending-approvals", dependencies=[Depends(require_capability)])
+async def pending_approvals(
+    user_id: str = Query(min_length=1, max_length=128),
+    conversation_id: str = Query(min_length=1, max_length=128),
+) -> dict[str, Any]:
+    """Return the currently paused tool calls awaiting approval for this user.
+
+    Reads the persisted interrupt state from the checkpointer (so it survives
+    the app closing and reopening) and returns the approval card the frontend
+    should render.
+    """
+    config: RunnableConfig = {
+        "configurable": {"thread_id": conversation_id},
+    }
+
+    async with open_checkpointer() as saver:
+        # We need a graph to call aget_state; build a minimal one.
+        from app.services.chat_graph import build_chat_graph
+
+        graph = build_chat_graph(
+            "",  # api_key not needed to read state
+            "",  # model not needed to read state
+            user_id=user_id,
+            checkpointer=saver,
+        )
+        try:
+            snap = await graph.aget_state(config)
+        except Exception:
+            logger.exception("failed to read pending approvals conversation=%s", conversation_id)
+            return {"pending": [], "conversation_id": conversation_id}
+
+        interrupts = snap.interrupts or ()
+        if not interrupts:
+            return {"pending": [], "conversation_id": conversation_id}
+
+        interrupt_value = interrupts[0].value if interrupts else {}
+        if not isinstance(interrupt_value, dict) or interrupt_value.get("type") != "approval_required":
+            return {"pending": [], "conversation_id": conversation_id}
+
+        return {
+            "pending": [
+                {
+                    # The approve/deny paths are langgraph thread ids, and the
+                    # client posts back whatever ``id`` it is handed here, so
+                    # this must be the conversation id -- not the tool call id,
+                    # which resolves to no thread and a 404.
+                    "id": conversation_id,
+                    "tool_call_id": interrupt_value.get("tool_call_id", ""),
+                    "conversation_id": conversation_id,
+                    "user_id": user_id,
+                    "tool_name": interrupt_value.get("tool_name", ""),
+                    "category": interrupt_value.get("category", ""),
+                    "label": interrupt_value.get("label", ""),
+                    "summary": interrupt_value.get("summary", ""),
+                    "args": interrupt_value.get("args", {}),
+                    "pending_calls": interrupt_value.get("pending_calls", []),
+                }
+            ],
+            "conversation_id": conversation_id,
+        }
+
+
+@router.post("/pending-approvals/{approval_id}/approve", dependencies=[Depends(require_capability)])
+async def approve_approval(
+    approval_id: str,
+    payload: ResumeRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Approve a pending approval and resume the graph."""
+    # Verify the approval belongs to this user by reading the interrupt state.
+    config: RunnableConfig = {
+        "configurable": {"thread_id": approval_id},
+    }
+
+    async with open_checkpointer() as saver:
+        from app.services.chat_graph import build_chat_graph
+
+        graph = build_chat_graph(
+            "", "", user_id=payload.user_id, checkpointer=saver
+        )
+        try:
+            snap = await graph.aget_state(config)
+        except Exception:
+            logger.exception("failed to read approval state id=%s", approval_id)
+            raise HTTPException(status_code=404, detail="Approval not found.") from None
+
+        interrupts = snap.interrupts or ()
+        if not interrupts:
+            raise HTTPException(status_code=404, detail="No pending approval.")
+
+        interrupt_value = interrupts[0].value if interrupts else {}
+        if not isinstance(interrupt_value, dict) or interrupt_value.get("type") != "approval_required":
+            raise HTTPException(status_code=404, detail="No pending approval.")
+
+        if interrupt_value.get("user_id") != payload.user_id:
+            raise HTTPException(status_code=403, detail="Not your approval.")
+
+        resume_payload: dict[str, Any] = {
+            "decision": "approved",
+            "approved_this_session": payload.approved_this_session,
+        }
+
+        try:
+            await graph.ainvoke(Command(resume=resume_payload), config=config)
+        except Exception:
+            logger.exception("failed to approve approval id=%s", approval_id)
+            raise HTTPException(status_code=500, detail="Failed to approve.") from None
+
+        await _persist_resumed_turn(graph, config, approval_id)
+
+    return {"status": "approved", "id": approval_id}
+
+
+@router.post("/pending-approvals/{approval_id}/deny", dependencies=[Depends(require_capability)])
+async def deny_approval(
+    approval_id: str,
+    payload: ResumeRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Deny a pending approval and resume the graph without executing."""
+    config: RunnableConfig = {
+        "configurable": {"thread_id": approval_id},
+    }
+
+    async with open_checkpointer() as saver:
+        from app.services.chat_graph import build_chat_graph
+
+        graph = build_chat_graph(
+            "", "", user_id=payload.user_id, checkpointer=saver
+        )
+        try:
+            snap = await graph.aget_state(config)
+        except Exception:
+            logger.exception("failed to read approval state id=%s", approval_id)
+            raise HTTPException(status_code=404, detail="Approval not found.") from None
+
+        interrupts = snap.interrupts or ()
+        if not interrupts:
+            raise HTTPException(status_code=404, detail="No pending approval.")
+
+        interrupt_value = interrupts[0].value if interrupts else {}
+        if not isinstance(interrupt_value, dict) or interrupt_value.get("type") != "approval_required":
+            raise HTTPException(status_code=404, detail="No pending approval.")
+
+        if interrupt_value.get("user_id") != payload.user_id:
+            raise HTTPException(status_code=403, detail="Not your approval.")
+
+        resume_payload: dict[str, Any] = {
+            "decision": "denied",
+            "approved_this_session": False,
+        }
+
+        try:
+            await graph.ainvoke(Command(resume=resume_payload), config=config)
+        except Exception:
+            logger.exception("failed to deny approval id=%s", approval_id)
+            raise HTTPException(status_code=500, detail="Failed to deny.") from None
+
+        await _persist_resumed_turn(graph, config, approval_id)
+
+    return {"status": "denied", "id": approval_id}
+
+
+@router.get("/autonomy-settings", dependencies=[Depends(require_capability)])
+async def get_autonomy_settings(
+    user_id: str = Query(min_length=1, max_length=128),
+) -> dict[str, Any]:
+    """Return the current per-category autonomy levels for the user."""
+    from app.db.models import AutonomySetting
+
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(AutonomySetting).where(AutonomySetting.user_id == user_id)
+        ).all()
+    settings: dict[str, str] = {r.category: r.level for r in rows}
+    return {
+        "user_id": user_id,
+        "settings": settings,
+        "defaults": {cat: DEFAULT_LEVEL_FOR_CATEGORY[cat] for cat in VALID_CATEGORIES},
+        "categories": {
+            cat: {
+                "label": CATEGORY_LABELS[cat],
+                "description": CATEGORY_DESCRIPTIONS[cat],
+            }
+            for cat in VALID_CATEGORIES
+        },
+        "levels": {
+            level: {
+                "label": LEVEL_LABELS[level],
+                "description": LEVEL_DESCRIPTIONS[level],
+            }
+            for level in VALID_LEVELS
+        },
+        "presets": {
+            name: {
+                "name": preset.name,
+                "description": preset.description,
+                "levels": dict(preset.levels),
+            }
+            for name, preset in PRESETS.items()
+        },
+    }
+
+
+@router.put("/autonomy-settings/{category}", dependencies=[Depends(require_capability)])
+async def put_autonomy_setting(
+    category: str,
+    payload: dict[str, Any],
+    user_id: str = Query(min_length=1, max_length=128),
+) -> dict[str, Any]:
+    """Update one category's autonomy level for the user."""
+    from app.db.models import AutonomySetting
+
+    if category not in VALID_CATEGORIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown category {category!r}. Valid: {sorted(VALID_CATEGORIES)}",
+        )
+    level = payload.get("level") or payload.get("value") or ""
+    if level not in VALID_LEVELS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown level {level!r}. Valid: {sorted(VALID_LEVELS)}",
+        )
+
+    with SessionLocal() as db:
+        row = db.get(AutonomySetting, (user_id, category))
+        if row is None:
+            row = AutonomySetting(
+                user_id=user_id,
+                category=category,
+                level=level,
+            )
+            db.add(row)
+        else:
+            row.level = level
+        db.commit()
+
+    return {"status": "ok", "category": category, "level": level}
+
+
+@router.get("/audit-log", dependencies=[Depends(require_capability)])
+async def get_audit_log(
+    user_id: str = Query(min_length=1, max_length=128),
+    limit: int = Query(default=100, ge=1, le=1000),
+    before: str | None = Query(default=None, description="ISO timestamp; return rows older than this"),
+    category: str | None = Query(default=None, description="Filter by risk category"),
+    decision: str | None = Query(default=None, description="Filter by decision"),
+) -> dict[str, Any]:
+    """Paginated audit log, most recent first."""
+    from app.db.models import ActionAuditLog
+
+    if category is not None and category not in VALID_CATEGORIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown category {category!r}.",
+        )
+    if decision is not None and decision not in VALID_DECISIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown decision {decision!r}.",
+        )
+
+    with SessionLocal() as db:
+        stmt = select(ActionAuditLog).where(
+            ActionAuditLog.user_id == user_id
+        )
+        if category is not None:
+            stmt = stmt.where(ActionAuditLog.category == category)
+        if decision is not None:
+            stmt = stmt.where(ActionAuditLog.decision == decision)
+        if before is not None:
+            stmt = stmt.where(ActionAuditLog.timestamp < before)
+        stmt = stmt.order_by(ActionAuditLog.timestamp.desc()).limit(limit)
+        rows = list(db.scalars(stmt))
+
+    return {
+        "rows": [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "conversation_id": r.conversation_id,
+                "tool_name": r.tool_name,
+                "category": r.category,
+                "autonomy_level_at_time": r.autonomy_level_at_time,
+                "decision": r.decision,
+                "arguments_summary": r.arguments_summary,
+                "timestamp": r.timestamp.isoformat(),
+            }
+            for r in rows
+        ],
+        "limit": limit,
+    }
+
+
+@router.post("/chat/{conversation_id}/resume", dependencies=[Depends(require_capability)])
+async def resume_chat(
+    conversation_id: str,
+    payload: ResumeRequest,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Resume a chat turn that is paused at the permission gate.
+
+    The frontend calls this after the user approves or denies a pending
+    approval card. The graph is rebuilt from the same checkpointer and
+    thread_id, then awoken with Command(resume={...}).
+    """
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == payload.user_id,
+        )
+    )
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    api_key = resolve_api_key_or_http(db, payload.user_id)
+    user = db.get(User, payload.user_id)
+    command_tool_enabled = bool(
+        settings.command_tool_enabled
+        and user is not None
+        and user.command_tool_enabled
+    )
+    permission_level = normalize_level(
+        user.permission_level if user is not None else None
+    )
+
+    config: RunnableConfig = {
+        "configurable": {"thread_id": conversation_id},
+    }
+
+    async with open_checkpointer() as saver:
+        graph = build_chat_graph(
+            api_key,
+            conversation.active_model or "",
+            user_id=payload.user_id,
+            command_tool_enabled=command_tool_enabled,
+            checkpointer=saver,
+        )
+
+        resume_payload: dict[str, Any] = {
+            "decision": payload.decision,
+            "approved_this_session": payload.approved_this_session,
+        }
+
+        try:
+            # Resume the graph where it paused. Command(resume=...) passes the
+            # value back to the interrupt() call in permission_gate.
+            await graph.ainvoke(
+                Command(resume=resume_payload),
+                config=config,
+            )
+        except Exception:
+            logger.exception("failed to resume chat conversation=%s", conversation_id)
+            raise HTTPException(
+                status_code=500, detail="Failed to resume the conversation."
+            ) from None
+
+    return Response(status_code=200)

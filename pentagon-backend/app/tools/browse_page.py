@@ -39,7 +39,8 @@ TOOL_SPEC = ToolSpec(
         "required": ["url"],
     },
     tier="read",
-    timeout_s=45,
+
+    risk_category="read_only_info",    timeout_s=45,
     cacheable=True,
     cache_ttl_s=300,
     idempotent=True,

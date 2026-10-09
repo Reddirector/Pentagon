@@ -50,7 +50,8 @@ TOOL_SPEC = ToolSpec(
         "required": ["text"],
     },
     tier="write",
-    timeout_s=10,
+
+    risk_category="local_filesystem_write",    timeout_s=10,
     cacheable=False,
     idempotent=True,
     parallel_safe=False,

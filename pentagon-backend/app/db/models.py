@@ -343,7 +343,12 @@ class IndexJob(Base):
     collection_id: Mapped[str] = mapped_column(
         ForeignKey("collections.id", ondelete="CASCADE"), index=True
     )
-    kind: Mapped[str] = mapped_column(String(32))
+    # ``text`` in supabase/migrations/rag2.sql, and deliberately not narrowed
+    # here: ``kind`` names a registered handler, and the registry is open to
+    # more than the built-in ingest/embed/graph_* vocabulary. SQLite stores any
+    # length in a VARCHAR, so a shorter limit would only ever be enforced on
+    # Postgres -- rejecting a handler name there and nowhere else.
+    kind: Mapped[str] = mapped_column(Text)
     # queued | running | paused | done | failed | cancelled
     status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
     progress: Mapped[float] = mapped_column(Float, default=0.0)
@@ -370,3 +375,72 @@ class SkillSetting(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     skill_id: Mapped[str] = mapped_column(String(120))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+from app.services.autonomy import (
+    RiskCategory,
+    AutonomyLevel,
+    DECISION,
+)
+
+
+class AutonomySetting(Base):
+    """A user's chosen autonomy level for one risk category.
+
+    ``(user_id, category)`` is the primary key. A missing row means "use the
+    documented defaults", so a brand-new user has ``read_only_info=auto_approve``
+    and everything else ``always_ask`` without any row being inserted.
+    """
+
+    __tablename__ = "autonomy_settings"
+    __table_args__ = (PrimaryKeyConstraint("user_id", "category"),)
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    category: Mapped[RiskCategory] = mapped_column(String(32))
+    level: Mapped[AutonomyLevel] = mapped_column(String(24))
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+
+
+class PerToolOverride(Base):
+    """Session-scoped approval memory for the ``ask_first_time`` level.
+
+    ``approved_this_session`` is the only field that survives across a turn loop;
+    it is reset to ``False`` at process start (in ``initialize_database``), never
+    persisted across restarts. A missing row means "not approved this session".
+    """
+
+    __tablename__ = "per_tool_overrides"
+    __table_args__ = (PrimaryKeyConstraint("user_id", "tool_name", "category"),)
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    tool_name: Mapped[str] = mapped_column(String(128), index=True)
+    category: Mapped[RiskCategory] = mapped_column(String(32))
+    approved_this_session: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ActionAuditLog(Base):
+    """One row per tool-execution attempt. Append-only; never deleted automatically.
+
+    ``arguments_summary`` is a short human-readable line (from
+    ``autonomy.arguments_summary``), not the raw potentially-sensitive payload.
+    """
+
+    __tablename__ = "action_audit_log"
+    __table_args__ = (
+        Index("ix_action_audit_log_user_conversation", "user_id", "conversation_id"),
+        Index("ix_action_audit_log_timestamp", "timestamp"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    conversation_id: Mapped[str] = mapped_column(String(36), index=True)
+    tool_name: Mapped[str] = mapped_column(String(128))
+    category: Mapped[RiskCategory] = mapped_column(String(32))
+    autonomy_level_at_time: Mapped[AutonomyLevel] = mapped_column(String(24))
+    decision: Mapped[DECISION] = mapped_column(String(24))
+    arguments_summary: Mapped[str] = mapped_column(Text)
+    timestamp: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)

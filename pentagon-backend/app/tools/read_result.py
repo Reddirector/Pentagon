@@ -34,7 +34,8 @@ TOOL_SPEC = ToolSpec(
         "required": ["handle"],
     },
     tier="read",
-    timeout_s=5,
+
+    risk_category="read_only_info",    timeout_s=5,
     cacheable=False,
     idempotent=True,
     parallel_safe=True,

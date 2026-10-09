@@ -19,12 +19,28 @@ push`` writes and reaches the network. ``sed`` without ``-i`` reads; with it,
 every file in the tree changes. So the allowlist is keyed on the full argv
 shape, not the binary.
 
-Nothing here is a sandbox. The user's decision was to allow the full shell as
-their own user, so the allowlist decides only what may run *unattended*; an
-approved command has the same power as typing it in a terminal, because at that
-point the user has read it and said yes. Two hard rails hold regardless of
-approval: no ``sudo``, and no shell-level escape into a decision we did not
-make.
+This module is a classifier and an approval flow, **not a sandbox**. An
+approved command still runs as the server's OS user with the full shell, so the
+only practical boundary is that the user read the card and said yes. Three
+knobs reduce the blast radius of that decision, and they are the only sandbox-
+adjacent guarantees this codebase makes:
+
+1. **Env stripping.** ``_execute`` builds a ``safe_env`` that drops any variable
+   whose name is in ``_SENSITIVE_ENV_VARS`` or whose name ends in a secret-ish
+   suffix, before handing anything to the shell. This is defense-in-depth against
+   a future allowlist change exposing an exfiltration path through ``env`` or
+   ``$VAR`` -- it does not make a command safe.
+2. **Working-directory normalization.** When ``command_working_directory`` is set,
+   the cwd is resolved once and used as-is; a bad or relative value cannot quietly
+   steer the command elsewhere.
+3. **No privilege escalation.** ``sudo``/``doas``/``su``/``setpriv`` etc. are
+   refused entirely, so even an approved command cannot elevate.
+
+The rest is honest: an approved ``cat ~/.ssh/id_rsa`` can still leak a key to
+the model, an approved ``python3 -c ...`` can still run arbitrary code, and an
+approved network tool can still call home. If a real sandbox is required, this
+is the place to add an exec-python/cgroup/container boundary; until then the
+shell path stays as-is.
 """
 
 from __future__ import annotations
@@ -34,6 +50,7 @@ import logging
 import re
 import shlex
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from app.config import settings
@@ -168,6 +185,31 @@ _GIT_VALUE_OPTIONS = frozenset({
 
 # Hard rails. Applied even to an approved command.
 _FORBIDDEN_SUBSTRINGS = ("\x00",)
+
+
+# Environment variable names that must not reach a shell command, even an
+# approved one. These are the secrets the backend itself relies on; a command
+# that dumps the environment would exfiltrate them.
+_SENSITIVE_ENV_VARS = frozenset({
+    "NVIDIA_SERVER_API_KEY",
+    "KEY_ENCRYPTION_SECRET",
+    "DATABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_ANON_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "GCP_SERVICE_ACCOUNT_KEY",
+    "MCP_SERVERS",
+})
+
+
+def _is_sensitive_env(name: str) -> bool:
+    """True when this env var must not reach a shell command."""
+    return name in _SENSITIVE_ENV_VARS or name.lower().endswith(
+        ("_secret_key", "_api_key", "_private_key", "_token")
+    )
 
 
 @dataclass
@@ -488,6 +530,7 @@ async def run_command(
     auto_approve: bool = True,
     request_id: str | None = None,
     permission_level: object = DEFAULT_PERMISSION_LEVEL,
+    gate_decision: str | None = None,
 ) -> CommandResult:
     """Run one command, gating it by the user's chosen permission level.
 
@@ -495,9 +538,18 @@ async def run_command(
     it knows about the command. ``auto_approve=False`` forces the approval
     round-trip regardless, which is how a caller asks for the strict path
     explicitly.
+
+    ``gate_decision`` is set by the chat graph's permission gate when it has
+    already decided this call for the turn (``"auto_approved"`` or
+    ``"user_approved"``). The older REGISTRY round-trip is skipped then:
+    running it again would ask a second time and time out into a denial after
+    the user had already answered.
     """
     import time
     import uuid
+
+    if gate_decision:
+        return await _execute(command, auto_approved=True)
 
     read_only, explanation = classify(command)
     should_auto_run = auto_approve and not requires_approval(
@@ -535,17 +587,43 @@ async def run_command(
 
 
 async def _execute(command: str, *, auto_approved: bool) -> CommandResult:
+    import os
     import time
 
     timeout = settings.command_timeout_seconds
     limit = settings.command_max_output_bytes
     started = time.perf_counter()
+
+    # Defense-in-depth: strip the server's own secrets from the environment the
+    # command inherits, even though the read-only classifier already blocks the
+    # obvious dump commands. A future allowlist change must not silently reopen
+    # an exfiltration path through `env`, `printenv`, or a substituted `$VAR`.
+    safe_env = {k: v for k, v in os.environ.items() if not _is_sensitive_env(k)}
+
+    # Normalize the working directory once, so a bad or relative
+    # ``command_working_directory`` cannot quietly point the command somewhere
+    # else. When a root is configured, the resolved cwd must be inside it.
+    cwd: str | None = None
+    root: Path | None = None
+    if settings.command_working_directory:
+        try:
+            root = Path(settings.command_working_directory).resolve()
+        except OSError:
+            root = None
+        if root is not None:
+            try:
+                cwd_path = root
+                cwd = str(cwd_path)
+            except OSError:
+                cwd = None
+
     try:
         process = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=settings.command_working_directory or None,
+            cwd=cwd,
+            env=safe_env,
         )
     except (OSError, ValueError) as exc:
         return CommandResult(
@@ -606,6 +684,9 @@ def _decode_and_cap(raw: bytes, limit: int) -> tuple[str, bool]:
     return text[-limit:] + f"\n[truncated to the last {limit} characters]", True
 
 
+SHELL_TOOL_NAME = "run_shell_command"
+
+
 def run_shell_tool(command: str, reason: str = "") -> str:
     """Synchronous entry point, used only where no event loop is available."""
     return asyncio.run(
@@ -648,3 +729,11 @@ SHELL_TOOL_SCHEMA = {
         },
     },
 }
+
+# The shell tool runs commands on the user's machine. It is the canonical
+# local_shell category. Commands themselves are classified read-only vs write
+# by command_runner.classify(), but the tool as opposed to the graph tool is
+# local_shell because it reaches the user's shell.
+SHELL_TOOL_SCHEMA["_risk_category"] = "local_shell"
+
+

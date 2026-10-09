@@ -23,6 +23,7 @@ from app.services.command_runner import (
     SHELL_TOOL_SCHEMA,
     run_command,
 )
+from app.services.permission_gate import permission_gate
 from app.services.document_store import has_documents, retrieve_chunks
 from app.services.permissions import DEFAULT_PERMISSION_LEVEL, normalize_level
 from app.skills.router import match_for_turn
@@ -174,6 +175,7 @@ def build_chat_graph(
     user_id: str,
     use_web_search: bool | None = None,
     command_tool_enabled: bool = False,
+    checkpointer: Any | None = None,
 ):
     chat_model = make_chat_model(api_key, model)
 
@@ -550,6 +552,7 @@ def build_chat_graph(
                     user_id=state["user_id"],
                     reason=reason,
                     permission_level=state.get("permission_level", DEFAULT_PERMISSION_LEVEL),
+                    gate_decision=call.get("gate_decision"),
                 )
                 payload = result.as_payload()
                 runs.append(payload)
@@ -598,6 +601,7 @@ def build_chat_graph(
                 reason=reason,
                 auto_approve=True,
                 permission_level=state.get("permission_level", DEFAULT_PERMISSION_LEVEL),
+                gate_decision=call.get("gate_decision"),
             )
             payload = result.as_payload()
             runs.append(payload)
@@ -653,6 +657,7 @@ def build_chat_graph(
     graph.add_node("context_assembler", context_assembler)
     graph.add_node("generate_response", generate_response)
     graph.add_node("run_command", run_command_node)
+    graph.add_node("permission_gate", permission_gate)
     graph.add_edge(START, "intent_router")
     # Skills are matched after the intent is known and before anything fans
     # out, so every branch of the turn sees the same injected guidance.
@@ -662,12 +667,18 @@ def build_chat_graph(
     graph.add_edge("retrieve_documents", "context_assembler")
     graph.add_edge("vision_analysis", "context_assembler")
     graph.add_edge("context_assembler", "generate_response")
+    # permission_gate sits between the model's tool-call request and execution,
+    # so it cannot be bypassed by adding a new tool: every tool call routes
+    # through it before run_command_node runs anything.
     graph.add_conditional_edges(
         "generate_response",
         route_after_generate,
-        {"run_command": "run_command", END: END},
+        {"run_command": "permission_gate", END: END},
     )
+    graph.add_edge("permission_gate", "run_command")
     graph.add_edge("run_command", "generate_response")
+    if checkpointer is not None:
+        return graph.compile(checkpointer=checkpointer)
     return graph.compile()
 
 

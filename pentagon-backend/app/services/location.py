@@ -200,6 +200,9 @@ LOCATION_TOOL_SCHEMA = {
     },
 }
 
+# Location is read-only information from the user's perspective.
+LOCATION_TOOL_SCHEMA["_risk_category"] = "read_only_info"
+
 
 async def run_location_tool(
     arguments: dict[str, Any] | None,

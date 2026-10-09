@@ -48,7 +48,8 @@ TOOL_SPEC = ToolSpec(
         "required": ["question"],
     },
     tier="read",
-    timeout_s=120,
+
+    risk_category="read_only_info",    timeout_s=120,
     cacheable=False,
     idempotent=False,
     parallel_safe=False,

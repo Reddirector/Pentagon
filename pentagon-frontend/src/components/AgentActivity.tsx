@@ -14,6 +14,24 @@ import type { ChatMessage } from '../types'
  * announcement is the open question or approval, which is genuinely new.
  */
 
+const TOOL_LABELS: Record<string, string> = {
+  run_shell_command: 'Ran a shell command',
+  run_desktop_action: 'Desktop action',
+  run_location_tool: 'Checked your location',
+  retrieve_documents: 'Retrieved your documents',
+  search_web: 'Searched the web',
+  analyze_image: 'Analyzed an image',
+  analyze_video: 'Analyzed a video',
+  create_artifact: 'Created a file',
+  update_plan: 'Updated its plan',
+  ask_user: 'Asked a question',
+}
+
+function labelForTool(tool: string, summary?: string): string {
+  const base = TOOL_LABELS[tool] ?? tool.replace(/_/g, ' ')
+  return summary ? `${base} — ${summary}` : base
+}
+
 const PLAN_LABEL: Record<string, string> = {
   done: 'done',
   in_progress: 'in progress',
@@ -185,9 +203,8 @@ export function AgentActivity({
                 >
                   {stepLabel(step.status)}
                 </span>
-                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-300" title={step.summary || step.tool}>
-                  {step.tool}
-                  {step.summary ? <span className="text-zinc-500"> — {step.summary}</span> : null}
+                <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-300" title={step.summary || step.tool}>
+                  {labelForTool(step.tool, step.summary)}
                 </span>
                 {typeof step.elapsed_ms === 'number' && (
                   <span className="shrink-0 text-[10px] text-zinc-600">{Math.round(step.elapsed_ms)}ms</span>

@@ -51,6 +51,16 @@ _PROTOCOL_VERSION = "2024-11-05"
 _CLIENT_INFO = {"name": "pentagon", "version": "0.1.0"}
 _TIERS = {"read", "write", "destructive", "external_send"}
 
+# Map MCP tiers onto Pentagon risk categories. Read-only remote tools are
+# read_only_info; everything else (write / destructive / external_send) is
+# external_write because it reaches a third-party service.
+TIER_TO_CATEGORY: dict[str, str] = {
+    "read": "read_only_info",
+    "write": "external_write",
+    "destructive": "external_destructive",
+    "external_send": "external_write",
+}
+
 
 class BridgeError(RuntimeError):
     """The bridge could not get an answer out of the server."""
@@ -164,6 +174,10 @@ def build_spec(config: ServerConfig, entry: dict[str, Any]) -> ToolSpec:
     if not isinstance(schema, dict) or schema.get("type") != "object":
         schema = {"type": "object", "properties": {}}
     description = str(entry.get("description") or "").strip() or "No description."
+    mcp_tier = derive_tier(annotations, config.tier)
+    # Infer a risk category from the MCP tier so remote tools are classified
+    # without each server having to declare Pentagon's category enum.
+    mcp_category = TIER_TO_CATEGORY.get(mcp_tier, "read_only_info")
     return ToolSpec(
         name=safe_tool_name(config.name, remote_name or "tool"),
         description=(
@@ -171,7 +185,8 @@ def build_spec(config: ServerConfig, entry: dict[str, Any]) -> ToolSpec:
             f" server '{config.name}'. {description}"
         ),
         parameters=schema,
-        tier=derive_tier(annotations, config.tier),
+        tier=mcp_tier,
+        risk_category=mcp_category,
         timeout_s=int(_CALL_TIMEOUT_SECONDS) + 15,
         cacheable=False,
         # Unknown servers get unknown semantics: never replay, never run two

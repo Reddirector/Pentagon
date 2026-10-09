@@ -51,7 +51,8 @@ TOOL_SPEC = ToolSpec(
     # Arbitrary code is a state-changing capability: the approval ladder
     # gates it at Restricted and Balanced, and only Trusted runs it cold.
     tier="write",
-    timeout_s=int(sandbox_runner.MAX_TIMEOUT_SECONDS) + 15,
+
+    risk_category="local_shell",    timeout_s=int(sandbox_runner.MAX_TIMEOUT_SECONDS) + 15,
     cacheable=False,
     # Programs can be nondeterministic; never replay a cached run.
     idempotent=False,

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { AlertTriangle, Check, Copy, LockKeyhole, MapPin, MonitorSmartphone, MoonStar, Pencil, Sun, Trash2, Waves, X } from 'lucide-react'
+import { AlertTriangle, Check, Copy, LockKeyhole, MapPin, MoonStar, Pencil, Sun, Trash2, Waves, X } from 'lucide-react'
 import { getAmbientMode, setAmbientMode, subscribeAmbient } from '../lib/ambient'
 import type { AmbientMode } from '../lib/ambient'
 import {
@@ -22,6 +22,8 @@ import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { apiRequest, getApiBase, getLocalUserId, setApiBase } from '../api'
 import type { CommandSettings, Conversation, DocumentInfo, MemoryInfo, ModelInfo, SkillInfo } from '../types'
 import { PermissionPanel } from './PermissionPanel'
+import { applyAutonomyPreset, putAutonomySetting, fetchAuditLog } from '../api'
+import type { AutonomySettings, AuditLogEntry } from '../types'
 
 const AMBIENT_OPTIONS: { mode: AmbientMode; label: string; description: string; icon: typeof Sun }[] = [
   { mode: 'full', label: 'Full', description: 'Aurora, orbit rings, a twinkling constellation, grain and a vignette.', icon: Sun },
@@ -37,8 +39,11 @@ const SHORTCUTS: [string, string][] = [
   ['Esc', 'Close a dialog'],
 ]
 
-const TABS = ['Account', 'Appearance', 'Model', 'Commands', 'Permissions', 'Skills', 'Data', 'About'] as const
-type Tab = (typeof TABS)[number]
+const TOP_TABS = ['Account', 'Permissions', 'Advanced'] as const
+type TopTab = (typeof TOP_TABS)[number]
+
+const ADVANCED_SECTIONS = ['Skills', 'Commands', 'Data', 'Appearance', 'Model', 'Audit log', 'About'] as const
+type AdvancedSection = (typeof ADVANCED_SECTIONS)[number]
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -190,7 +195,9 @@ export function SettingsDialog({
   onDeleteThread,
   commandSettings,
   onCommandSettingsChange,
-  onPermissionLevelChange,
+  autonomySettings,
+  onAutonomySettingChange,
+  onAutonomyPresetChange,
 }: {
   userId: string
   models: ModelInfo[]
@@ -204,10 +211,13 @@ export function SettingsDialog({
   onRenameThread: (id: string, title: string) => void
   commandSettings: CommandSettings
   onCommandSettingsChange: (enabled: boolean) => void
-  onPermissionLevelChange: (level: number) => void
+  autonomySettings: AutonomySettings | null
+  onAutonomySettingChange?: (category: string, level: string) => void | Promise<void>
+  onAutonomyPresetChange?: (preset: string) => void | Promise<void>
   onDeleteThread: (id: string) => void
 }) {
-  const [tab, setTab] = useState<Tab>('Account')
+  const [topTab, setTopTab] = useState<TopTab>('Account')
+  const [advancedSection, setAdvancedSection] = useState<AdvancedSection>('Skills')
   const dialogRef = useRef<HTMLDivElement>(null)
   const prefs = useSyncExternalStore(subscribePreferences, getPreferences)
   // Subscribed rather than read once, so the ambient radio repaints when the
@@ -525,33 +535,35 @@ export function SettingsDialog({
 
   const [commandBusy, setCommandBusy] = useState(false)
   const [commandError, setCommandError] = useState('')
+  const [autonomyBusy, setAutonomyBusy] = useState(false)
+  const [auditRows, setAuditRows] = useState<AuditLogEntry[]>([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditCategory, setAuditCategory] = useState('')
+  const [auditDecision, setAuditDecision] = useState('')
 
-  async function setPermissionLevel(level: number) {
-    if (commandBusy || level === commandSettings.permission_level) return
-    setCommandBusy(true)
-    setCommandError('')
-    try {
-      const result = await apiRequest<CommandSettings>(
-        `/api/commands/settings?user_id=${encodeURIComponent(userId)}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          // `enabled` rides along because one endpoint owns both fields; sending
-          // the value the server last reported means changing a level can never
-          // quietly switch commands on or off.
-          body: JSON.stringify({
-            enabled: commandSettings.enabled,
-            permission_level: level,
-          }),
-        },
-      )
-      onPermissionLevelChange(result.permission_level)
-    } catch (cause) {
-      setCommandError(cause instanceof Error ? cause.message : 'Could not change that permission level.')
-    } finally {
-      setCommandBusy(false)
+  useEffect(() => {
+    if (advancedSection !== 'Audit log') return
+    let active = true
+    async function load() {
+      setAuditLoading(true)
+      try {
+        const { rows } = await fetchAuditLog(
+          userId,
+          80,
+          undefined,
+          auditCategory || undefined,
+          auditDecision || undefined,
+        )
+        if (active) setAuditRows(rows)
+      } catch {
+        if (active) setAuditRows([])
+      } finally {
+        if (active) setAuditLoading(false)
+      }
     }
-  }
+    void load()
+    return () => { active = false }
+  }, [advancedSection, userId, auditCategory, auditDecision])
 
   async function setCommandsEnabled(enabled: boolean) {
     if (commandBusy) return
@@ -571,6 +583,39 @@ export function SettingsDialog({
       setCommandError(cause instanceof Error ? cause.message : 'Could not change that setting.')
     } finally {
       setCommandBusy(false)
+    }
+  }
+
+  async function handleCategoryChange(category: string, level: string) {
+    if (!onAutonomySettingChange) return
+    setAutonomyBusy(true)
+    try {
+      await putAutonomySetting(userId, category, level)
+      await onAutonomySettingChange(category, level)
+    } catch {
+      // Best-effort: the parent re-fetches settings on change, so a failed
+      // write does not leave the panel stale.
+    } finally {
+      setAutonomyBusy(false)
+    }
+  }
+
+  async function handlePresetChange(preset: string) {
+    if (!onAutonomyPresetChange) return
+    setAutonomyBusy(true)
+    try {
+      const next = await applyAutonomyPreset(userId, preset)
+      await onAutonomyPresetChange(preset)
+      // Refresh local copy so the panel shows the freshly saved state.
+      if (onAutonomySettingChange) {
+        for (const [category, level] of Object.entries(next.settings as Record<string, string>)) {
+          await onAutonomySettingChange(category, level)
+        }
+      }
+    } catch {
+      // Best-effort: the parent re-fetches settings on change.
+    } finally {
+      setAutonomyBusy(false)
     }
   }
 
@@ -602,25 +647,25 @@ export function SettingsDialog({
         </div>
 
         <div role="tablist" aria-label="Settings sections" className="flex shrink-0 gap-1 overflow-x-auto border-b border-white/[0.07] px-4">
-          {TABS.map((name) => (
+          {TOP_TABS.map((name) => (
             <button
               key={name}
               type="button"
               role="tab"
-              aria-selected={tab === name}
-              onClick={() => setTab(name)}
+              aria-selected={topTab === name}
+              onClick={() => setTopTab(name)}
               className={`relative shrink-0 px-3 py-2.5 text-small-lg font-medium transition ${
-                tab === name ? 'text-zinc-100' : 'text-zinc-600 hover:text-zinc-300'
+                topTab === name ? 'text-zinc-100' : 'text-zinc-600 hover:text-zinc-300'
               }`}
             >
               {name}
-              {tab === name && <span className="absolute inset-x-2 -bottom-px h-px bg-white" />}
+              {topTab === name && <span className="absolute inset-x-2 -bottom-px h-px bg-white" />}
             </button>
           ))}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {tab === 'Account' && (
+          {topTab === 'Account' && (
             <>
               <Section title="Workspace" hint="Threads and documents are scoped to this id. It is generated in this browser and sent with every request.">
                 <div className="space-y-3">
@@ -822,103 +867,7 @@ export function SettingsDialog({
             </>
           )}
 
-          {tab === 'Appearance' && (
-            <>
-              <Section title="Background" hint="Monochrome by design. Surfaces shift, the palette does not.">
-                <div role="radiogroup" aria-label="Background" className="grid gap-2">
-                  {APPEARANCES.map((option) => (
-                    <Choice
-                      key={option.value}
-                      selected={prefs.appearance === option.value}
-                      onSelect={() => setAppearance(option.value as Appearance)}
-                      label={option.label}
-                      note={option.note}
-                      swatch={option.swatch}
-                    />
-                  ))}
-                </div>
-              </Section>
-
-              <Section title="Contrast" hint="Lifts the dim greys used for secondary text.">
-                <div role="radiogroup" aria-label="Contrast" className="grid gap-2 sm:grid-cols-2">
-                  <Choice
-                    selected={prefs.contrast === 'standard'}
-                    onSelect={() => setContrast('standard' as Contrast)}
-                    label="Standard"
-                    note="Tuned for pure black; secondary text clears WCAG AA."
-                  />
-                  <Choice
-                    selected={prefs.contrast === 'high'}
-                    onSelect={() => setContrast('high' as Contrast)}
-                    label="High"
-                    note="Brighter dim text for dim rooms or low-quality panels."
-                  />
-                </div>
-              </Section>
-
-              <Section title="Text size" hint="Rescales the whole type scale, from thread titles to body copy.">
-                <div role="radiogroup" aria-label="Text size" className="grid gap-2 sm:grid-cols-3">
-                  {TEXT_SIZES.map((option) => (
-                    <Choice
-                      key={option.value}
-                      selected={prefs.textSize === option.value}
-                      onSelect={() => setTextSize(option.value as TextSize)}
-                      label={option.label}
-                      note={option.note}
-                    />
-                  ))}
-                </div>
-              </Section>
-
-              <Section title="Density" hint="Tightens or loosens every gap and inset in the interface.">
-                <div role="radiogroup" aria-label="Density" className="grid gap-2 sm:grid-cols-3">
-                  {DENSITIES.map((option) => (
-                    <Choice
-                      key={option.value}
-                      selected={prefs.density === option.value}
-                      onSelect={() => setDensity(option.value as Density)}
-                      label={option.label}
-                      note={option.note}
-                    />
-                  ))}
-                </div>
-              </Section>
-
-              <Section title="Sidebar" hint="Folds the thread list away to icons, or shows it in full. Also toggleable with ⌘B / Ctrl+B.">
-                <div role="radiogroup" aria-label="Sidebar" className="grid gap-2 sm:grid-cols-2">
-                  <Choice
-                    selected={!prefs.sidebarCollapsed}
-                    onSelect={() => setSidebarCollapsed(false)}
-                    label="Expanded"
-                    note="Thread titles, dates and the search field."
-                  />
-                  <Choice
-                    selected={prefs.sidebarCollapsed}
-                    onSelect={() => setSidebarCollapsed(true)}
-                    label="Collapsed"
-                    note="An icon rail. Hover a thread for its title."
-                  />
-                </div>
-              </Section>
-
-              <Section title="Ambient effects" hint="The animated backdrop behind the conversation.">
-                <div role="radiogroup" aria-label="Ambient background intensity" className="grid gap-2">
-                  {AMBIENT_OPTIONS.map((option) => (
-                    <Choice
-                      key={option.mode}
-                      selected={ambientMode === option.mode}
-                      onSelect={() => setAmbientMode(option.mode)}
-                      label={option.label}
-                      note={option.description}
-                      icon={option.icon}
-                    />
-                  ))}
-                </div>
-              </Section>
-            </>
-          )}
-
-          {tab === 'Model' && (
+          {topTab === 'Permissions' && (
             <Section
               title="Default model"
               hint="Used for new threads. An existing thread keeps the model it was started with."
@@ -947,447 +896,624 @@ export function SettingsDialog({
             </Section>
           )}
 
-          {tab === 'Commands' && (
-            <>
-              <Section
-                title="Command tool"
-                hint="Lets Pentagon run CLI commands on this machine so it can build, test and inspect your project instead of only describing what to do."
-              >
-                {!commandSettings.available ? (
-                  <p className="rounded-lg border border-white/[0.07] bg-white/[0.02] px-3.5 py-3 text-small leading-6 text-zinc-500">
-                    This server does not offer the command tool. Set{' '}
-                    <code className="font-mono text-zinc-400">COMMAND_TOOL_ENABLED=true</code> in the
-                    backend environment and restart it to make it available.
-                  </p>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={commandSettings.enabled}
-                      disabled={commandBusy}
-                      onClick={() => void setCommandsEnabled(!commandSettings.enabled)}
-                      className="flex w-full items-start gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-3 text-left transition hover:border-white/15 disabled:opacity-50"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition ${
-                          commandSettings.enabled ? 'bg-emerald-300' : 'bg-white/[0.12]'
-                        }`}
-                      >
-                        <span
-                          className={`size-4 rounded-full bg-black transition-transform ${
-                            commandSettings.enabled ? 'translate-x-4' : ''
-                          }`}
-                        />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-body font-medium text-zinc-100">
-                          Let Pentagon run commands
-                        </span>
-                        <span className="mt-0.5 block text-micro-sm leading-[1.55] text-zinc-600">
-                          {commandSettings.enabled
-                            ? 'On. Read-only commands run immediately; anything else asks you first.'
-                            : 'Off. The model is not offered a command tool at all.'}
-                        </span>
-                      </span>
-                    </button>
-                    {commandError && (
-                      <p className="mt-2 text-small text-amber-300/90">{commandError}</p>
-                    )}
-                  </>
-                )}
-              </Section>
-
-              <Section title="How a command is treated" hint="The rule is that nothing runs unless you would be comfortable typing it yourself.">
-                <ul className="space-y-2.5 text-small leading-6 text-zinc-500">
-                  <li className="flex gap-2.5">
-                    <Check size={13} className="mt-1 shrink-0 text-emerald-400" />
-                    <span>
-                      <span className="text-zinc-300">Read-only runs by itself.</span> Listing and
-                      reading files, grepping, <code className="font-mono text-[0.92em]">git status</code>,
-                      <code className="font-mono text-[0.92em]">git diff</code> and similar inspection
-                      commands execute immediately.
-                    </span>
-                  </li>
-                  <li className="flex gap-2.5">
-                    <AlertTriangle size={13} className="mt-1 shrink-0 text-amber-300" />
-                    <span>
-                      <span className="text-zinc-300">Everything else asks you.</span> Writes,
-                      installs, network calls and anything that runs a build or a test suite show the
-                      exact command and wait for a decision. If you ignore it, it does not run.
-                    </span>
-                  </li>
-                  <li className="flex gap-2.5">
-                    <LockKeyhole size={13} className="mt-1 shrink-0 text-zinc-500" />
-                    <span>
-                      <span className="text-zinc-300">Reading a credential also asks.</span> Command
-                      output goes to the model, so opening{' '}
-                      <code className="font-mono text-[0.92em]">.env</code> or a private key is treated
-                      like a write rather than a read.
-                    </span>
-                  </li>
-                  <li className="flex gap-2.5">
-                    <AlertTriangle size={13} className="mt-1 shrink-0 text-zinc-500" />
-                    <span>
-                      <span className="text-zinc-300">Privilege escalation never runs.</span> Commands
-                      that need <code className="font-mono text-[0.92em]">sudo</code> or another user
-                      account are refused outright, approved or not.
-                    </span>
-                  </li>
-                </ul>
-              </Section>
-
-              <Section
-                title="Your desktop"
-                hint="Alongside the command line, it can drive the desktop: open and close applications, focus windows, take screenshots, change the volume, control playback, send notifications, lock the screen, switch dark mode and manage power."
-              >
-                {commandSettings.desktop_available ? (
-                  <>
-                    <ul className="space-y-2.5 text-small leading-6 text-zinc-500">
-                      <li className="flex gap-2.5">
-                        <MonitorSmartphone size={13} className="mt-1 shrink-0 text-zinc-500" />
-                        <span>
-                          <span className="text-zinc-300">Listing windows runs by itself.</span> Seeing
-                          which windows are open changes nothing, so it does not interrupt you.
-                        </span>
-                      </li>
-                      <li className="flex gap-2.5">
-                        <LockKeyhole size={13} className="mt-1 shrink-0 text-zinc-500" />
-                        <span>
-                          <span className="text-zinc-300">Everything else asks first.</span> Closing an
-                          app, locking the screen or shutting the machine down are shown to you as a
-                          plain description, not a command line, and do nothing if you decline.
-                        </span>
-                      </li>
-                      <li className="flex gap-2.5">
-                        <AlertTriangle size={13} className="mt-1 shrink-0 text-zinc-500" />
-                        <span>
-                          <span className="text-zinc-300">A fixed set, no shell.</span> These are named
-                          actions, not commands you can talk into. There is no way to phrase an
-                          instruction that turns into a shell command line.
-                        </span>
-                      </li>
-                    </ul>
-                    <p className="mt-3 text-micro leading-5 text-zinc-600">
-                      It closes a window by matching part of its title, so check what it picked before
-                      saying yes.
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-small leading-6 text-zinc-500">
-                    Desktop control is switched off on the server, so the model cannot open or close
-                    anything on this machine. Command line access is unaffected.
-                  </p>
-                )}
-              </Section>
-
-              <Section
-                title="Where it thinks you are"
-                hint="For questions that depend on it — what is near me, what time is it there — it can look up your approximate position. It does this only when an answer actually needs it, never in the background."
-              >
-                {commandSettings.location_available ? (
-                  <>
-                    <ul className="space-y-2.5 text-small leading-6 text-zinc-500">
-                      <li className="flex gap-2.5">
-                        <MapPin size={13} className="mt-1 shrink-0 text-zinc-500" />
-                        <span>
-                          <span className="text-zinc-300">Your browser is asked first.</span> The app
-                          window shows you the usual permission prompt. If you decline, it falls back
-                          to a coarse estimate from your network connection.
-                        </span>
-                      </li>
-                      <li className="flex gap-2.5">
-                        <AlertTriangle size={13} className="mt-1 shrink-0 text-zinc-500" />
-                        <span>
-                          <span className="text-zinc-300">It is rarely precise.</span> This computer has
-                          no GPS, so a fallback is town-level at best. The answer always says which
-                          source produced it.
-                        </span>
-                      </li>
-                    </ul>
-                    <p className="mt-3 text-micro leading-5 text-zinc-600">
-                      Declining costs nothing: the model is told there is no location and is told to
-                      ask you rather than guess.
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-small leading-6 text-zinc-500">
-                    Location is switched off on the server, so it cannot work out where you are. Every
-                    other capability is unaffected.
-                  </p>
-                )}
-              </Section>
-
-              <Section
-                title="Uploaded documents and web pages"
-                hint="The model reads whatever you attach and whatever it finds while searching, and text in either can try to instruct it. That is the main reason a command has to be shown to you before it runs."
-              >
-                <p className="text-small leading-6 text-zinc-500">
-                  Which actions skip the approval card is set by your permission level, in the
-                  Permissions tab. Below Trusted, read-only commands are the only exception, and
-                  they are the reason to keep an eye on this panel: one of them can still list
-                  directories and print file contents.
-                </p>
-              </Section>
-            </>
+          {topTab === 'Permissions' && (
+            autonomySettings ? (
+              <PermissionPanel
+                settings={autonomySettings}
+                busy={autonomyBusy}
+                onChange={(category, level) => void handleCategoryChange(category, level)}
+                onPresetChange={onAutonomyPresetChange ? (preset) => void handlePresetChange(preset) : undefined}
+              />
+            ) : (
+              <p className="text-small text-zinc-500">Loading permissions…</p>
+            )
           )}
 
-          {tab === 'Permissions' && (
-            <PermissionPanel
-              settings={commandSettings}
-              busy={commandBusy}
-              onChange={(level) => void setPermissionLevel(level)}
-            />
-          )}
-
-          {tab === 'Skills' && (
-            <>
-              <Section
-                title="Skills"
-                hint="Capability packs the model can draw on. Every skill's one-line description is always visible; the full instructions load only for a request that matches, for that turn only — never into saved history."
-              >
-                {skillError && <p className="mb-2 text-small text-amber-300/90">{skillError}</p>}
-                {skills === null ? (
-                  <p className="text-small text-zinc-600">Loading…</p>
-                ) : skills.length === 0 ? (
-                  <p className="text-small text-zinc-600">No skills loaded.</p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {skills.map((skill) => (
-                      <li
-                        key={skill.id}
-                        className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="text-small-lg text-zinc-300">{skill.name}</span>
-                          <span className="ml-2 rounded border border-white/[0.1] px-1.5 py-0.5 text-micro text-zinc-500">
-                            {skill.source === 'public' ? 'shipped' : 'yours'}
-                          </span>
-                          {skill.risk_category !== 'read' && (
-                            <span className="ml-1.5 rounded border border-white/[0.1] px-1.5 py-0.5 text-micro text-zinc-500">
-                              {skill.risk_category}
-                            </span>
-                          )}
-                          <span className="mt-0.5 block text-micro leading-[1.55] text-zinc-600">
-                            {skill.description}
-                          </span>
-                          <span className="mt-1 block text-micro text-zinc-700">
-                            Triggers: {skill.triggers.join(', ') || '—'}
-                          </span>
-                        </span>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={skill.enabled}
-                          aria-label={`${skill.enabled ? 'Disable' : 'Enable'} ${skill.name}`}
-                          onClick={() => void toggleSkill(skill, !skill.enabled)}
-                          className="flex shrink-0 items-center gap-2 text-micro text-zinc-600"
-                        >
-                          <span aria-hidden="true" className="flex h-5 w-9 items-center rounded-full p-0.5 transition">
-                            <span
-                              className={`size-4 rounded-full transition-transform ${
-                                skill.enabled ? 'translate-x-4 bg-emerald-300' : 'bg-white/[0.18]'
-                              }`}
-                            />
-                          </span>
-                          {skill.enabled ? 'On' : 'Off'}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Section>
-
-              <Section
-                title="Add a skill"
-                hint="Writes skills/user/<name>/SKILL.md on the server. It is live from your next message — no restart."
-              >
-                <form onSubmit={(event) => void addSkill(event)} className="space-y-3">
-                  <input
-                    value={skillDraft.name}
-                    onChange={(event) => setSkillDraft({ ...skillDraft, name: event.target.value })}
-                    placeholder="Name, e.g. Meeting notes"
-                    maxLength={80}
-                    className={inputClass}
-                    aria-label="Skill name"
-                  />
-                  <input
-                    value={skillDraft.description}
-                    onChange={(event) => setSkillDraft({ ...skillDraft, description: event.target.value })}
-                    placeholder="What it covers and exactly when to use it (under 200 characters)"
-                    maxLength={200}
-                    className={inputClass}
-                    aria-label="Skill description"
-                  />
-                  <input
-                    value={skillDraft.triggers}
-                    onChange={(event) => setSkillDraft({ ...skillDraft, triggers: event.target.value })}
-                    placeholder="Trigger keywords, comma separated — e.g. standup, action items"
-                    className={inputClass}
-                    aria-label="Trigger keywords"
-                  />
-                  <select
-                    value={skillDraft.risk}
-                    onChange={(event) => setSkillDraft({ ...skillDraft, risk: event.target.value })}
-                    className={inputClass}
-                    aria-label="Risk category"
+          {topTab === 'Advanced' && (
+            <div className="min-h-[240px]">
+              {/* Section picker: one extra click before anything inside Advanced is shown. */}
+              <div className="flex gap-1 rounded-xl border border-white/[0.09] bg-white/[0.02] p-1" role="tablist" aria-label="Advanced sections">
+                {ADVANCED_SECTIONS.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    role="tab"
+                    aria-selected={advancedSection === name}
+                    onClick={() => setAdvancedSection(name)}
+                    className={`rounded-lg px-3 py-1.5 text-small font-medium transition ${
+                      advancedSection === name
+                        ? 'bg-white/[0.06] text-zinc-100'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
                   >
-                    <option value="read">Read — only ever reads information</option>
-                    <option value="write">Write — may create or change things</option>
-                    <option value="destructive">Destructive — may remove data</option>
-                    <option value="external_send">External send — may send data out</option>
-                  </select>
-                  <textarea
-                    value={skillDraft.body}
-                    onChange={(event) => setSkillDraft({ ...skillDraft, body: event.target.value })}
-                    placeholder={'Instructions, step by step. Written like a briefing for a competent colleague:\n\n1. …\n2. …'}
-                    rows={7}
-                    className="w-full rounded-lg border border-white/[0.09] bg-white/[0.03] px-3 py-2 text-body leading-6 text-zinc-100 outline-none transition placeholder:text-zinc-700 focus:border-white/30"
-                    aria-label="Skill instructions"
-                  />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="submit"
-                      disabled={skillBusy}
-                      className="h-9 rounded-lg bg-white/[0.12] px-3.5 text-small font-medium text-zinc-100 transition hover:bg-white/[0.18] disabled:opacity-50"
+                    {name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-4 space-y-4">
+                {advancedSection === 'Skills' && (
+                  <>
+                    <Section
+                      title="Skills"
+                      hint="Capability packs the model can draw on. Every skill's one-line description is always visible; the full instructions load only for a request that matches, for that turn only — never into saved history."
                     >
-                      {skillBusy ? 'Adding…' : 'Add skill'}
-                    </button>
-                    {skillNotice && (
-                      <p className="text-small text-emerald-300/90">{skillNotice}</p>
-                    )}
-                  </div>
-                  {skillError && <p className="text-small text-amber-300/90">{skillError}</p>}
-                </form>
-              </Section>
-            </>
-          )}
+                      {skillError && <p className="mb-2 text-small text-amber-300/90">{skillError}</p>}
+                      {skills === null ? (
+                        <p className="text-small text-zinc-600">Loading…</p>
+                      ) : skills.length === 0 ? (
+                        <p className="text-small text-zinc-600">Nothing here yet.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {skills.map((skill) => (
+                            <li
+                              key={skill.id}
+                              className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                            >
+                              <span className="min-w-0 flex-1">
+                                <span className="text-small-lg text-zinc-300">{skill.name}</span>
+                                <span className="ml-2 rounded border border-white/[0.1] px-1.5 py-0.5 text-micro text-zinc-500">
+                                  {skill.source === 'public' ? 'shipped' : 'yours'}
+                                </span>
+                                <span className="mt-0.5 block text-micro leading-[1.55] text-zinc-600">
+                                  {skill.description}
+                                </span>
+                                <span className="mt-1 block text-micro text-zinc-700">
+                                  Triggers: {skill.triggers.join(', ') || '—'}
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={skill.enabled}
+                                aria-label={`${skill.enabled ? 'Disable' : 'Enable'} ${skill.name}`}
+                                onClick={() => void toggleSkill(skill, !skill.enabled)}
+                                className="flex shrink-0 items-center gap-2 text-micro text-zinc-600"
+                              >
+                                <span aria-hidden="true" className="flex h-5 w-9 items-center rounded-full p-0.5 transition">
+                                  <span
+                                    className={`size-4 rounded-full transition-transform ${
+                                      skill.enabled ? 'translate-x-4 bg-emerald-300' : 'bg-white/[0.18]'
+                                    }`}
+                                  />
+                                </span>
+                                {skill.enabled ? 'On' : 'Off'}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </Section>
 
-          {tab === 'Data' && (
-            <>
-              <Section title="Documents" hint={`${documents.length} attached to this thread. Removing one deletes its stored chunks.`}>
-                {documents.length === 0 ? (
-                  <p className="text-small text-zinc-600">Nothing attached.</p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {documents.map((document) => (
-                      <li key={document.document_id} className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                        <span className="min-w-0 flex-1 truncate text-small-lg text-zinc-300">{document.filename}</span>
-                        <span className="shrink-0 text-micro text-zinc-600">{document.chunks_stored} chunks</span>
-                        <button
-                          type="button"
-                          onClick={() => removeDocument(document.document_id)}
-                          aria-label={`Delete ${document.filename}`}
-                          className="shrink-0 rounded-md p-1 text-zinc-600 transition hover:bg-white/[0.06] hover:text-zinc-200"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {documentError && <p className="mt-2 text-small text-amber-300/90">{documentError}</p>}
-              </Section>
-
-              <Section
-                title="Memories"
-                hint="Facts the model kept with remember. A memory enters a conversation only when the model asks for it with recall; nothing here loads on its own."
-              >
-                {memoryError && <p className="mb-2 text-small text-amber-300/90">{memoryError}</p>}
-                {memories === null ? (
-                  <p className="text-small text-zinc-600">Loading…</p>
-                ) : memories.length === 0 ? (
-                  <p className="text-small text-zinc-600">Nothing stored yet.</p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {memories.map((memory) => (
-                      <li
-                        key={memory.id}
-                        className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
-                      >
-                        <span className="min-w-0 flex-1">
-                          {memory.label && (
-                            <span className="mr-2 rounded border border-white/[0.1] px-1.5 py-0.5 text-micro text-zinc-500">
-                              {memory.label}
-                            </span>
+                    <Section
+                      title="Add a skill"
+                      hint="Writes skills/user/<name>/SKILL.md on the server. It is live from your next message — no restart."
+                    >
+                      <form onSubmit={(event) => void addSkill(event)} className="space-y-3">
+                        <input
+                          value={skillDraft.name}
+                          onChange={(event) => setSkillDraft({ ...skillDraft, name: event.target.value })}
+                          placeholder="Name, e.g. Meeting notes"
+                          maxLength={80}
+                          className={inputClass}
+                          aria-label="Skill name"
+                        />
+                        <input
+                          value={skillDraft.description}
+                          onChange={(event) => setSkillDraft({ ...skillDraft, description: event.target.value })}
+                          placeholder="What it covers and exactly when to use it (under 200 characters)"
+                          maxLength={200}
+                          className={inputClass}
+                          aria-label="Skill description"
+                        />
+                        <input
+                          value={skillDraft.triggers}
+                          onChange={(event) => setSkillDraft({ ...skillDraft, triggers: event.target.value })}
+                          placeholder="Trigger keywords, comma separated — e.g. standup, action items"
+                          className={inputClass}
+                          aria-label="Trigger keywords"
+                        />
+                        <textarea
+                          value={skillDraft.body}
+                          onChange={(event) => setSkillDraft({ ...skillDraft, body: event.target.value })}
+                          placeholder={'Instructions, step by step. Written like a briefing for a competent colleague:\n\n1. …\n2. …'}
+                          rows={7}
+                          className="w-full rounded-lg border border-white/[0.09] bg-white/[0.03] px-3 py-2 text-body leading-6 text-zinc-100 outline-none transition placeholder:text-zinc-700 focus:border-white/30"
+                          aria-label="Skill instructions"
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="submit"
+                            disabled={skillBusy}
+                            className="h-9 rounded-lg bg-white/[0.12] px-3.5 text-small font-medium text-zinc-100 transition hover:bg-white/[0.18] disabled:opacity-50"
+                          >
+                            {skillBusy ? 'Adding…' : 'Add skill'}
+                          </button>
+                          {skillNotice && (
+                            <p className="text-small text-emerald-300/90">{skillNotice}</p>
                           )}
-                          <span className="text-small-lg text-zinc-300">{memory.text}</span>
-                          <span className="mt-0.5 block text-micro text-zinc-600">
-                            {memory.created_at.slice(0, 10)}
-                          </span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => void removeMemory(memory.id)}
-                          aria-label={`Delete memory: ${memory.text.slice(0, 40)}`}
-                          className="shrink-0 rounded-md p-1 text-zinc-600 transition hover:bg-white/[0.06] hover:text-zinc-200"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                        </div>
+                        {skillError && <p className="text-small text-amber-300/90">{skillError}</p>}
+                      </form>
+                    </Section>
+                  </>
                 )}
-              </Section>
 
-              <Section
-                title="Threads"
-                hint={`${threadCount} thread${threadCount === 1 ? '' : 's'} in this workspace. Renaming updates the sidebar; deleting removes the thread and its messages from the server.`}
-              >
-                {threads.length === 0 ? (
-                  <p className="text-small text-zinc-600">No threads yet.</p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {threads.map((thread) => (
-                      <ThreadRow
-                        key={thread.id}
-                        thread={thread}
-                        onRename={onRenameThread}
-                        onDelete={onDeleteThread}
-                      />
-                    ))}
-                  </ul>
+                {advancedSection === 'Commands' && (
+                  <>
+                    <Section
+                      title="Command tool"
+                      hint="Lets Pentagon run CLI commands on this machine so it can build, test and inspect your project instead of only describing what to do."
+                    >
+                      {!commandSettings.available ? (
+                        <p className="rounded-lg border border-white/[0.07] bg-white/[0.02] px-3.5 py-3 text-small leading-6 text-zinc-500">
+                          This server does not offer the command tool. Set{' '}
+                          <code className="font-mono text-zinc-400">COMMAND_TOOL_ENABLED=true</code> in the
+                          backend environment and restart it to make it available.
+                        </p>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={commandSettings.enabled}
+                            disabled={commandBusy}
+                            onClick={() => void setCommandsEnabled(!commandSettings.enabled)}
+                            className="flex w-full items-start gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3.5 py-3 text-left transition hover:border-white/15 disabled:opacity-50"
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition ${
+                                commandSettings.enabled ? 'bg-emerald-300' : 'bg-white/[0.12]'
+                              }`}
+                            >
+                              <span
+                                className={`size-4 rounded-full bg-black transition-transform ${
+                                  commandSettings.enabled ? 'translate-x-4' : ''
+                                }`}
+                              />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-body font-medium text-zinc-100">
+                                Let Pentagon run commands
+                              </span>
+                              <span className="mt-0.5 block text-micro-sm leading-[1.55] text-zinc-600">
+                                {commandSettings.enabled
+                                  ? 'On. Read-only commands run immediately; anything else asks you first.'
+                                  : 'Off. The model is not offered a command tool at all.'}
+                              </span>
+                            </span>
+                          </button>
+                          {commandError && (
+                            <p className="mt-2 text-small text-amber-300/90">{commandError}</p>
+                          )}
+                        </>
+                      )}
+                    </Section>
+
+                    <Section title="How a command is treated" hint="The rule is that nothing runs unless you would be comfortable typing it yourself.">
+                      <p className="text-small leading-6 text-zinc-500">
+                        Read-only commands run by themselves; anything that changes your machine or
+                        reaches outside it asks you first. Commands that need{' '}
+                        <code className="font-mono text-[0.92em]">sudo</code> or another user account are
+                        refused outright, approved or not.
+                      </p>
+                    </Section>
+
+                    <Section
+                      title="Your desktop"
+                      hint="Alongside the command line, it can drive the desktop: open and close applications, focus windows, take screenshots, change the volume, control playback, send notifications, lock the screen, switch dark mode and manage power."
+                    >
+                      {commandSettings.desktop_available ? (
+                        <>
+                          <ul className="space-y-2.5 text-small leading-6 text-zinc-500">
+                            <li className="flex gap-2.5">
+                              <span className="mt-1 shrink-0 text-zinc-500">·</span>
+                              <span>
+                                <span className="text-zinc-300">Listing windows runs by itself.</span> Seeing
+                                which windows are open changes nothing, so it does not interrupt you.
+                              </span>
+                            </li>
+                            <li className="flex gap-2.5">
+                              <LockKeyhole size={13} className="mt-1 shrink-0 text-zinc-500" />
+                              <span>
+                                <span className="text-zinc-300">Everything else asks first.</span> Closing an
+                                app, locking the screen or shutting the machine down are shown to you as a
+                                plain description, not a command line, and do nothing if you decline.
+                              </span>
+                            </li>
+                            <li className="flex gap-2.5">
+                              <AlertTriangle size={13} className="mt-1 shrink-0 text-zinc-500" />
+                              <span>
+                                <span className="text-zinc-300">A fixed set, no shell.</span> These are named
+                                actions, not commands you can talk into. There is no way to phrase an
+                                instruction that turns into a shell command line.
+                              </span>
+                            </li>
+                          </ul>
+                          <p className="mt-3 text-micro leading-5 text-zinc-600">
+                            It closes a window by matching part of its title, so check what it picked before
+                            saying yes.
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-small leading-6 text-zinc-500">
+                          Desktop control is switched off on the server, so the model cannot open or close
+                          anything on this machine. Command line access is unaffected.
+                        </p>
+                      )}
+                    </Section>
+
+                    <Section
+                      title="Where it thinks you are"
+                      hint="For questions that depend on it — what is near me, what time is it there — it can look up your approximate position. It does this only when an answer actually needs it, never in the background."
+                    >
+                      {commandSettings.location_available ? (
+                        <>
+                          <ul className="space-y-2.5 text-small leading-6 text-zinc-500">
+                            <li className="flex gap-2.5">
+                              <MapPin size={13} className="mt-1 shrink-0 text-zinc-500" />
+                              <span>
+                                <span className="text-zinc-300">Your browser is asked first.</span> The app
+                                window shows you the usual permission prompt. If you decline, it falls back
+                                to a coarse estimate from your network connection.
+                              </span>
+                            </li>
+                            <li className="flex gap-2.5">
+                              <AlertTriangle size={13} className="mt-1 shrink-0 text-zinc-500" />
+                              <span>
+                                <span className="text-zinc-300">It is rarely precise.</span> This computer has
+                                no GPS, so a fallback is town-level at best. The answer always says which
+                                source produced it.
+                              </span>
+                            </li>
+                          </ul>
+                          <p className="mt-3 text-micro leading-5 text-zinc-600">
+                            Declining costs nothing: the model is told there is no location and is told to
+                            ask you rather than guess.
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-small leading-6 text-zinc-500">
+                          Location is switched off on the server, so it cannot work out where you are. Every
+                          other capability is unaffected.
+                        </p>
+                      )}
+                    </Section>
+
+                    <Section
+                      title="Uploaded documents and web pages"
+                      hint="The model reads whatever you attach and whatever it finds while searching, and text in either can try to instruct it. That is the main reason a command has to be shown to you before it runs."
+                    >
+                      <p className="text-small leading-6 text-zinc-500">
+                        Whether a command runs on its own or asks you first is set in the Permissions tab,
+                        the one you reached this panel from.
+                      </p>
+                    </Section>
+                  </>
                 )}
-              </Section>
 
-              <Section title="This browser" hint="Appearance, contrast, text size, density, sidebar layout, ambient mode and the default model.">
-                <button
-                  type="button"
-                  onClick={() => {
+                {advancedSection === 'Data' && (
+                  <>
+                    <Section title="Documents" hint={`${documents.length} attached to this thread. Removing one deletes its stored chunks.`}>
+                      {documents.length === 0 ? (
+                        <p className="text-small text-zinc-600">Nothing here yet.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {documents.map((document) => (
+                            <li key={document.document_id} className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                              <span className="min-w-0 flex-1 truncate text-small-lg text-zinc-300">{document.filename}</span>
+                              <span className="shrink-0 text-micro text-zinc-600">{document.chunks_stored} chunks</span>
+                              <button
+                                type="button"
+                                onClick={() => removeDocument(document.document_id)}
+                                aria-label={`Delete ${document.filename}`}
+                                className="shrink-0 rounded-md p-1 text-zinc-600 transition hover:bg-white/[0.06] hover:text-zinc-200"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {documentError && <p className="mt-2 text-small text-amber-300/90">{documentError}</p>}
+                    </Section>
+
+                    <Section
+                      title="Memories"
+                      hint="Facts the model kept with remember. A memory enters a conversation only when the model asks for it with recall; nothing here loads on its own."
+                    >
+                      {memoryError && <p className="mb-2 text-small text-amber-300/90">{memoryError}</p>}
+                      {memories === null ? (
+                        <p className="text-small text-zinc-600">Loading…</p>
+                      ) : memories.length === 0 ? (
+                        <p className="text-small text-zinc-600">Nothing here yet.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {memories.map((memory) => (
+                            <li
+                              key={memory.id}
+                              className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                            >
+                              <span className="min-w-0 flex-1">
+                                {memory.label && (
+                                  <span className="mr-2 rounded border border-white/[0.1] px-1.5 py-0.5 text-micro text-zinc-500">
+                                    {memory.label}
+                                  </span>
+                                )}
+                                <span className="text-small-lg text-zinc-300">{memory.text}</span>
+                                <span className="mt-0.5 block text-micro text-zinc-600">
+                                  {memory.created_at.slice(0, 10)}
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void removeMemory(memory.id)}
+                                aria-label={`Delete memory: ${memory.text.slice(0, 40)}`}
+                                className="shrink-0 rounded-md p-1 text-zinc-600 transition hover:bg-white/[0.06] hover:text-zinc-200"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </Section>
+
+                    <Section
+                      title="Threads"
+                      hint={`${threadCount} thread${threadCount === 1 ? '' : 's'} in this workspace. Renaming updates the sidebar; deleting removes the thread and its messages from the server.`}
+                    >
+                      {threads.length === 0 ? (
+                        <p className="text-small text-zinc-600">Nothing here yet.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {threads.map((thread) => (
+                            <ThreadRow
+                              key={thread.id}
+                              thread={thread}
+                              onRename={onRenameThread}
+                              onDelete={onDeleteThread}
+                            />
+                          ))}
+                        </ul>
+                      )}
+                    </Section>
+
+                    <Section title="This browser" hint="Appearance, contrast, text size, density, sidebar layout, ambient mode and the default model.">
+                      <button
+                        type="button"
+                        onClick={() => {
                     resetPreferences()
-                    setTab('Appearance')
+                    setTopTab('Advanced')
+                    setAdvancedSection('Appearance')
                   }}
-                  className="h-9 rounded-lg border border-white/[0.09] px-3.5 text-small text-zinc-300 transition hover:bg-white/[0.05]"
-                >
-                  Reset appearance and defaults
-                </button>
-              </Section>
-            </>
-          )}
+                        className="h-9 rounded-lg border border-white/[0.09] px-3.5 text-small text-zinc-300 transition hover:bg-white/[0.05]"
+                      >
+                        Reset appearance and defaults
+                      </button>
+                    </Section>
+                  </>
+                )}
 
-          {tab === 'About' && (
-            <>
-              <Section title="Pentagon">
-                <p className="text-small-lg leading-[1.7] text-zinc-500">
-                  A personal AI workspace. FastAPI and LangGraph on the server, React and Vite in the browser, models
-                  served by NVIDIA NIM. Your key, documents and threads stay on your own machine and server.
-                </p>
-              </Section>
+                {advancedSection === 'Appearance' && (
+                  <>
+                    <Section title="Background" hint="Monochrome by design. Surfaces shift, the palette does not.">
+                      <div role="radiogroup" aria-label="Background" className="grid gap-2">
+                        {APPEARANCES.map((option) => (
+                          <Choice
+                            key={option.value}
+                            selected={prefs.appearance === option.value}
+                            onSelect={() => setAppearance(option.value as Appearance)}
+                            label={option.label}
+                            note={option.note}
+                            swatch={option.swatch}
+                          />
+                        ))}
+                      </div>
+                    </Section>
 
-              <Section title="Keyboard" hint="The composer keeps focus while you work.">
-                <dl className="grid gap-2 sm:grid-cols-2">
-                  {SHORTCUTS.map(([keys, description]) => (
-                    <div key={keys} className="flex items-center gap-2.5">
-                      <dt className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 font-mono text-micro text-zinc-400">
-                        {keys}
-                      </dt>
-                      <dd className="min-w-0 truncate text-small text-zinc-600">{description}</dd>
+                    <Section title="Contrast" hint="Lifts the dim greys used for secondary text.">
+                      <div role="radiogroup" aria-label="Contrast" className="grid gap-2 sm:grid-cols-2">
+                        <Choice
+                          selected={prefs.contrast === 'standard'}
+                          onSelect={() => setContrast('standard' as Contrast)}
+                          label="Standard"
+                          note="Tuned for pure black; secondary text clears WCAG AA."
+                        />
+                        <Choice
+                          selected={prefs.contrast === 'high'}
+                          onSelect={() => setContrast('high' as Contrast)}
+                          label="High"
+                          note="Brighter dim text for dim rooms or low-quality panels."
+                        />
+                      </div>
+                    </Section>
+
+                    <Section title="Text size" hint="Rescales the whole type scale, from thread titles to body copy.">
+                      <div role="radiogroup" aria-label="Text size" className="grid gap-2 sm:grid-cols-3">
+                        {TEXT_SIZES.map((option) => (
+                          <Choice
+                            key={option.value}
+                            selected={prefs.textSize === option.value}
+                            onSelect={() => setTextSize(option.value as TextSize)}
+                            label={option.label}
+                            note={option.note}
+                          />
+                        ))}
+                      </div>
+                    </Section>
+
+                    <Section title="Density" hint="Tightens or loosens every gap and inset in the interface.">
+                      <div role="radiogroup" aria-label="Density" className="grid gap-2 sm:grid-cols-3">
+                        {DENSITIES.map((option) => (
+                          <Choice
+                            key={option.value}
+                            selected={prefs.density === option.value}
+                            onSelect={() => setDensity(option.value as Density)}
+                            label={option.label}
+                            note={option.note}
+                          />
+                        ))}
+                      </div>
+                    </Section>
+
+                    <Section title="Sidebar" hint="Folds the thread list away to icons, or shows it in full. Also toggleable with ⌘B / Ctrl+B.">
+                      <div role="radiogroup" aria-label="Sidebar" className="grid gap-2 sm:grid-cols-2">
+                        <Choice
+                          selected={!prefs.sidebarCollapsed}
+                          onSelect={() => setSidebarCollapsed(false)}
+                          label="Expanded"
+                          note="Thread titles, dates and the search field."
+                        />
+                        <Choice
+                          selected={prefs.sidebarCollapsed}
+                          onSelect={() => setSidebarCollapsed(true)}
+                          label="Collapsed"
+                          note="An icon rail. Hover a thread for its title."
+                        />
+                      </div>
+                    </Section>
+
+                    <Section title="Ambient effects" hint="The animated backdrop behind the conversation.">
+                      <div role="radiogroup" aria-label="Ambient background intensity" className="grid gap-2">
+                        {AMBIENT_OPTIONS.map((option) => (
+                          <Choice
+                            key={option.mode}
+                            selected={ambientMode === option.mode}
+                            onSelect={() => setAmbientMode(option.mode)}
+                            label={option.label}
+                            note={option.description}
+                            icon={option.icon}
+                          />
+                        ))}
+                      </div>
+                    </Section>
+                  </>
+                )}
+
+                {advancedSection === 'Model' && (
+                  <Section
+                    title="Default model"
+                    hint="Used for new threads. An existing thread keeps the model it was started with."
+                  >
+                    <div className="space-y-2.5">
+                      <select
+                        value={prefs.defaultModel || ''}
+                        onChange={(event) => setDefaultModel(event.target.value)}
+                        className={selectClass}
+                        aria-label="Default model"
+                      >
+                        <option value="" className="bg-black text-white">
+                          Server default{serverDefaultModel ? ` (${serverDefaultModel})` : ''}
+                        </option>
+                        {models.map((model) => (
+                          <option key={model.id} value={model.id} className="bg-black text-white">
+                            {model.id}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-small leading-[1.6] text-zinc-600">
+                        {models.length} model{models.length === 1 ? '' : 's'} available on this server. Reasoning models can take
+                        a couple of minutes before the first token.
+                      </p>
                     </div>
-                  ))}
-                </dl>
-              </Section>
-            </>
+                  </Section>
+                )}
+
+                {advancedSection === 'Audit log' && (
+                  <Section
+                    title="Audit log"
+                    hint="Every tool call the permission system handled, newest first. Filter by category or by decision."
+                  >
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        <label className="flex items-center gap-2 text-micro text-zinc-500">
+                          Category
+                          <select
+                            value={auditCategory}
+                            onChange={(event) => setAuditCategory(event.target.value)}
+                            className="h-7 rounded border border-white/[0.1] bg-black px-2 text-micro text-zinc-200 outline-none focus:border-white/30"
+                          >
+                            <option value="">All</option>
+                            {autonomySettings?.categories && Object.entries(autonomySettings.categories).map(([cat, meta]) => (
+                              <option key={cat} value={cat}>{(meta as { label: string }).label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="flex items-center gap-2 text-micro text-zinc-500">
+                          Decision
+                          <select
+                            value={auditDecision}
+                            onChange={(event) => setAuditDecision(event.target.value)}
+                            className="h-7 rounded border border-white/[0.1] bg-black px-2 text-micro text-zinc-200 outline-none focus:border-white/30"
+                          >
+                            <option value="">All</option>
+                            <option value="auto_approved">Auto-approved</option>
+                            <option value="user_approved">User-approved</option>
+                            <option value="user_denied">User-denied</option>
+                            <option value="blocked_never_allow">Blocked</option>
+                          </select>
+                        </label>
+                      </div>
+                      {auditLoading ? (
+                        <p className="text-small text-zinc-600">Loading…</p>
+                      ) : auditRows.length === 0 ? (
+                        <p className="text-small text-zinc-600">Nothing logged yet.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {auditRows.map((row) => (
+                            <li key={row.id} className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                              <span className="min-w-0 flex-1">
+                                <span className="text-small text-zinc-200">{row.tool_name}</span>
+                                <span className="ml-2 rounded border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-micro text-zinc-500">
+                                  {row.decision}
+                                </span>
+                                <span className="ml-1.5 rounded border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-micro text-zinc-500">
+                                  {row.category}
+                                </span>
+                                <span className="mt-0.5 block text-micro leading-5 text-zinc-600">
+                                  {row.arguments_summary ||
+                                    (row.tool_name && `No details recorded.`)}
+                                </span>
+                                <span className="mt-1 block text-micro text-zinc-700">
+                                  {new Date(row.timestamp).toLocaleString()}
+                                </span>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </Section>
+                )}
+
+                {advancedSection === 'About' && (
+                  <>
+                    <Section title="Pentagon">
+                      <p className="text-small-lg leading-[1.7] text-zinc-500">
+                        A personal AI workspace. FastAPI and LangGraph on the server, React and Vite in the
+                        browser, models served by NVIDIA NIM. Your key, documents and threads stay on your own
+                        machine and server.
+                      </p>
+                    </Section>
+
+                    <Section title="Keyboard" hint="The composer keeps focus while you work.">
+                      <dl className="grid gap-2 sm:grid-cols-2">
+                        {SHORTCUTS.map(([keys, description]) => (
+                          <div key={keys} className="flex items-center gap-2.5">
+                            <dt className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 font-mono text-micro text-zinc-400">
+                              {keys}
+                            </dt>
+                            <dd className="min-w-0 truncate text-small text-zinc-600">{description}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </Section>
+                  </>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </div>

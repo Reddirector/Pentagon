@@ -6,8 +6,9 @@ Runs against your own Supabase project and NVIDIA key. Nothing in this repo cont
 
 ```ini
 KEY_ENCRYPTION_SECRET=<fernet-key>            # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-DATABASE_URL=sqlite:///./pentagon.db          # local default; see §3 for Supabase Postgres
-NVIDIA_SERVER_API_KEY=<server-fallback-key>   # working key installed locally (last4 ...90kx)
+DATABASE_URL=sqlite:///./pentagon.db          # local default; see §3a for Supabase Postgres
+DATABASE_SCHEMA=pentagon                      # Postgres only: the schema the backend owns
+NVIDIA_SERVER_API_KEY=<server-fallback-key>   # optional; a user's own key in Settings wins
 DEFAULT_CHAT_MODEL=z-ai/glm-5.3-flash        # must exist in the live catalog
 TAVILY_API_KEY=<optional>                     # web-search fallback when ddgs is rate-limited
 SUPABASE_URL=<project url>
@@ -16,9 +17,10 @@ SUPABASE_SERVICE_ROLE_KEY=<service role key>
 SUPABASE_PROJECT_REF=<project ref>
 ```
 
-Current status: **WORKING.** The key installed in `pentagon-backend/.env` (len 70, last4
-`...90kx`) was verified live on `z-ai/glm-5.3-flash`: non-streamed HTTP 200 with the correct
-answer, and a full streamed reply through the app's own `/api/chat` SSE endpoint.
+Current status: **WORKING.** A key installed in `pentagon-backend/.env` was verified live on
+`z-ai/glm-5.3-flash`: non-streamed HTTP 200 with the correct answer, and a full streamed
+reply through the app's own `/api/chat` SSE endpoint. (No key material, not even a
+fingerprint of one, is recorded here.)
 **Latency is model-side: ~130–175 s before the first output token** (hidden reasoning phase,
 identical with `enable_thinking: false`; small `max_tokens` gets fully consumed by thinking —
 use the default ≥1024). `nvidia_timeout_seconds` was therefore raised 30 → 300 in
@@ -30,13 +32,55 @@ snappier replies pick a smaller model in the picker (live catalog).
 ```ini
 VITE_API_BASE_URL=http://127.0.0.1:8000
 VITE_SUPABASE_URL=<project url>
-VITE_SUPABASE_ANON_KEY=<anon key>
+VITE_SUPABASE_ANON_KEY=<anon or sb_publishable_ key>
 ```
 
 The Supabase vars are consumed by `src/lib/supabase.ts`, which throws a clear error if they
 are missing. The client is exported but not yet bound to app screens (see FINAL_REPORT).
 
-## 3. Supabase schema
+This is where a **publishable** key belongs. It is a browser credential by design: it is
+safe to ship in the bundle, it is limited to whatever the project's RLS policies allow, and
+it cannot open a database connection. For the backend's own database access see §3a.
+
+## 3. Supabase
+
+A Supabase project is used here in two independent ways, and they need different
+credentials. Mixing them up is the easy mistake, so: a **publishable** key
+(`sb_publishable_...`) is a browser credential. It grants whatever the project's RLS
+policies allow for anonymous callers, and it cannot open a database connection. It is
+never the backend's database credential.
+
+### 3a. The backend's database (optional — SQLite is the default)
+
+To keep conversations in Supabase Postgres, put the project's connection string in
+`pentagon-backend/.env`:
+
+```ini
+DATABASE_URL=postgresql+psycopg://postgres.<project-ref>:<db-password>@<host>:5432/postgres
+DATABASE_SCHEMA=pentagon
+```
+
+Copy it from **Dashboard → Project Settings → Database → Connection string** and prefer the
+**Session pooler** variant: the direct `db.<project-ref>.supabase.co` host is IPv6-only for
+many projects, and the transaction pooler needs the driver's prepared statements disabled.
+The password is the database password, not an API key.
+
+On first run the backend creates its schema (`DATABASE_SCHEMA`, default `pentagon`) and puts
+every table it owns there, including the chat checkpoints. It does **not** use `public`: the
+tables in `supabase/schema.sql` have uuid keys and foreign keys into `auth.users` that this
+local-first app cannot satisfy, and `public` is also the one schema the project's REST API
+exposes — so keeping the backend's rows elsewhere means a publishable key cannot read them
+at all. §3b is therefore optional; skip it if you only want the database.
+
+To run the backend's own suite against Postgres (it uses a throwaway
+`pentagon_test_<random>` schema and drops it afterwards):
+
+```bash
+cd pentagon-backend
+PENTAGON_TEST_DATABASE_URL='postgresql+psycopg://...' .venv/bin/python -m pytest tests -q
+```
+
+### 3b. The client-facing schema (only if the frontend uses Supabase)
 
 Run [`supabase/schema.sql`](../supabase/schema.sql) in the Supabase SQL editor once.
 It creates: `user_secrets`, `conversations`, `messages`, `files`, `mcp_connections`,
@@ -45,7 +89,9 @@ conversations/messages/files/feedback/action_audit, and **no client policies** o
 `user_secrets`/`mcp_connections`/`user_settings` (service-role only). Add a private
 `uploads` Storage bucket in the dashboard.
 
-Get keys from **Supabase Dashboard → Project Settings → API**.
+Get keys from **Supabase Dashboard → Project Settings → API**. The publishable/anon key goes
+to `pentagon-frontend/.env` (§2); the service-role key is server-side only and must never
+be shipped to a client or committed.
 
 ## 4. Run
 

@@ -76,11 +76,13 @@ export function MarkdownAnswer({ content }: { content: string }) {
 
 const TRACE_TITLES: Record<string, string> = {
   intent_router: 'Request routing',
+  skill_router: 'Skill matching',
   web_search: 'Web search',
   retrieve_documents: 'Retrieved documents',
   vision_analysis: 'Vision analysis',
   context_assembler: 'Context assembly',
   generate_response: 'Model response',
+  run_command: 'Tools run',
   conversation_context: 'Conversation context',
   transcription: 'Voice transcription',
   synthesis: 'Audio response',

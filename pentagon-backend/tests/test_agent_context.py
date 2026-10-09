@@ -1,6 +1,7 @@
 """Context management: a 200 KB result never enters the context whole."""
 
 import asyncio
+import time
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -9,6 +10,7 @@ from app.agent.context import (
     ContextBudget,
     ScratchStore,
     ToolScratchNote,
+    _STORE_TTL_SECONDS,
     compact_history,
     estimate_tokens,
 )
@@ -48,8 +50,12 @@ def test_big_result_is_stored_paged_and_searched():
 def test_expired_handles_are_cleaned_on_read():
     store = ScratchStore()
     stored = store.store("fetch_url", "x" * 10_000)
-    # Force-expire by rewinding the timestamp.
-    object.__setattr__(stored, "created_at", 0.0)
+    # Force-expire relative to the process clock. Rewinding to 0.0 only counts
+    # as expired once the host has been up longer than the TTL, which made this
+    # test pass or fail with the machine's uptime.
+    object.__setattr__(
+        stored, "created_at", time.monotonic() - _STORE_TTL_SECONDS - 1
+    )
     assert store.page(stored.handle) is None
 
 

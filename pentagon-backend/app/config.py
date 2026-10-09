@@ -11,6 +11,16 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "sqlite:///./pentagon.db"
+    # Which Postgres schema this app's own tables -- and the langgraph
+    # checkpoint tables -- live in. A Supabase project usually already holds
+    # the tables ``supabase/schema.sql`` describes: uuid keys, foreign keys
+    # into ``auth.users``. An app that does not authenticate through Supabase
+    # cannot satisfy those keys, so it keeps its own schema rather than
+    # colliding with them. ``public`` is also the only schema the project's
+    # REST API exposes, so this keeps the app's rows (encrypted API keys
+    # included) out of reach of the browser/publishable key entirely.
+    # Ignored on SQLite, which has no schemas.
+    database_schema: str = "pentagon"
     key_encryption_secret: SecretStr | None = None
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     # Reasoning models on NVIDIA NIM can take 2-3 minutes before their first

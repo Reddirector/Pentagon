@@ -17,9 +17,14 @@ dist/
 dist-ssr/
 release/
 .vite/
+# Standalone Electron binary downloaded for local smoke tests (~283 MB)
+pentagon-frontend/electron-download/
 
 # Local databases and generated data
 *.db
+# SQLite WAL/SHM sidecars (runtime state of a live pentagon.db)
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 chroma_data/

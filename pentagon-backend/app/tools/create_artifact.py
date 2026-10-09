@@ -64,7 +64,8 @@ TOOL_SPEC = ToolSpec(
     },
     # It writes a file to disk, so the ladder treats it like any write.
     tier="write",
-    timeout_s=10,
+
+    risk_category="local_filesystem_write",    timeout_s=10,
     cacheable=False,
     idempotent=False,
     parallel_safe=True,

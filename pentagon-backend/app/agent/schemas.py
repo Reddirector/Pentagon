@@ -17,6 +17,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.services.autonomy import RiskCategory, VALID_CATEGORIES
+
 Tier = Literal["read", "write", "destructive", "external_send"]
 
 ErrorCode = Literal[
@@ -85,6 +87,10 @@ class ToolSpec:
     # the injection detector over them before they enter the model's context.
     # It is presentation policy only and never affects the permission tier.
     untrusted: bool = False
+    # One of the six fixed Pentagon risk categories. Every tool MUST declare
+    # one so the permission_gate can classify it. An invalid or missing value
+    # fails registration (and therefore startup) with a message naming the tool.
+    risk_category: RiskCategory = "read_only_info"
 
     def validation_errors(self) -> list[str]:
         """Structural problems a registration must not ship with."""
@@ -103,6 +109,14 @@ class ToolSpec:
             problems.append(f"tier {self.tier!r} is not one of {sorted(_VALID_TIERS)}")
         if self.timeout_s <= 0:
             problems.append("timeout_s must be positive")
+
+            if self.risk_category not in VALID_CATEGORIES:
+                problems.append(f"risk_category {self.risk_category!r} is not one of {sorted(VALID_CATEGORIES)} (tool {self.name!r} needs exactly one)")
+        if self.risk_category not in VALID_CATEGORIES:
+            problems.append(
+                f"risk_category {self.risk_category!r} is not one of "
+                f"{sorted(VALID_CATEGORIES)} (tool {self.name!r} needs exactly one)"
+            )
         return problems
 
 

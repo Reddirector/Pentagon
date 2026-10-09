@@ -141,17 +141,49 @@ def test_conversation_routes_still_trust_the_user_id_which_is_known():
     """A deliberate boundary, recorded so the gap is visible.
 
     This raises the bar from "knows a string that leaks" to "can read the
-    user's private files". It does **not** gate the conversation routes, so
-    chat history is still reachable by anyone holding a user id. Closing that
-    is a larger change than this pass made.
+    user's private files". Conversation routes (chat, conversations, documents)
+    are still reachable by anyone holding a user id -- closing that gap requires
+    Supabase auth or a similar user authentication layer, which is larger than
+    this pass.
+
+    The authorising surface IS gated though: pending-approvals, approve/deny,
+    autonomy-settings, and audit-log all need the capability token now, same as
+    the commands routes. Knowing a user id alone is not enough to read what the
+    model is about to do or change what it is allowed to do.
     """
     schema = app.openapi()
-    ungated = [
-        path for path in schema["paths"]
-        if not path.startswith("/api/commands")
-    ]
-    assert ungated, "expected other API paths to exist"
-    for path in ungated:
+    # Commands routes are gated (original behavior)
+    for path in ("/api/commands/settings", "/api/commands/pending", "/api/commands/decide"):
         for operation in schema["paths"][path].values():
             names = [p["name"] for p in operation.get("parameters", [])]
-            assert "x-pentagon-capability" not in names, path
+            assert "x-pentagon-capability" in names, f"{path} should be gated"
+    # New gated routes: pending-approvals, autonomy-settings, audit-log,
+    # plus the approval-decision resume endpoint (same authorising surface as
+    # approve/deny).
+    for path in (
+        "/api/pending-approvals",
+        "/api/pending-approvals/{approval_id}/approve",
+        "/api/pending-approvals/{approval_id}/deny",
+        "/api/autonomy-settings",
+        "/api/autonomy-settings/{category}",
+        "/api/audit-log",
+        "/api/chat/{conversation_id}/resume",
+    ):
+        for operation in schema["paths"][path].values():
+            names = [p["name"] for p in operation.get("parameters", [])]
+            assert "x-pentagon-capability" in names, f"{path} should be gated"
+    # Chat and conversation routes are NOT gated (known gap, documented),
+    # except the resume decision endpoint above which is part of the gated
+    # authorising surface.
+    chat_routes = [
+        path for path in schema["paths"]
+        if path.startswith("/api/chat") or path.startswith("/api/conversations")
+        or path.startswith("/api/documents") or path.startswith("/api/models")
+        or path.startswith("/api/skills") or path.startswith("/api/memories")
+        or path.startswith("/api/voice")
+    ]
+    chat_routes = [p for p in chat_routes if p != "/api/chat/{conversation_id}/resume"]
+    for path in chat_routes:
+        for operation in schema["paths"][path].values():
+            names = [p["name"] for p in operation.get("parameters", [])]
+            assert "x-pentagon-capability" not in names, f"{path} should not be gated"

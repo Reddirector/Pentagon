@@ -187,3 +187,53 @@ export type Verification = {
   sources?: number
   problems?: string[]
 }
+
+/** One entry in the pending-approvals queue from GET /api/pending-approvals. */
+export type PendingApproval = {
+  id: string
+  conversation_id: string
+  user_id: string
+  tool_name: string
+  category: string
+  /** Plain-language label, e.g. "run `git push`" */
+  label: string
+  summary: string
+  args: Record<string, unknown>
+  pending_calls: Array<{ tool_call_id: string; tool_name: string; category: string; label: string; summary: string }>
+}
+
+/** The wrapped response from GET /api/pending-approvals. */
+export type PendingApprovalsResponse = {
+  pending: PendingApproval[]
+  conversation_id: string
+}
+
+/** One row from GET /api/audit-log. */
+export type AuditLogEntry = {
+  id: string
+  user_id: string
+  conversation_id: string
+  tool_name: string
+  category: string
+  autonomy_level_at_time: string
+  decision: string
+  arguments_summary: string
+  timestamp: string
+}
+
+/** Response shape for the six-category autonomy settings API. */
+export type AutonomySettings = {
+  user_id: string
+  settings: Record<string, string>
+  defaults: Record<string, string>
+  categories: Record<string, { label: string; description: string }>
+  levels: Record<string, { label: string; description: string }>
+  presets: Record<string, { name: string; description: string; levels: Record<string, string> }>
+  preset?: string
+  available?: boolean
+  tools?: Array<{
+    name: string
+    category?: string
+    overrideEnabled?: boolean
+  }>
+}
