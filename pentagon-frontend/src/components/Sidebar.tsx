@@ -253,7 +253,7 @@ export function Sidebar({
   ) : null}
   {collapsed ? (
     <div className="mb-6 flex flex-col items-center gap-3">
-      <LogomarkBadge size={30} label="Pentagon" />
+      <LogomarkBadge size={38} label="Pentagon" />
       <button
         type="button"
         onClick={() => persistSidebarCollapsed(false)}
@@ -275,7 +275,7 @@ export function Sidebar({
       >
         <X size={16} />
       </button>
-      <LogomarkBadge size={32} />
+      <LogomarkBadge size={38} />
       <div className="min-w-0 flex-1"><div className="truncate text-caption uppercase tracking-[.18em] text-zinc-500 font-medium">{workspaceName}</div></div>
       {isDesktop ? (
         <button

@@ -1,13 +1,25 @@
 /**
- * The Advanced tab's Data section: documents, memories, threads and the
- * browser reset. Lists load when their effect mounts, exactly as they did
- * when these lived in the dialog body.
+ * The Advanced tab's Data section: RAG documents, memories, threads and browser preferences.
+ * Redesigned with less text and more graphics/metrics, fully responsive across viewports.
  */
 import { useEffect, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import {
+  Brain,
+  FileSpreadsheet,
+  FileText,
+  Layers,
+  MessageSquare,
+  Trash2,
+} from 'lucide-react'
 import { apiRequest, getLocalUserId } from '../../../api'
 import type { Conversation, DocumentInfo, MemoryInfo } from '../../../types'
 import { Section, ThreadRow } from '../shared'
+import { resetPreferences } from '../../../lib/preferences'
+
+function getFileIcon(filename: string) {
+  if (/\.xlsx?|\.csv/i.test(filename)) return FileSpreadsheet
+  return FileText
+}
 
 export function DataSection({
   userId,
@@ -30,11 +42,7 @@ export function DataSection({
   onDeleteThread: (id: string) => void
   onJumpToAppearance: () => void
 }) {
-  // Deleting a document used to fail silently, so a broken request looked
-  // exactly like a click that did nothing.
   const [documentError, setDocumentError] = useState('')
-  // Memories are loaded once when the dialog opens: null means "still
-  // loading", an empty array means the store is genuinely empty.
   const [memories, setMemories] = useState<MemoryInfo[] | null>(null)
   const [memoryError, setMemoryError] = useState('')
 
@@ -74,9 +82,6 @@ export function DataSection({
   async function removeDocument(documentId: string) {
     setDocumentError('')
     try {
-      // remove_document is scoped by owner, so it needs the same user_id the
-      // upload and list calls send. Without it the request is a 422 and the
-      // document silently refuses to delete.
       await apiRequest(
         `/api/documents/${encodeURIComponent(documentId)}?user_id=${encodeURIComponent(getLocalUserId())}`,
         { method: 'DELETE' },
@@ -90,26 +95,69 @@ export function DataSection({
   }
 
   return (
-    <>
-      <Section title="Documents" hint={`${documentCount} attached to this thread. Removing one deletes its stored chunks.`}>
+    <div className="space-y-5">
+      {/* Visual RAG & Memory Overview Metrics */}
+      <div className="grid grid-cols-3 gap-2.5 max-sm:grid-cols-1">
+        <div className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+          <div className="grid size-9 place-items-center rounded-lg border border-emerald-400/30 bg-emerald-400/10 text-emerald-400">
+            <Layers size={16} />
+          </div>
+          <div>
+            <div className="text-body font-semibold text-white">{documentCount}</div>
+            <div className="text-[11px] text-zinc-500">RAG Documents</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+          <div className="grid size-9 place-items-center rounded-lg border border-purple-400/30 bg-purple-400/10 text-purple-400">
+            <Brain size={16} />
+          </div>
+          <div>
+            <div className="text-body font-semibold text-white">{memories?.length ?? 0}</div>
+            <div className="text-[11px] text-zinc-500">Learned Memories</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+          <div className="grid size-9 place-items-center rounded-lg border border-sky-400/30 bg-sky-400/10 text-sky-400">
+            <MessageSquare size={16} />
+          </div>
+          <div>
+            <div className="text-body font-semibold text-white">{threadCount}</div>
+            <div className="text-[11px] text-zinc-500">Workspace Threads</div>
+          </div>
+        </div>
+      </div>
+
+      <Section title="RAG Knowledge Base" hint="Source documents indexed for semantic vector retrieval.">
         {documents.length === 0 ? (
-          <p className="text-small text-zinc-600">Nothing here yet.</p>
+          <p className="text-small text-zinc-600">No documents indexed in this thread.</p>
         ) : (
-          <ul className="space-y-1.5">
-            {documents.map((document) => (
-              <li key={document.document_id} className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                <span className="min-w-0 flex-1 truncate text-small-lg text-zinc-300">{document.filename}</span>
-                <span className="shrink-0 text-micro text-zinc-600">{document.chunks_stored} chunks</span>
-                <button
-                  type="button"
-                  onClick={() => removeDocument(document.document_id)}
-                  aria-label={`Delete ${document.filename}`}
-                  className="shrink-0 rounded-md p-1 text-zinc-600 transition hover:bg-white/[0.06] hover:text-zinc-200"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </li>
-            ))}
+          <ul className="space-y-2">
+            {documents.map((document) => {
+              const FileIcon = getFileIcon(document.filename)
+              return (
+                <li key={document.document_id} className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] p-2.5 transition hover:border-white/[0.12]">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-emerald-400/10 text-emerald-400">
+                      <FileIcon size={14} />
+                    </div>
+                    <span className="min-w-0 flex-1 truncate text-small font-medium text-zinc-200">{document.filename}</span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 font-mono text-[10px] text-emerald-400">
+                      {document.chunks_stored} chunks
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeDocument(document.document_id)}
+                      aria-label={`Delete ${document.filename}`}
+                      className="grid size-7 place-items-center rounded-lg text-zinc-500 transition hover:bg-rose-400/10 hover:text-rose-400"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
         {documentError && <p className="mt-2 text-small text-amber-300/90">{documentError}</p>}
@@ -117,36 +165,36 @@ export function DataSection({
 
       <Section
         title="Memories"
-        hint="Facts the model kept with remember. A memory enters a conversation only when the model asks for it with recall; nothing here loads on its own."
+        hint="Semantic facts remembered across sessions."
       >
         {memoryError && <p className="mb-2 text-small text-amber-300/90">{memoryError}</p>}
         {memories === null ? (
           <p className="text-small text-zinc-600">Loading…</p>
         ) : memories.length === 0 ? (
-          <p className="text-small text-zinc-600">Nothing here yet.</p>
+          <p className="text-small text-zinc-600">No memories stored yet.</p>
         ) : (
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {memories.map((memory) => (
               <li
                 key={memory.id}
-                className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                className="flex items-start justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 transition hover:border-white/[0.12]"
               >
-                <span className="min-w-0 flex-1">
-                  {memory.label && (
-                    <span className="mr-2 rounded border border-white/[0.1] px-1.5 py-0.5 text-micro text-zinc-500">
-                      {memory.label}
-                    </span>
-                  )}
-                  <span className="text-small-lg text-zinc-300">{memory.text}</span>
-                  <span className="mt-0.5 block text-micro text-zinc-600">
-                    {memory.created_at.slice(0, 10)}
-                  </span>
-                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {memory.label && (
+                      <span className="rounded border border-purple-400/30 bg-purple-400/10 px-1.5 py-0.5 font-mono text-[10px] text-purple-300">
+                        {memory.label}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-zinc-500">{memory.created_at.slice(0, 10)}</span>
+                  </div>
+                  <div className="mt-1 text-small text-zinc-300">{memory.text}</div>
+                </div>
                 <button
                   type="button"
                   onClick={() => void removeMemory(memory.id)}
                   aria-label={`Delete memory: ${memory.text.slice(0, 40)}`}
-                  className="shrink-0 rounded-md p-1 text-zinc-600 transition hover:bg-white/[0.06] hover:text-zinc-200"
+                  className="grid size-7 shrink-0 place-items-center rounded-lg text-zinc-500 transition hover:bg-rose-400/10 hover:text-rose-400"
                 >
                   <Trash2 size={13} />
                 </button>
@@ -158,10 +206,10 @@ export function DataSection({
 
       <Section
         title="Threads"
-        hint={`${threadCount} thread${threadCount === 1 ? '' : 's'} in this workspace. Renaming updates the sidebar; deleting removes the thread and its messages from the server.`}
+        hint="Saved workspace conversations."
       >
         {threads.length === 0 ? (
-          <p className="text-small text-zinc-600">Nothing here yet.</p>
+          <p className="text-small text-zinc-600">No conversations recorded yet.</p>
         ) : (
           <ul className="space-y-1.5">
             {threads.map((thread) => (
@@ -176,7 +224,7 @@ export function DataSection({
         )}
       </Section>
 
-      <Section title="This browser" hint="Appearance, contrast, text size, density, sidebar layout, ambient mode and the default model.">
+      <Section title="This Browser" hint="Reset locally cached preferences and layout.">
         <button
           type="button"
           onClick={() => {
@@ -188,10 +236,6 @@ export function DataSection({
           Reset appearance and defaults
         </button>
       </Section>
-    </>
+    </div>
   )
 }
-
-// Imported here rather than at the top to keep the module's obvious dependency
-// list in one place with its only use site.
-import { resetPreferences } from '../../../lib/preferences'

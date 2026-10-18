@@ -98,7 +98,7 @@ export function SettingsDialog({
           </button>
         </div>
 
-        <div role="tablist" aria-label="Settings sections" className="flex shrink-0 gap-1 overflow-x-auto border-b border-white/[0.07] px-4">
+        <div role="tablist" aria-label="Settings sections" className="flex shrink-0 gap-1 overflow-x-auto border-b border-white/[0.07] px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {TOP_TABS.map((name) => (
             <button
               key={name}

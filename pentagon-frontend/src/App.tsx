@@ -20,6 +20,7 @@ import {
   Plus,
   Presentation,
   ShieldCheck,
+  Sparkles,
   Square,
   Video,
   Workflow,
@@ -55,37 +56,33 @@ const WorkflowDesigner = lazy(() => import('./components/WorkflowDesigner').then
 const DASHBOARD_ACTIONS = [
   {
     icon: FileText,
-    badge: 'Word Document',
+    badge: 'Executive Proposal',
     tag: '.docx',
     title: 'Enterprise Business Proposal',
-    description: 'Executive summary, market sizing, financial forecast, and roadmap.',
     prompt: 'Create a comprehensive 5-page enterprise SaaS business proposal with executive summary, market analysis, financial projections, and implementation roadmap as a Word document (.docx).',
     agent: true,
   },
   {
     icon: FileSpreadsheet,
-    badge: 'Excel Spreadsheet',
+    badge: 'Financial Model',
     tag: '.xlsx',
-    title: 'SaaS Financial & Revenue Model',
-    description: 'Monthly cohorts, revenue projection, CAC/LTV, and cash flow formulas.',
+    title: 'SaaS Revenue & Cohorts',
     prompt: 'Build a multi-year SaaS financial model spreadsheet with monthly revenue forecasts, customer cohorts, CAC/LTV calculations, and EBITDA summaries (.xlsx).',
     agent: true,
   },
   {
     icon: Presentation,
-    badge: 'Slide Presentation',
+    badge: 'Pitch Deck',
     tag: '.pptx',
-    title: 'Investor Pitch Deck',
-    description: '10 structured slides on problem, solution, traction, and team.',
+    title: 'Investor Slide Deck',
     prompt: 'Generate an engaging 10-slide startup pitch deck presentation covering the problem, solution, market size, product demo, unit economics, and team (.pptx).',
     agent: true,
   },
   {
     icon: Globe,
-    badge: 'Deep Research',
-    tag: 'Web & Sources',
+    badge: 'Web Synthesis',
+    tag: 'Web',
     title: 'Frontier AI Research Report',
-    description: 'Multi-query web synthesis of reasoning models and benchmark papers.',
     prompt: 'Perform deep research on current 2026 breakthroughs in agentic AI architectures and multi-step reasoning models, synthesizing verified findings and citations.',
     agent: true,
   },
@@ -707,7 +704,7 @@ function App() {
   }
 
 
-  if (booting) return <div className="grid h-full min-h-dvh place-items-center bg-[#000000]"><div className="relative flex items-center justify-center"><div className="absolute size-20 rounded-full bg-emerald-400/[0.08] blur-xl animate-pulse" /><LogomarkBadge size={36} /></div></div>
+  if (booting) return <div className="grid h-full min-h-dvh place-items-center bg-[#000000]"><div className="relative flex items-center justify-center"><div className="absolute size-28 rounded-full bg-emerald-400/[0.15] blur-2xl animate-pulse" /><LogomarkBadge size={54} /></div></div>
 
   if (keyNeeded) return <KeyGate
     value={keys.keyValue}
@@ -981,9 +978,9 @@ function App() {
               />)}
             </div> : (
               <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-10 text-center">
-                <div className="relative mb-5 grid size-[68px] place-items-center">
-                  <div className="absolute inset-0 rounded-full bg-emerald-400/[0.08] blur-xl" />
-                  <Logomark size={56} />
+                <div className="relative mb-6 grid size-[88px] place-items-center">
+                  <div className="absolute inset-0 rounded-full bg-emerald-400/[0.14] blur-2xl" />
+                  <LogomarkBadge size={72} />
                 </div>
 
                 <p className="mb-2 text-caption font-semibold uppercase tracking-[.25em] text-emerald-300/80">
@@ -996,9 +993,17 @@ function App() {
                     : (userName ? `Welcome back, ${userName}` : 'Welcome back')}
                 </h1>
 
-                <p className="mt-2.5 max-w-lg text-body text-zinc-400">
-                  Generate production-ready Word, Excel, Slide, and PDF documents, conduct deep web investigations, or reason through complex problems.
-                </p>
+                <div className="mt-3.5 flex flex-wrap items-center justify-center gap-2 text-micro">
+                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-zinc-400">
+                    <Sparkles size={11} className="text-emerald-400" /> Multi-Step Reasoning
+                  </span>
+                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-zinc-400">
+                    <Globe size={11} className="text-sky-400" /> Grounded Search
+                  </span>
+                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-zinc-400">
+                    <FileText size={11} className="text-purple-400" /> Rich Deliverables
+                  </span>
+                </div>
 
                 {!active && (
                   <button
@@ -1036,8 +1041,9 @@ function App() {
                         <div className="text-small font-semibold text-zinc-200 group-hover:text-white">
                           {card.title}
                         </div>
-                        <div className="mt-1 line-clamp-2 text-micro leading-relaxed text-zinc-500">
-                          {card.description}
+                        <div className="mt-1.5 flex items-center gap-1.5 text-micro text-emerald-400/80">
+                          <Sparkles size={11} />
+                          <span>{card.badge}</span>
                         </div>
                       </button>
                     )
@@ -1248,10 +1254,10 @@ function KeyGate({ value, validation, validationMessage, saving, error, onChange
       <section className="relative z-10 flex w-full max-w-[380px] flex-col items-center text-center">
         {/* Sleek Centerpiece Logo Graphic */}
         <div className="relative mb-8 flex items-center justify-center">
-          <div className="absolute size-24 rounded-full bg-emerald-400/[0.08] blur-2xl transition duration-700" />
-          <div className="relative flex size-20 items-center justify-center rounded-2xl border border-white/[0.08] bg-[#0a0a0a]/80 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/[0.05] to-transparent" />
-            <LogomarkBadge size={44} className="transition duration-500 hover:scale-105" />
+          <div className="absolute size-36 rounded-full bg-emerald-400/[0.18] blur-3xl transition duration-700" />
+          <div className="relative flex size-28 items-center justify-center rounded-3xl border border-white/[0.12] bg-[#090a0d]/90 shadow-[0_24px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl ring-1 ring-white/[0.06]">
+            <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-white/[0.08] to-transparent" />
+            <LogomarkBadge size={72} className="transition duration-500 hover:scale-105" />
           </div>
         </div>
 

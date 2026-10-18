@@ -45,35 +45,35 @@ const NODE_TYPES: Array<{
   {
     type: 'trigger',
     label: 'Trigger & Inputs',
-    description: 'Initial parameters and user inputs to kick off the pipeline',
+    description: 'Pipeline variables & entry parameters',
     icon: Zap,
     color: 'emerald',
   },
   {
     type: 'web_search',
     label: 'Web Intelligence',
-    description: 'Searches the live web and scrapes grounded source content',
+    description: 'Live web scraping & grounded research',
     icon: Globe,
     color: 'sky',
   },
   {
     type: 'llm_transform',
-    label: 'LLM Reasoning & Synthesis',
-    description: 'Deep multi-step reasoning, outline drafting, and analysis',
+    label: 'LLM Reasoning',
+    description: 'Deep reasoning, analysis & drafting',
     icon: Sparkles,
     color: 'purple',
   },
   {
     type: 'image_generation',
-    label: 'Visual & Infographic Gen',
-    description: 'FLUX.1 diffusion and vector architecture diagrams',
+    label: 'Visual & Media',
+    description: 'Diffusion & diagram synthesis',
     icon: ImageIcon,
     color: 'amber',
   },
   {
     type: 'document_generation',
     label: 'Document Deliverable',
-    description: 'Compiles Word (.docx), PDF, Excel (.xlsx), Slides (.pptx) or HTML',
+    description: 'Word, Excel, Slide, PDF & HTML output',
     icon: FileText,
     color: 'rose',
   },
@@ -488,7 +488,7 @@ export function WorkflowDesigner({
             }`}
           >
             <LayoutTemplate size={14} />
-            <span>Templates</span>
+            <span className="hidden sm:inline">Templates</span>
           </button>
 
           {/* New Workflow button */}
@@ -533,7 +533,7 @@ export function WorkflowDesigner({
             className="flex items-center gap-1.5 rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-3.5 py-1.5 text-xs font-semibold text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)] transition hover:bg-emerald-500/30 active:scale-95 disabled:opacity-50"
           >
             <Play size={14} className="fill-emerald-400" />
-            <span>Run Pipeline</span>
+            <span className="hidden sm:inline">Run Pipeline</span>
           </button>
 
           {/* Close Studio */}
@@ -594,7 +594,7 @@ export function WorkflowDesigner({
               </button>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {templates.map((tpl) => (
                 <div
                   key={tpl.id}
@@ -610,7 +610,7 @@ export function WorkflowDesigner({
                       </span>
                     </div>
                     <h3 className="text-sm font-semibold text-white">{tpl.name}</h3>
-                    <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{tpl.description}</p>
+                    <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-zinc-400">{tpl.description}</p>
                     <div className="mt-4 flex flex-wrap gap-1.5">
                       {tpl.nodes.map((node, i) => (
                         <span key={node.id} className="rounded-md bg-white/[0.05] px-2 py-0.5 text-[10px] text-zinc-300">
@@ -704,7 +704,7 @@ export function WorkflowDesigner({
                               {meta.label}
                             </span>
                           </div>
-                          <p className="mt-0.5 text-xs text-zinc-400">
+                          <p className="mt-0.5 line-clamp-1 max-w-[180px] sm:max-w-xs md:max-w-md text-xs text-zinc-400">
                             {node.description || 'Configurable pipeline step'}
                           </p>
                         </div>
@@ -794,7 +794,12 @@ export function WorkflowDesigner({
 
         {/* Node Inspector Drawer */}
         {selectedNode && (
-          <aside className="w-80 shrink-0 border-l border-white/[0.08] bg-black/40 p-5 backdrop-blur-xl md:w-96 overflow-y-auto">
+          <>
+            <div
+              className="fixed inset-0 z-30 bg-black/60 backdrop-blur-xs md:hidden"
+              onClick={() => setSelectedNodeId(null)}
+            />
+            <aside className="fixed inset-y-0 right-0 z-40 w-full sm:w-96 md:relative md:w-80 lg:w-96 md:shrink-0 border-l border-white/[0.08] bg-[#0c0d12]/95 md:bg-black/40 p-5 backdrop-blur-xl overflow-y-auto shadow-2xl md:shadow-none">
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
               <div className="flex items-center gap-2">
                 <Settings2 size={16} className="text-emerald-400" />
@@ -1004,6 +1009,7 @@ export function WorkflowDesigner({
               )}
             </div>
           </aside>
+        </>
         )}
       </div>
 

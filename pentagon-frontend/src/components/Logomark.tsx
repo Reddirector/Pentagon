@@ -21,9 +21,17 @@ import { LOGO_PATH, LOGO_VIEWBOX } from './logoPaths'
 // which read as roughly half-white against the app's black surface. Baking
 // that into fillOpacity keeps the mark looking identical while letting it
 // inherit the surrounding text colour.
-const INK_OPACITY = 0.5
+const INK_OPACITY = 0.85
 
-export function Logomark({ size = 18, className = '' }: { size?: number; className?: string }) {
+export function Logomark({
+  size = 18,
+  className = '',
+  opacity = INK_OPACITY,
+}: {
+  size?: number
+  className?: string
+  opacity?: number
+}) {
   return (
     <svg
       viewBox={LOGO_VIEWBOX}
@@ -32,13 +40,9 @@ export function Logomark({ size = 18, className = '' }: { size?: number; classNa
       role="presentation"
       aria-hidden="true"
       focusable="false"
-      // No draggable={false} here, and that is the point: React's SVGProps has
-      // no such property, because an <svg> root has no drag affordance to
-      // disable. The .logo-mark rule in index.css covers selection and the
-      // Safari-specific -webkit-user-drag.
       className={`logo-mark shrink-0 select-none ${className}`}
     >
-      <path d={LOGO_PATH} fill="currentColor" fillOpacity={INK_OPACITY} fillRule="evenodd" />
+      <path d={LOGO_PATH} fill="currentColor" fillOpacity={opacity} fillRule="evenodd" />
     </svg>
   )
 }
@@ -47,17 +51,19 @@ export function LogomarkBadge({
   size = 34,
   className = '',
   label,
+  opacity = 0.95,
 }: {
   size?: number
   className?: string
   label?: string
+  opacity?: number
 }) {
   return (
     <span
       className={`grid shrink-0 place-items-center ${className}`}
       style={{ width: size, height: size }}
     >
-      <Logomark size={size} className="opacity-90" />
+      <Logomark size={size} opacity={opacity} className="text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.35)]" />
       {label ? <span className="sr-only">{label}</span> : null}
     </span>
   )

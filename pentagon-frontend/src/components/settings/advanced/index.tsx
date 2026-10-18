@@ -1,9 +1,14 @@
-/**
- * The Advanced top tab: a thin container that owns only the section-picker
- * state and renders the matching section component. All data and handlers
- * flow in as props so each section stays self-contained.
- */
 import { useState } from 'react'
+import {
+  Cpu,
+  Database,
+  Info,
+  Palette,
+  Server,
+  ShieldCheck,
+  Sparkles,
+  Terminal,
+} from 'lucide-react'
 import type {
   AutonomySettings,
   CommandSettings,
@@ -18,8 +23,17 @@ import { DataSection } from './DataSection'
 import { AppearanceSection, DefaultModelSection } from './AppearanceSection'
 import { AuditLogSection, AboutSection } from './AuditLogSection'
 
-const ADVANCED_SECTIONS = ['Skills', 'MCP Servers', 'Commands', 'Data', 'Appearance', 'Model', 'Audit log', 'About'] as const
-export type AdvancedSection = (typeof ADVANCED_SECTIONS)[number]
+const ADVANCED_SECTIONS = [
+  { id: 'Skills', label: 'Skills', icon: Sparkles },
+  { id: 'MCP Servers', label: 'MCP Servers', icon: Server },
+  { id: 'Commands', label: 'Commands', icon: Terminal },
+  { id: 'Data', label: 'Data', icon: Database },
+  { id: 'Appearance', label: 'Appearance', icon: Palette },
+  { id: 'Model', label: 'Model', icon: Cpu },
+  { id: 'Audit log', label: 'Audit Log', icon: ShieldCheck },
+  { id: 'About', label: 'About', icon: Info },
+] as const
+export type AdvancedSection = (typeof ADVANCED_SECTIONS)[number]['id']
 
 export interface AdvancedTabProps {
   userId: string
@@ -44,24 +58,33 @@ export function AdvancedTab(props: AdvancedTabProps) {
 
   return (
     <div className="min-h-[240px]">
-      {/* Section picker: one extra click before anything inside Advanced is shown. */}
-      <div className="flex gap-1 rounded-xl border border-white/[0.09] bg-white/[0.02] p-1" role="tablist" aria-label="Advanced sections">
-        {ADVANCED_SECTIONS.map((name) => (
-          <button
-            key={name}
-            type="button"
-            role="tab"
-            aria-selected={advancedSection === name}
-            onClick={() => setAdvancedSection(name)}
-            className={`rounded-lg px-3 py-1.5 text-small font-medium transition ${
-              advancedSection === name
-                ? 'bg-white/[0.06] text-zinc-100'
-                : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            {name}
-          </button>
-        ))}
+      {/* Horizontally scrollable section picker on mobile/tablet */}
+      <div
+        className="flex gap-1 overflow-x-auto rounded-xl border border-white/[0.09] bg-white/[0.02] p-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        role="tablist"
+        aria-label="Advanced sections"
+      >
+        {ADVANCED_SECTIONS.map((item) => {
+          const Icon = item.icon
+          const isSelected = advancedSection === item.id
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={isSelected}
+              onClick={() => setAdvancedSection(item.id)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-small font-medium transition ${
+                isSelected
+                  ? 'bg-emerald-400/15 text-emerald-300 shadow-sm'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <Icon size={13} className={isSelected ? 'text-emerald-400' : 'text-zinc-500'} />
+              <span>{item.label}</span>
+            </button>
+          )
+        })}
       </div>
 
       <div className="mt-4 space-y-4">

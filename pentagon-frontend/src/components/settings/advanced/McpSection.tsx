@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Server,
+  Terminal,
   Trash2,
   X,
   Zap,
@@ -438,7 +439,7 @@ export function McpSection({ userId: _userId }: { userId: string }) {
                         </div>
 
                         <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                          <code className="max-w-[420px] truncate rounded bg-white/[0.04] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+                          <code className="max-w-full sm:max-w-xs md:max-w-md truncate rounded bg-white/[0.04] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
                             {server.command.join(' ')}
                           </code>
                           <span className="text-micro text-zinc-500">
@@ -554,9 +555,9 @@ export function McpSection({ userId: _userId }: { userId: string }) {
       {/* Quick Install Presets */}
       <Section
         title="Quick Install Presets"
-        hint="Pre-configured templates for standard Model Context Protocol servers. Click to populate the setup form."
+        hint="One-click templates to extend Pentagon's tool library."
       >
-        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-2.5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {presets.map((preset) => {
             const Icon = PRESET_ICONS[preset.id] || Server
             const isInstalled = servers?.some((s) => s.name === preset.name)
@@ -585,9 +586,10 @@ export function McpSection({ userId: _userId }: { userId: string }) {
                 <div className="text-small font-semibold text-zinc-200 group-hover:text-white">
                   {preset.title}
                 </div>
-                <p className="mt-1 line-clamp-2 text-micro leading-relaxed text-zinc-500">
-                  {preset.description}
-                </p>
+                <div className="mt-2 flex w-full items-center gap-1.5 rounded bg-white/[0.03] px-2 py-1 text-[11px] font-mono text-zinc-400">
+                  <Terminal size={11} className="shrink-0 text-emerald-400" />
+                  <span className="truncate">{preset.command.slice(0, 2).join(' ')}</span>
+                </div>
               </button>
             )
           })}
@@ -597,12 +599,12 @@ export function McpSection({ userId: _userId }: { userId: string }) {
       {/* Add / Edit Server Modal */}
       {showAddForm && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3 sm:p-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-label="Add MCP Server"
         >
-          <div className="panel-enter w-full max-w-[620px] rounded-2xl border border-white/[0.12] bg-[var(--surface-panel)] p-6 shadow-2xl">
+          <div className="panel-enter w-full max-w-[620px] max-h-[90vh] overflow-y-auto rounded-2xl border border-white/[0.12] bg-[var(--surface-panel)] p-4 sm:p-6 shadow-2xl">
             <div className="mb-4 flex items-center justify-between border-b border-white/[0.07] pb-3">
               <div className="flex items-center gap-2">
                 <Zap size={16} className="text-emerald-400" />
@@ -647,7 +649,7 @@ export function McpSection({ userId: _userId }: { userId: string }) {
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1 block text-micro font-medium uppercase tracking-[.1em] text-zinc-400">
                     Default Approval Tier
