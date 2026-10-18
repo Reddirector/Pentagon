@@ -78,6 +78,12 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   const capability = await getCapability()
   const headers = new Headers(init?.headers)
   if (capability) headers.set('X-Pentagon-Capability', capability)
+  if (typeof window !== 'undefined') {
+    const nvidiaKey = localStorage.getItem('pentagon.nvidiaKey')?.trim()
+    if (nvidiaKey && !headers.has('X-Nvidia-Key')) {
+      headers.set('X-Nvidia-Key', nvidiaKey)
+    }
+  }
   const response = await fetch(apiUrl(path), { ...init, headers })
   if (!response.ok) {
     let message = `Request failed (${response.status})`

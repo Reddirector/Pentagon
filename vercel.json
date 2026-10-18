@@ -1,17 +1,19 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "services": {
-    "pentagon-frontend": {
-      "root": "pentagon-frontend",
-      "framework": "vite"
-    }
-  },
+  "buildCommand": "cd pentagon-frontend && npm run build",
+  "outputDirectory": "pentagon-frontend/dist",
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "/api?__route=$1"
+    },
+    {
+      "source": "/api",
+      "destination": "/api"
+    },
+    {
       "source": "/(.*)",
-      "destination": {
-        "service": "pentagon-frontend"
-      }
+      "destination": "/index.html"
     }
   ]
 }

@@ -134,6 +134,8 @@ export function useChatStream(options: UseChatStreamOptions) {
       form.set('conversation_id', thread.id)
       form.set('model', modelForMessage)
       form.set('message', question)
+      const savedNvidiaKey = typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey')?.trim() : ''
+      if (savedNvidiaKey) form.set('nvidia_key', savedNvidiaKey)
       // Web search is not a user toggle: omitting the field lets the backend
       // router decide when a question actually needs live results.
       if (transcriptInfo && !agentMode) form.set('respond_with_audio', 'true')
@@ -319,6 +321,8 @@ export function useChatStream(options: UseChatStreamOptions) {
     const capability = await getCapability()
     const headers: Record<string, string> = { Accept: 'text/event-stream' }
     if (capability) headers['X-Pentagon-Capability'] = capability
+    const savedNvidiaKey = typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey')?.trim() : ''
+    if (savedNvidiaKey) headers['X-Nvidia-Key'] = savedNvidiaKey
     const hasMedia = form.has('image') || form.has('video')
     const endpoint = hasMedia ? '/api/chat' : (agentMode ? '/api/agent/chat' : '/api/chat')
     const response = await fetch(apiUrl(endpoint), {
