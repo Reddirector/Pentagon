@@ -8,7 +8,6 @@ import {
   Pencil,
   Search,
   Trash2,
-  Workflow,
   X,
 } from 'lucide-react'
 import { LogomarkBadge } from './Logomark'
@@ -54,7 +53,6 @@ export function Sidebar({
   onDelete,
   onOpenPalette,
   onOpenSettings,
-  onOpenWorkflows,
   open = false,
   onClose,
   userId = '',
@@ -69,7 +67,6 @@ export function Sidebar({
   onDelete: (id: string) => void
   onOpenPalette?: () => void
   onOpenSettings?: (tab?: 'Account' | 'Permissions' | 'Advanced') => void
-  onOpenWorkflows?: () => void
   userId?: string
   /** Drawer state. Only meaningful below the md breakpoint, where the sidebar
       becomes an overlay instead of a column. */
@@ -305,15 +302,6 @@ export function Sidebar({
       </button>
       <button
         type="button"
-        onClick={onOpenWorkflows}
-        aria-label="Workflows Studio"
-        title="Workflows Studio"
-        className="grid size-9 place-items-center rounded-xl border border-sky-400/25 bg-sky-400/[0.08] text-sky-300 transition hover:border-sky-300/40 hover:bg-sky-400/[0.16] hover:text-white hover:shadow-[0_2px_10px_rgba(56,189,248,0.2)]"
-      >
-        <Workflow size={16} />
-      </button>
-      <button
-        type="button"
         onClick={() => {
           focusSearchOnMount.current = true
           persistSidebarCollapsed(false)
@@ -348,18 +336,6 @@ export function Sidebar({
       ⌘K
     </button>
   </div>
-
-  <button
-    type="button"
-    onClick={onOpenWorkflows}
-    className="mb-4 flex w-full items-center justify-between rounded-xl border border-sky-400/25 bg-sky-400/[0.06] px-3 py-2 text-left text-small font-medium text-sky-200 transition duration-200 hover:border-sky-400/40 hover:bg-sky-400/[0.12] hover:text-white"
-  >
-    <div className="flex items-center gap-2.5">
-      <Workflow size={15} className="text-sky-400" />
-      <span>Workflows Studio</span>
-    </div>
-    <span className="rounded-md bg-sky-400/15 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-sky-300">DAG</span>
-  </button>
 
   <div className="relative mb-6">
     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />

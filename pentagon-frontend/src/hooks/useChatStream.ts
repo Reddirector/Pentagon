@@ -96,10 +96,6 @@ export function useChatStream(options: UseChatStreamOptions) {
     event?.preventDefault()
     const typed = draft.trim()
     if (streaming || transcribing || uploading || !options.hasActiveThread || !selectedModel || (!typed && !media)) return
-    if (agentMode && media) {
-      setError('Agent mode is text-only for now — switch back to Standard chat to attach media.')
-      return
-    }
     const question = typed || (media && isVideo(media) ? 'Describe what happens in this video with timestamps.' : 'Describe what is in this image.')
     const pendingDocs = [...queuedDocuments]
     const mediaForMessage = media
@@ -323,7 +319,9 @@ export function useChatStream(options: UseChatStreamOptions) {
     const capability = await getCapability()
     const headers: Record<string, string> = { Accept: 'text/event-stream' }
     if (capability) headers['X-Pentagon-Capability'] = capability
-    const response = await fetch(apiUrl(agentMode ? '/api/agent/chat' : '/api/chat'), {
+    const hasMedia = form.has('image') || form.has('video')
+    const endpoint = hasMedia ? '/api/chat' : (agentMode ? '/api/agent/chat' : '/api/chat')
+    const response = await fetch(apiUrl(endpoint), {
       method: 'POST',
       body: form,
       headers,

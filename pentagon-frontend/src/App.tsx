@@ -16,18 +16,15 @@ import {
   LoaderCircle,
   LockKeyhole,
   Menu,
-  MessageSquare,
   Mic,
   Paperclip,
   Plus,
   Presentation,
-  ShieldCheck,
+  Settings,
   Sparkles,
   Square,
   Video,
-  Workflow,
   X,
-  Zap,
 } from 'lucide-react'
 import { apiRequest, getLocalUserId } from './api'
 import { useApiKeys } from './hooks/useApiKeys'
@@ -179,7 +176,7 @@ function App() {
   // (tool timeline, plan, approvals, questions, artifacts) render under the
   // answer instead of the graph's plain token stream. The choice is ours to
   // remember across reloads -- it is a way of working, not a per-turn flag.
-  const [agentMode, setAgentMode] = useState(() => {
+  const [agentMode] = useState(() => {
     try { return window.localStorage.getItem('pentagon.agentMode') === '1' } catch { return false }
   })
   const [viewMode, setViewMode] = useState<'chat' | 'workflows'>('chat')
@@ -693,14 +690,6 @@ function App() {
     finally { setUploading(false) }
   }
 
-  function toggleAgentMode() {
-    setAgentMode((current) => {
-      const next = !current
-      try { window.localStorage.setItem('pentagon.agentMode', next ? '1' : '0') } catch { /* Private browsing refuses writes. */ }
-      return next
-    })
-  }
-
   function focusSearch() {
     document.querySelector<HTMLInputElement>('input[aria-label="Search conversations"]')?.focus()
   }
@@ -746,10 +735,6 @@ function App() {
         setSettingsOpen(true)
         setSidebarOpen(false)
       }}
-      onOpenWorkflows={() => {
-        setViewMode('workflows')
-        setSidebarOpen(false)
-      }}
       open={sidebarOpen}
       onClose={() => setSidebarOpen(false)}
       activeId={activeId}
@@ -787,90 +772,25 @@ function App() {
           />
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 max-sm:gap-1.5">
-          {/* Mode switch: Chat vs Agent vs Workflows */}
-          <div className="flex items-center rounded-xl border border-white/[0.08] bg-white/[0.03] p-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode('chat')
-                if (agentMode) toggleAgentMode()
-              }}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-micro font-medium transition ${
-                viewMode === 'chat' && !agentMode
-                  ? 'bg-white/[0.1] text-white shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <MessageSquare size={12} />
-              <span className="max-sm:hidden">Chat</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode('chat')
-                if (!agentMode) toggleAgentMode()
-              }}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-micro font-medium transition ${
-                viewMode === 'chat' && agentMode
-                  ? 'border border-emerald-400/30 bg-emerald-400/15 text-emerald-300 shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <Zap size={12} className={agentMode ? 'text-emerald-400' : ''} />
-              <span>Agent</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode('workflows')
-              }}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-micro font-medium transition ${
-                viewMode === 'workflows'
-                  ? 'border border-sky-400/30 bg-sky-400/15 text-sky-300 shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <Workflow size={12} className={viewMode === 'workflows' ? 'text-sky-400' : ''} />
-              <span>Workflows</span>
-            </button>
-          </div>
-
-          {/* Autonomy / Permissions quick badge */}
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              setSettingsTab('Permissions')
-              setSettingsOpen(true)
-            }}
-            title="Safety & Tool Permissions: Click to view or adjust"
-            className="hidden items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-micro text-zinc-300 transition hover:border-emerald-400/30 hover:bg-white/[0.06] hover:text-white md:inline-flex"
-          >
-            <ShieldCheck size={13} className="text-emerald-400" />
-            <span className="font-medium">{autonomySettings?.preset ?? 'Balanced'}</span>
-          </button>
-
-          {/* MCP quick badge */}
-          <button
-            type="button"
-            onClick={() => {
-              setSettingsTab('Advanced')
-              setSettingsSection('MCP Servers')
-              setSettingsOpen(true)
-            }}
-            title="Model Context Protocol (MCP): Connected tools & servers"
-            className="hidden items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-micro text-zinc-300 transition hover:border-amber-400/30 hover:bg-white/[0.06] hover:text-white md:inline-flex"
-          >
-            <Zap size={13} className="text-amber-400" />
-            <span className="font-medium">MCP Tools</span>
-          </button>
-
-          <button
             onClick={startThread}
-            className="grid size-8 place-items-center rounded-lg text-zinc-400 transition hover:bg-white/[0.06] hover:text-white md:hidden"
-            title="New thread"
+            aria-label="New thread"
+            title="New thread (⌘N)"
+            className="flex h-9 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-small text-zinc-300 transition duration-150 hover:border-emerald-400/30 hover:bg-white/[0.06] hover:text-white"
           >
-            <Plus size={16} />
+            <Plus size={15} className="text-emerald-400" />
+            <span className="hidden sm:inline">New Thread</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Open settings"
+            title="Settings & Capabilities"
+            className="grid size-9 place-items-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-zinc-400 transition duration-150 hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-zinc-100"
+          >
+            <Settings size={16} />
           </button>
         </div>
       </header>
@@ -1027,7 +947,6 @@ function App() {
                         type="button"
                         onClick={() => {
                           if (!active) startThread()
-                          if (card.agent && !agentMode) toggleAgentMode()
                           setDraft(card.prompt)
                         }}
                         className="group flex flex-col items-start rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-emerald-400/30 hover:bg-emerald-400/[0.04] hover:shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
@@ -1088,10 +1007,9 @@ function App() {
             <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={chat.handleComposerKey} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} rows={2} disabled={!active || streaming || transcribing} placeholder={active ? 'Message Pentagon…' : 'Start a new thread to begin'} className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-body-lg leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed" aria-label="Write a message" />
             <div className="flex items-center justify-between gap-2 px-1 pb-0.5">
               <div className="flex flex-wrap items-center gap-1.5">
-                <input ref={fileInput} type="file" accept={agentMode ? ".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log" : "image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log"} multiple hidden onChange={(event) => void chat.handleAttachmentChange(event)} />
-                <button type="button" onClick={toggleAgentMode} aria-pressed={agentMode} disabled={streaming || transcribing} title={agentMode ? 'Agent mode: plan, tool timeline, approval cards. Text only.' : 'Standard chat: direct answers with sources.'} className={`flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro transition disabled:opacity-40 ${agentMode ? 'border border-emerald-300/30 bg-emerald-300/[0.08] text-emerald-200' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'}`}>Agent</button>
-                <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title={agentMode ? "Attach documents (PDF, Word, Excel, PowerPoint, CSV, Markdown, text, code)" : "Attach an image, video, or document"}><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
-                <button type="button" onClick={() => void chat.toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
+                <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log" multiple hidden onChange={(event) => void chat.handleAttachmentChange(event)} />
+                <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, document, or spreadsheet"><Paperclip size={14} /><span className="max-sm:hidden">Attach</span></button>
+                <button type="button" onClick={() => void chat.toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
               </div>
               {streaming
                 ? <button type="button" onClick={chat.stopStreaming} className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-zinc-200 transition-[background-color,transform] duration-200 ease-out hover:bg-white/[0.1] active:scale-95" aria-label="Stop generating" title="Stop generating"><Square size={13} fill="currentColor" /></button>
