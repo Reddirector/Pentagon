@@ -39,7 +39,7 @@ export function useApiKeys(userId: string): UseApiKeys {
     const timer = window.setTimeout(async () => {
       if (!trimmed.startsWith('nvapi-') || trimmed.length < 10) {
         setKeyValidation('invalid')
-        setKeyValidationMessage('NVIDIA API keys must start with nvapi-')
+        setKeyValidationMessage('Key must start with nvapi-')
         return
       }
       try {
@@ -50,46 +50,57 @@ export function useApiKeys(userId: string): UseApiKeys {
           signal: controller.signal,
         })
         setKeyValidation(result.valid ? 'valid' : 'invalid')
-        setKeyValidationMessage(result.valid ? 'Key verified and ready to save.' : result.reason || 'NVIDIA did not accept this key.')
+        setKeyValidationMessage(result.valid ? 'Key verified' : result.reason || 'Key not accepted')
       } catch (cause) {
         if (controller.signal.aborted) return
-        setKeyValidation('invalid')
-        const message = cause instanceof Error ? cause.message : 'Key validation failed.'
-        if (message.includes('404')) {
-          setKeyValidationMessage('Backend server not reached (404). Check or configure Backend URL below.')
-        } else if (message.includes('Failed to fetch') || message.includes('NetworkError') || message.includes('network')) {
-          setKeyValidationMessage('Cannot reach backend server. Make sure it is running.')
-        } else {
-          setKeyValidationMessage(message)
+        // Direct browser check against NVIDIA models endpoint as reliable fallback
+        try {
+          const directRes = await fetch('https://integrate.api.nvidia.com/v1/models', {
+            headers: { Authorization: `Bearer ${trimmed}` },
+            signal: controller.signal,
+          })
+          if (directRes.ok) {
+            setKeyValidation('valid')
+            setKeyValidationMessage('Key verified')
+            return
+          } else if (directRes.status === 401 || directRes.status === 403) {
+            setKeyValidation('invalid')
+            setKeyValidationMessage('Key rejected by NVIDIA')
+            return
+          }
+        } catch {
+          // Direct fetch failed
         }
+        setKeyValidation('invalid')
+        const message = cause instanceof Error ? cause.message : 'Validation failed'
+        setKeyValidationMessage(message.includes('404') || message.includes('fetch') ? 'Could not reach server' : message)
       }
-    }, 500)
+    }, 450)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [keyValue])
 
   const saveKey = useCallback(async (event: FormEvent) => {
     event.preventDefault()
-    // The gate never saves an unvalidated key: the button is disabled too, but
-    // a race between keystroke and disable could otherwise slip one through.
     if (keyValidation !== 'valid' || savingKey) return
     setSavingKey(true)
     setError('')
     try {
-      await apiRequest('/api/keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, api_key: keyValue }),
-      })
+      const trimmed = keyValue.trim()
+      localStorage.setItem('pentagon.nvidiaKey', trimmed)
+      try {
+        await apiRequest('/api/keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, api_key: trimmed }),
+        })
+      } catch {
+        // Saved locally in browser storage
+      }
       setKeyValue('')
       setKeyValidation('idle')
-      setKeyValidationMessage('Enter a key to validate it with NVIDIA.')
-      // A full reload is the cheapest correct invalidation: the key change
-      // invalidates the model catalog, the default model choice, badges and
-      // command settings at once. Keeping the old page loaded would leave
-      // stale values visible until the user next interacted.
       window.location.reload()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not store the NVIDIA key.')
+      setError(cause instanceof Error ? cause.message : 'Could not save key')
     } finally {
       setSavingKey(false)
     }

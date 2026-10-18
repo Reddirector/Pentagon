@@ -1,6 +1,7 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { FormEvent } from 'react'
 import {
+  ArrowRight,
   ArrowUp,
   Check,
   ChevronDown,
@@ -9,6 +10,7 @@ import {
   FileText,
   Globe,
   Image as ImageIcon,
+  KeyRound,
   LoaderCircle,
   LockKeyhole,
   Menu,
@@ -24,7 +26,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { apiRequest, ApiError, getLocalUserId, getApiBase, setApiBase, getCapability, setCapability, apiUrl } from './api'
+import { apiRequest, getLocalUserId } from './api'
 import { useApiKeys } from './hooks/useApiKeys'
 import { useCommandSettings } from './hooks/useCommandSettings'
 import { useAutonomy } from './hooks/useAutonomy'
@@ -116,6 +118,14 @@ function isVideo(file: File) {
  * request quietly sends another -- so it is only accepted when it is actually
  * on offer.
  */
+const DEFAULT_NVIDIA_MODELS: ModelInfo[] = [
+  { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
+  { id: 'meta/llama-3.3-70b-instruct', supports_vision: false, context_window: 131072 },
+  { id: 'deepseek-ai/deepseek-r1', supports_vision: false, context_window: 131072 },
+  { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
+  { id: 'mistralai/mistral-large-2-instruct', supports_vision: false, context_window: 131072 },
+]
+
 function chooseDefaultModel(available: ModelInfo[], preferred: string, serverDefault: string): string {
   if (preferred && available.some((model) => model.id === preferred)) return preferred
   if (serverDefault && available.some((model) => model.id === serverDefault)) return serverDefault
@@ -333,15 +343,14 @@ function App() {
           setSelectedModel(preferredModel)
         }
         setKeyNeeded(false)
-      } catch (cause) {
+      } catch {
         if (cancelled) return
-        if (cause instanceof ApiError && cause.status === 404) {
-          // 404 on the thread detail could also mean this browser has no stored
-          // threads yet. Only gate on the key when no default model is configured.
-          if (list.length === 0) setKeyNeeded(!preferredModel)
-        } else {
-          setError(cause instanceof Error ? cause.message : 'Could not connect to the Pentagon backend.')
-        }
+        const localKey = typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey') : null
+        setModels(DEFAULT_NVIDIA_MODELS)
+        const def = DEFAULT_NVIDIA_MODELS[0].id
+        setSelectedModel(def)
+        setDefaultModel(def)
+        setKeyNeeded(!localKey)
       } finally {
         if (!cancelled) setBooting(false)
       }
@@ -698,7 +707,7 @@ function App() {
   }
 
 
-  if (booting) return <div className="grid h-full min-h-dvh place-items-center bg-[#000000] text-sm text-zinc-500"><div className="flex items-center gap-3"><LogomarkBadge size={32} /><span>Connecting to Pentagon…</span></div></div>
+  if (booting) return <div className="grid h-full min-h-dvh place-items-center bg-[#000000]"><div className="relative flex items-center justify-center"><div className="absolute size-20 rounded-full bg-emerald-400/[0.08] blur-xl animate-pulse" /><LogomarkBadge size={36} /></div></div>
 
   if (keyNeeded) return <KeyGate
     value={keys.keyValue}
@@ -710,7 +719,7 @@ function App() {
     onChange={(value) => {
       keys.setKeyValue(value)
       keys.setKeyValidation(value.trim() ? 'checking' : 'idle')
-      keys.setKeyValidationMessage(value.trim() ? 'Checking the key with NVIDIA…' : 'Enter a key to validate it with NVIDIA.')
+      keys.setKeyValidationMessage(value.trim() ? 'Verifying key…' : 'Enter NVIDIA API key')
       keys.setError('')
     }}
     onSubmit={(event) => void keys.saveKey(event)}
@@ -1214,148 +1223,89 @@ const MessageRow = memo(MessageRowImpl, (previous, next) =>
   previous.deciding === next.deciding
 )
 
-function KeyGate({ value, validation, validationMessage, saving, error, userId, onChange, onSubmit }: {
+function KeyGate({ value, validation, validationMessage, saving, error, onChange, onSubmit }: {
   value: string
   validation: Validation
   validationMessage: string
   saving: boolean
   error: string
-  userId: string
+  userId?: string
   onChange: (value: string) => void
   onSubmit: (event: FormEvent) => void
 }) {
-  const isHostedWeb = typeof window !== 'undefined' && (window.location.hostname.includes('github.io') || window.location.protocol === 'https:')
-  const [showServerConfig, setShowServerConfig] = useState(isHostedWeb && !getApiBase())
-  const [apiBaseInput, setApiBaseInput] = useState(() => getApiBase() || '')
-  const [capabilityInput, setCapabilityInput] = useState('')
-  const [serverStatus, setServerStatus] = useState<string | null>(null)
-  const [testingServer, setTestingServer] = useState(false)
-  const [serverOk, setServerOk] = useState<boolean | null>(null)
+  const tone = validation === 'valid' ? 'text-emerald-400' : validation === 'invalid' ? 'text-rose-400' : validation === 'checking' ? 'text-amber-300' : 'text-zinc-600'
 
-  useEffect(() => {
-    void getCapability().then((token) => setCapabilityInput(token))
-  }, [])
-
-  const handleSaveServer = async () => {
-    setTestingServer(true)
-    setServerStatus(null)
-    const trimmed = apiBaseInput.trim().replace(/\/+$/, '')
-    try {
-      const headers: Record<string, string> = {}
-      if (capabilityInput.trim()) headers['X-Pentagon-Capability'] = capabilityInput.trim()
-      const testUrl = trimmed
-        ? `${trimmed}/api/models?user_id=${encodeURIComponent(userId)}`
-        : apiUrl(`/api/models?user_id=${encodeURIComponent(userId)}`)
-      const res = await fetch(testUrl, { headers })
-      if (res.ok || res.status === 404) {
-        setApiBase(trimmed)
-        if (capabilityInput.trim()) setCapability(capabilityInput.trim())
-        setServerOk(true)
-        setServerStatus('Connected to backend successfully!')
-        setTimeout(() => window.location.reload(), 600)
-      } else {
-        setServerOk(false)
-        setServerStatus(`Backend returned HTTP ${res.status}.`)
-      }
-    } catch {
-      setServerOk(false)
-      setServerStatus('Could not reach backend at that address.')
-    } finally {
-      setTestingServer(false)
-    }
-  }
-
-  const tone = validation === 'valid' ? 'text-emerald-300' : validation === 'invalid' ? 'text-rose-300' : validation === 'checking' ? 'text-amber-200' : 'text-zinc-500'
-  return <main className="relative grid min-h-screen place-items-center overflow-y-auto bg-[#000000] px-5 py-10 text-zinc-100">
-    <div className="pointer-events-none absolute left-1/2 top-0 size-[500px] -translate-x-1/2 rounded-full bg-emerald-300/[0.04] blur-[100px]" />
-    <section className="relative w-full max-w-[460px] rounded-[24px] border border-white/[0.09] bg-[#0b0b0b]/95 p-8 shadow-[0_32px_100px_rgba(0,0,0,.48)] max-sm:p-6">
-      <div className="mb-9 flex items-center gap-3"><LogomarkBadge size={36} /><span className="text-body font-semibold tracking-[.2em]">PENTAGON</span></div>
-      <p className="mb-3 text-caption font-medium uppercase tracking-[.22em] text-emerald-200/70">Your models · Your key</p>
-      <h1 className="text-display font-medium leading-[1.12] tracking-[-.04em]">Bring your NVIDIA models into focus.</h1>
-      <p className="mt-3 text-body leading-6 text-zinc-500">Pentagon checks your key with NVIDIA, then sends it to the backend for encrypted storage. It is never saved in this browser.</p>
-      {error && <div role="alert" className="mt-5 rounded-lg border border-rose-400/15 bg-rose-400/[0.06] px-3 py-2 text-small text-rose-200">{error}</div>}
-      <form onSubmit={onSubmit} className="mt-7">
-        <label htmlFor="nvidia-key" className="mb-2 block text-micro font-medium text-zinc-300">NVIDIA API key</label>
-        <input id="nvidia-key" type="password" autoComplete="off" spellCheck={false} value={value} onChange={(event) => onChange(event.target.value)} placeholder="nvapi-••••••••••••••••" className="h-11 w-full rounded-xl border border-white/[0.1] bg-[#000000] px-3.5 text-body text-zinc-100 outline-none placeholder:text-zinc-700 focus:border-emerald-300/40" />
-        <div className={`mt-2.5 flex min-h-4 items-center gap-2 text-micro ${tone}`} aria-live="polite"><span className={`size-1.5 rounded-full ${validation === 'valid' ? 'bg-emerald-300' : validation === 'invalid' ? 'bg-rose-300' : validation === 'checking' ? 'animate-pulse bg-amber-200' : 'bg-zinc-700'}`} />{validationMessage}</div>
-        <button type="submit" disabled={validation !== 'valid' || saving} className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-small font-semibold text-[#000000] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-zinc-600">{saving ? <LoaderCircle size={14} className="animate-spin" /> : <LockKeyhole size={13} />}{saving ? 'Saving securely…' : 'Store key and continue'}</button>
-      </form>
-
-      {/* Backend Server Configuration */}
-      <div className="mt-6 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 text-small">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className={`size-2 rounded-full ${getApiBase() ? 'bg-emerald-400' : isHostedWeb ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-            <span className="text-micro font-medium uppercase tracking-wider text-zinc-300">
-              Backend: {getApiBase() || (isHostedWeb ? 'Not Connected' : 'Local (Same-origin)')}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowServerConfig(!showServerConfig)}
-            className="text-micro text-emerald-300 hover:text-emerald-200 font-medium transition"
-          >
-            {showServerConfig ? 'Close' : 'Configure'}
-          </button>
-        </div>
-
-        {(showServerConfig || (isHostedWeb && !getApiBase())) && (
-          <div className="mt-3.5 space-y-3 border-t border-white/[0.06] pt-3">
-            {isHostedWeb && (
-              <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.05] p-3 text-caption leading-relaxed text-emerald-200">
-                <span className="font-semibold text-emerald-300">Running on GitHub Pages?</span>
-                <br />
-                • <strong>Local Use (Recommended)</strong>: Open the local link at <a href="http://127.0.0.1:5173" target="_blank" rel="noreferrer" className="underline font-semibold text-emerald-300 hover:text-emerald-200">http://127.0.0.1:5173</a> to connect to your local backend instantly with zero setup.
-                <br />
-                • <strong>Remote / Cloud</strong>: Enter your HTTPS backend URL (e.g., Cloudflare Tunnel, ngrok, or cloud host) below.
-              </div>
-            )}
-            <div>
-              <label htmlFor="api-base-url" className="mb-1 block text-micro text-zinc-400">Backend API URL</label>
-              <input
-                id="api-base-url"
-                type="url"
-                value={apiBaseInput}
-                onChange={(e) => setApiBaseInput(e.target.value)}
-                placeholder="https://..."
-                className="h-9 w-full rounded-lg border border-white/[0.1] bg-[#000000] px-3 text-caption text-zinc-100 outline-none focus:border-emerald-300/40"
-              />
-            </div>
-            <div>
-              <label htmlFor="capability-token" className="mb-1 block text-micro text-zinc-400">Capability Token (Optional)</label>
-              <input
-                id="capability-token"
-                type="password"
-                value={capabilityInput}
-                onChange={(e) => setCapabilityInput(e.target.value)}
-                placeholder="Server secret token"
-                className="h-9 w-full rounded-lg border border-white/[0.1] bg-[#000000] px-3 text-caption text-zinc-100 outline-none focus:border-emerald-300/40"
-              />
-            </div>
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                type="button"
-                disabled={testingServer}
-                onClick={handleSaveServer}
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-400/15 border border-emerald-400/30 px-3 py-1.5 text-caption font-medium text-emerald-200 hover:bg-emerald-400/25 transition disabled:opacity-50"
-              >
-                {testingServer && <LoaderCircle size={12} className="animate-spin" />}
-                {testingServer ? 'Testing…' : 'Save & Connect Server'}
-              </button>
-              {serverStatus && (
-                <span className={`text-caption ${serverOk ? 'text-emerald-300' : 'text-rose-300'}`}>
-                  {serverStatus}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
+  return (
+    <main className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[#000000] px-6 text-zinc-100">
+      {/* Calm ambient background graphic glow and geometric orbital rings */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="size-[540px] rounded-full bg-gradient-to-tr from-emerald-500/[0.08] via-teal-500/[0.03] to-transparent blur-[120px]" />
+        <div className="absolute size-[320px] rounded-full border border-emerald-500/[0.05]" />
+        <div className="absolute size-[480px] rounded-full border border-white/[0.02]" />
+        <div className="absolute size-[640px] rounded-full border border-white/[0.015]" />
       </div>
 
-      <div className="mt-7 flex items-center gap-2 border-t border-white/[0.06] pt-5 text-caption leading-5 text-zinc-600"><LockKeyhole size={12} className="shrink-0" />Only the local user ID is kept in browser storage.</div>
-    </section>
-    <div className="absolute bottom-5 text-caption-xs uppercase tracking-[.2em] text-zinc-700">FastAPI · NVIDIA NIM · Local workspace</div>
-  </main>
+      <section className="relative z-10 flex w-full max-w-[380px] flex-col items-center text-center">
+        {/* Sleek Centerpiece Logo Graphic */}
+        <div className="relative mb-8 flex items-center justify-center">
+          <div className="absolute size-24 rounded-full bg-emerald-400/[0.08] blur-2xl transition duration-700" />
+          <div className="relative flex size-20 items-center justify-center rounded-2xl border border-white/[0.08] bg-[#0a0a0a]/80 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-2xl">
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/[0.05] to-transparent" />
+            <LogomarkBadge size={44} className="transition duration-500 hover:scale-105" />
+          </div>
+        </div>
+
+        {error && (
+          <div role="alert" className="mb-5 w-full rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-4 py-2 text-caption text-rose-300 backdrop-blur-md">
+            {error}
+          </div>
+        )}
+
+        {/* Minimalist Key Input */}
+        <form onSubmit={onSubmit} className="relative w-full">
+          <div className="group relative flex items-center rounded-2xl border border-white/[0.08] bg-white/[0.025] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.5)] backdrop-blur-2xl transition-[border-color,box-shadow,background-color] duration-300 hover:border-white/[0.14] focus-within:border-emerald-400/40 focus-within:bg-[#080808] focus-within:shadow-[0_0_35px_rgba(16,185,129,0.12)]">
+            <div className="flex pl-3.5 pr-2.5 text-zinc-500 transition-colors group-focus-within:text-emerald-400">
+              <KeyRound size={17} />
+            </div>
+            <input
+              id="nvidia-key"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+              placeholder="nvapi-••••••••••••••••"
+              className="h-10 w-full bg-transparent pr-3 text-small text-zinc-100 outline-none placeholder:text-zinc-600"
+            />
+            <button
+              type="submit"
+              disabled={validation !== 'valid' || saving}
+              aria-label="Enter"
+              className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-400 text-black shadow-sm transition hover:bg-emerald-300 active:scale-95 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-zinc-600"
+            >
+              {saving ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowRight size={16} />}
+            </button>
+          </div>
+
+          {/* Minimal Status Feedback */}
+          <div className={`mt-3.5 flex items-center justify-center gap-2 text-micro transition-colors duration-300 ${tone}`} aria-live="polite">
+            <span
+              className={`size-1.5 rounded-full transition-all duration-300 ${
+                validation === 'valid'
+                  ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]'
+                  : validation === 'invalid'
+                  ? 'bg-rose-400'
+                  : validation === 'checking'
+                  ? 'animate-pulse bg-amber-300'
+                  : 'bg-zinc-800'
+              }`}
+            />
+            <span>{validation === 'idle' ? 'Enter NVIDIA API key' : validationMessage}</span>
+          </div>
+        </form>
+      </section>
+    </main>
+  )
 }
 
 export default App

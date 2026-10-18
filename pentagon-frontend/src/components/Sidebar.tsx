@@ -275,8 +275,8 @@ export function Sidebar({
       >
         <X size={16} />
       </button>
-      <LogomarkBadge size={32} label="Pentagon" />
-      <div className="min-w-0 flex-1"><div className="text-body font-semibold tracking-[.2em] text-zinc-100">PENTAGON</div><div className="mt-0.5 truncate text-caption uppercase tracking-[.18em] text-zinc-600">{workspaceName}</div></div>
+      <LogomarkBadge size={32} />
+      <div className="min-w-0 flex-1"><div className="truncate text-caption uppercase tracking-[.18em] text-zinc-500 font-medium">{workspaceName}</div></div>
       {isDesktop ? (
         <button
           type="button"
