@@ -110,6 +110,10 @@ async def open_checkpointer() -> AsyncIterator[Any]:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
     async with AsyncPostgresSaver.from_conn_string(postgres_checkpoint_dsn()) as saver:
+        schema = app_schema()
+        if schema:
+            async with saver.conn.cursor() as cur:
+                await cur.execute(f'SET search_path TO "{schema}", public;')
         await _ensure_checkpoint_tables(saver)
         yield saver
 

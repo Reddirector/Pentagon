@@ -74,6 +74,24 @@ if is_sqlite:
         cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
+if is_postgres:
+
+    @event.listens_for(Engine, "connect")
+    def set_postgres_search_path(dbapi_connection: object, connection_record: object) -> None:
+        schema = app_schema()
+        if schema:
+            cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
+            cursor.execute(f'SET search_path TO "{schema}", public;')
+            cursor.close()
+
+    @event.listens_for(Engine, "checkout")
+    def set_postgres_search_path_on_checkout(dbapi_connection: object, connection_record: object, connection_proxy: object) -> None:
+        schema = app_schema()
+        if schema:
+            cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
+            cursor.execute(f'SET search_path TO "{schema}", public;')
+            cursor.close()
+
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 

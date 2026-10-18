@@ -113,6 +113,8 @@ def test_shipped_skills_are_real_and_well_formed() -> None:
         "pdf",
         "pptx",
         "xlsx",
+        "supabase",
+        "supabase-postgres-best-practices",
     }
     for skill in skills:
         assert 0 < len(skill.description) <= DESCRIPTION_MAX_CHARS, skill.skill_id
