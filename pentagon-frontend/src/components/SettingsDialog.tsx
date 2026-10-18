@@ -14,7 +14,7 @@ import type {
 } from '../types'
 import { AccountTab } from './settings/AccountTab'
 import { PermissionsTab } from './settings/PermissionsTab'
-import { AdvancedTab } from './settings/advanced'
+import { AdvancedTab, type AdvancedSection } from './settings/advanced'
 
 const TOP_TABS = ['Account', 'Permissions', 'Advanced'] as const
 type TopTab = (typeof TOP_TABS)[number]
@@ -37,6 +37,7 @@ export function SettingsDialog({
   onAutonomySettingChange,
   onAutonomyPresetChange,
   initialTab = 'Account',
+  initialSection,
 }: {
   userId: string
   models: ModelInfo[]
@@ -55,6 +56,7 @@ export function SettingsDialog({
   onAutonomyPresetChange?: (preset: string) => void | Promise<void>
   onDeleteThread: (id: string) => void
   initialTab?: TopTab
+  initialSection?: AdvancedSection
 }) {
   const [userTab, setUserTab] = useState<TopTab | null>(null)
   const topTab = userTab ?? initialTab ?? 'Account'
@@ -142,6 +144,7 @@ export function SettingsDialog({
               autonomySettings={autonomySettings}
               onAutonomySettingChange={onAutonomySettingChange}
               onAutonomyPresetChange={onAutonomyPresetChange}
+              initialSection={initialSection}
             />
           )}
         </div>

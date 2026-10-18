@@ -35,6 +35,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from collections import deque
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -142,6 +143,38 @@ def parse_servers(raw: str) -> tuple[list[ServerConfig], list[str]]:
             )
         )
     return configs, problems
+
+
+def load_db_servers() -> tuple[list[ServerConfig], list[str]]:
+    """Fetch user-configured MCP servers stored in the database."""
+    configs: list[ServerConfig] = []
+    problems: list[str] = []
+    try:
+        from app.db.session import SessionLocal
+        from app.db.models import McpServer
+
+        with SessionLocal() as db:
+            rows = db.query(McpServer).filter(McpServer.enabled.is_(True)).all()
+            for row in rows:
+                if not row.command or not isinstance(row.command, list):
+                    continue
+                name = re.sub(r"[^a-z0-9_]+", "_", row.name.strip().lower()).strip("_")
+                if not name:
+                    continue
+                tier = row.tier if row.tier in _TIERS else "write"
+                configs.append(
+                    ServerConfig(
+                        name=name,
+                        command=tuple(str(c) for c in row.command if c),
+                        tier=tier,
+                        env={str(k): str(v) for k, v in (row.env or {}).items()},
+                    )
+                )
+    except Exception:
+        # DB may be uninitialized, locked, or absent during testing/offline start
+        pass
+    return configs, problems
+
 
 
 def safe_tool_name(server: str, tool: str) -> str:
@@ -489,12 +522,23 @@ class McpBridge:
         self._sessions: dict[str, McpSession] = {}
         self.problems: list[str] = []
 
-    async def connect_all(self) -> None:
-        """Parse settings, spawn every server. Failures are recorded, not raised."""
+    async def connect_all(self, extra_configs: list[ServerConfig] | None = None) -> None:
+        """Parse settings and database rows, spawn every enabled server. Failures are recorded, not raised."""
         await self.shutdown()
         configs, problems = parse_servers(settings.mcp_servers)
         self.problems = list(problems)
-        for config in configs:
+
+        db_configs, db_problems = load_db_servers()
+        self.problems.extend(db_problems)
+
+        merged: dict[str, ServerConfig] = {cfg.name: cfg for cfg in configs}
+        for cfg in db_configs:
+            merged[cfg.name] = cfg
+        if extra_configs:
+            for cfg in extra_configs:
+                merged[cfg.name] = cfg
+
+        for config in merged.values():
             session = McpSession(config)
             self._sessions[config.name] = session
             try:
@@ -502,6 +546,29 @@ class McpBridge:
             except BridgeError as exc:
                 session.last_error = str(exc)
                 self.problems.append(f"server '{config.name}': {exc}")
+
+    async def add_or_update(self, config: ServerConfig) -> tuple[bool, str | None]:
+        """Dynamically start or replace a single MCP server session."""
+        old = self._sessions.pop(config.name, None)
+        if old is not None:
+            await old.close()
+        session = McpSession(config)
+        self._sessions[config.name] = session
+        try:
+            await session.start()
+            return True, None
+        except BridgeError as exc:
+            session.last_error = str(exc)
+            return False, str(exc)
+
+    async def remove(self, name: str) -> None:
+        """Dynamically stop and forget a single MCP server session."""
+        session = self._sessions.pop(name, None)
+        if session is not None:
+            await session.close()
+
+    def all_sessions(self) -> dict[str, McpSession]:
+        return dict(self._sessions)
 
     def session(self, name: str) -> McpSession | None:
         return self._sessions.get(name)
@@ -599,3 +666,53 @@ def session(name: str) -> McpSession | None:
 
 def problems() -> list[str]:
     return list(BRIDGE.problems)
+
+
+def all_sessions() -> dict[str, McpSession]:
+    return BRIDGE.all_sessions()
+
+
+async def add_or_update(config: ServerConfig) -> tuple[bool, str | None]:
+    return await BRIDGE.add_or_update(config)
+
+
+async def remove(name: str) -> None:
+    await BRIDGE.remove(name)
+
+
+async def test_server_config(config: ServerConfig, timeout: float = 12.0) -> dict[str, Any]:
+    """Spawn an isolated test session, complete handshake, list tools, and safely exit."""
+    session = McpSession(config)
+    start_time = time.monotonic()
+    try:
+        await asyncio.wait_for(session.start(), timeout=timeout)
+        elapsed_ms = round((time.monotonic() - start_time) * 1000, 1)
+        tools_info = [
+            {
+                "name": spec.name,
+                "remote_name": session.remote_names.get(spec.name, spec.name),
+                "description": spec.description,
+                "tier": spec.tier,
+                "risk_category": spec.risk_category,
+            }
+            for spec in session.tools
+        ]
+        return {
+            "success": True,
+            "latency_ms": elapsed_ms,
+            "tools": tools_info,
+            "tools_count": len(tools_info),
+            "error": None,
+        }
+    except Exception as exc:
+        elapsed_ms = round((time.monotonic() - start_time) * 1000, 1)
+        return {
+            "success": False,
+            "latency_ms": elapsed_ms,
+            "tools": [],
+            "tools_count": 0,
+            "error": str(exc),
+        }
+    finally:
+        await session.close()
+

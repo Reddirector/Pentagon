@@ -534,3 +534,23 @@ class WorkflowRun(Base):
 
     user: Mapped["User"] = relationship(back_populates="workflow_runs")
     workflow: Mapped["Workflow"] = relationship(back_populates="runs")
+
+
+class McpServer(Base):
+    """An external MCP server configured by the user via the UI or API.
+
+    Over stdio JSON-RPC sessions these servers provide external tools that
+    are bridged into Pentagon's agent tool registry.
+    """
+
+    __tablename__ = "mcp_servers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    command: Mapped[list[str]] = mapped_column(JSON)
+    tier: Mapped[str] = mapped_column(String(32), default="write")
+    env: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+

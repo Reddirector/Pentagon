@@ -12,12 +12,13 @@ import type {
   ModelInfo,
 } from '../../../types'
 import { SkillsSection } from './SkillsSection'
+import { McpSection } from './McpSection'
 import { CommandsSection } from './CommandsSection'
 import { DataSection } from './DataSection'
 import { AppearanceSection, DefaultModelSection } from './AppearanceSection'
 import { AuditLogSection, AboutSection } from './AuditLogSection'
 
-const ADVANCED_SECTIONS = ['Skills', 'Commands', 'Data', 'Appearance', 'Model', 'Audit log', 'About'] as const
+const ADVANCED_SECTIONS = ['Skills', 'MCP Servers', 'Commands', 'Data', 'Appearance', 'Model', 'Audit log', 'About'] as const
 export type AdvancedSection = (typeof ADVANCED_SECTIONS)[number]
 
 export interface AdvancedTabProps {
@@ -35,10 +36,11 @@ export interface AdvancedTabProps {
   autonomySettings: AutonomySettings | null
   onAutonomySettingChange?: (category: string, level: string) => void | Promise<void>
   onAutonomyPresetChange?: (preset: string) => void | Promise<void>
+  initialSection?: AdvancedSection
 }
 
 export function AdvancedTab(props: AdvancedTabProps) {
-  const [advancedSection, setAdvancedSection] = useState<AdvancedSection>('Skills')
+  const [advancedSection, setAdvancedSection] = useState<AdvancedSection>(props.initialSection ?? 'Skills')
 
   return (
     <div className="min-h-[240px]">
@@ -64,6 +66,7 @@ export function AdvancedTab(props: AdvancedTabProps) {
 
       <div className="mt-4 space-y-4">
         {advancedSection === 'Skills' && <SkillsSection userId={props.userId} />}
+        {advancedSection === 'MCP Servers' && <McpSection userId={props.userId} />}
         {advancedSection === 'Commands' && (
           <CommandsSection
             userId={props.userId}

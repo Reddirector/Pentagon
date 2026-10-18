@@ -162,8 +162,9 @@ function App() {
   const { autonomySettings, load: loadAutonomySettings, changeSetting: changeAutonomySetting, changePreset: changeAutonomyPreset } = useAutonomy(userId)
   const { badges: agentBadges, refresh: refreshBadges } = useAgentBadges()
   const [deciding, setDeciding] = useState<string | null>(null)
-  const prefs = useSyncExternalStore(subscribePreferences, getPreferences)
   const [settingsTab, setSettingsTab] = useState<'Account' | 'Permissions' | 'Advanced'>('Account')
+  const [settingsSection, setSettingsSection] = useState<'Skills' | 'MCP Servers' | 'Commands' | 'Data' | 'Appearance' | 'Model' | 'Audit log' | 'About' | undefined>(undefined)
+  const prefs = useSyncExternalStore(subscribePreferences, getPreferences)
   const userName = prefs.userName || 'Aditya'
   // Agent mode: the same composer, a different route. The agent loop's events
   // (tool timeline, plan, approvals, questions, artifacts) render under the
@@ -840,6 +841,21 @@ function App() {
             <span className="font-medium">{autonomySettings?.preset ?? 'Balanced'}</span>
           </button>
 
+          {/* MCP quick badge */}
+          <button
+            type="button"
+            onClick={() => {
+              setSettingsTab('Advanced')
+              setSettingsSection('MCP Servers')
+              setSettingsOpen(true)
+            }}
+            title="Model Context Protocol (MCP): Connected tools & servers"
+            className="hidden items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-micro text-zinc-300 transition hover:border-amber-400/30 hover:bg-white/[0.06] hover:text-white md:inline-flex"
+          >
+            <Zap size={13} className="text-amber-400" />
+            <span className="font-medium">MCP Tools</span>
+          </button>
+
           <button
             onClick={startThread}
             className="grid size-8 place-items-center rounded-lg text-zinc-400 transition hover:bg-white/[0.06] hover:text-white md:hidden"
@@ -1086,6 +1102,7 @@ function App() {
       <Suspense fallback={null}>
         <SettingsDialog
           initialTab={settingsTab}
+          initialSection={settingsSection}
           userId={userId}
           models={models}
           serverDefaultModel={defaultModel}
@@ -1094,7 +1111,10 @@ function App() {
           threadCount={threads.length}
           onRenameThread={(id, title) => void renameThread(id, title)}
           onDeleteThread={(id) => void deleteThread(id)}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false)
+            setSettingsSection(undefined)
+          }}
           onKeySaved={() => void refreshModels()}
           commandSettings={commandSettings}
           onCommandSettingsChange={(enabled) => setCommandSettings((current) => ({ ...current, enabled }))}

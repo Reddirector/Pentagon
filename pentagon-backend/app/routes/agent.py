@@ -91,6 +91,13 @@ def _agent_registry() -> Any:
     return _REGISTRY
 
 
+def reset_registry() -> None:
+    """Clear cached tool registry so dynamic MCP tool changes are reflected immediately."""
+    global _REGISTRY
+    _REGISTRY = None
+
+
+
 def _register(session: _TurnSession) -> _TurnSession:
     now = time.monotonic()
     expired = [k for k, s in _SESSIONS.items() if now - s.started > _AGENT_MAX_SECONDS]

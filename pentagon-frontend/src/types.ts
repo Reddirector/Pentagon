@@ -86,6 +86,44 @@ export type SkillInfo = {
   enabled: boolean
 }
 
+export type McpToolInfo = {
+  name: string
+  remote_name: string
+  description: string
+  tier: string
+  risk_category: string
+  parameters?: Record<string, unknown>
+}
+
+export type McpServerInfo = {
+  name: string
+  command: string[]
+  tier: string
+  env: Record<string, string>
+  has_secrets?: boolean
+  enabled: boolean
+  status: 'connected' | 'disconnected' | 'error' | 'disabled'
+  last_error?: string | null
+  tools: McpToolInfo[]
+  tools_count: number
+  source: 'database' | 'environment'
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export type McpPreset = {
+  id: string
+  name: string
+  title: string
+  description: string
+  command: string[]
+  tier: string
+  category: string
+  env: Record<string, string>
+  required_env: string[]
+}
+
+
 /** What the backend recorded about one command it ran, or refused to run. */
 export type CommandRun = {
   command: string

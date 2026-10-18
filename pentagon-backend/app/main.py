@@ -23,6 +23,7 @@ from app.routes import (
     documents,
     files,
     keys,
+    mcp,
     memories,
     models,
     skills,
@@ -196,3 +197,5 @@ app.include_router(memories.router, dependencies=_api_auth)
 app.include_router(collections.router, dependencies=_api_auth)
 app.include_router(skills.router, dependencies=_api_auth)
 app.include_router(workflows.router, dependencies=_api_auth)
+app.include_router(mcp.router, dependencies=_api_auth)
+

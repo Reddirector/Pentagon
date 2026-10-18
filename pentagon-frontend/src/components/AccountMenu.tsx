@@ -14,6 +14,7 @@ import {
   Settings2,
   ShieldCheck,
   User,
+  Zap,
 } from 'lucide-react'
 import {
   getPreferences,
@@ -179,6 +180,19 @@ export function AccountMenu({
             >
               <ShieldCheck size={14} className="text-emerald-400" />
               <span>Safety & Permissions</span>
+            </button>
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                onOpenSettings('Advanced')
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-small text-zinc-300 transition hover:bg-white/[0.06] hover:text-zinc-100"
+            >
+              <Zap size={14} className="text-amber-400" />
+              <span>MCP & External Tools</span>
             </button>
 
             <button
