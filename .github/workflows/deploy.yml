@@ -1,0 +1,47 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'pentagon-frontend/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: pentagon-frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: pentagon-frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: pentagon-frontend
+        run: |
+          npm run build
+          touch dist/.nojekyll
+          cp dist/index.html dist/404.html
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./pentagon-frontend/dist
+          publish_branch: gh-pages
+          force_orphan: true
