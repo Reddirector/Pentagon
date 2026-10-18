@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ApiError, apiRequest } from '../api'
+import { ApiError, apiRequest, setStoredNvidiaKey } from '../api'
 import type { Validation } from './types/app'
 
 export interface UseApiKeys {
@@ -86,7 +86,7 @@ export function useApiKeys(userId: string): UseApiKeys {
     setError('')
     try {
       const trimmed = keyValue.trim()
-      localStorage.setItem('pentagon.nvidiaKey', trimmed)
+      setStoredNvidiaKey(trimmed)
       try {
         await apiRequest('/api/keys', {
           method: 'POST',

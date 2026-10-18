@@ -9,6 +9,7 @@ import {
   Globe,
   Image as ImageIcon,
   LoaderCircle,
+  Key,
   LockKeyhole,
   Menu,
   Mic,
@@ -21,7 +22,7 @@ import {
   Video,
   X,
 } from 'lucide-react'
-import { apiRequest, getLocalUserId } from './api'
+import { apiRequest, clearStoredNvidiaKey, getLocalUserId, getStoredNvidiaKey } from './api'
 import { KeyActivationFlow } from './components/KeyActivationFlow'
 import { useCommandSettings } from './hooks/useCommandSettings'
 import { useAutonomy } from './hooks/useAutonomy'
@@ -314,7 +315,19 @@ function App() {
       setBooting(true)
       let preferredModel = ''
       let list: Conversation[] = []
-      const localKey = typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey')?.trim() : ''
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search)
+        if (urlParams.has('reset') || urlParams.has('clear') || urlParams.has('logout') || urlParams.has('setup')) {
+          clearStoredNvidiaKey()
+          window.history.replaceState({}, document.title, window.location.pathname)
+        }
+        // Purge legacy key so every user is prompted afresh
+        if (localStorage.getItem('pentagon.nvidiaKey')) {
+          localStorage.removeItem('pentagon.nvidiaKey')
+        }
+      }
+
+      const localKey = getStoredNvidiaKey()
 
       if (!localKey) {
         if (!cancelled) {
@@ -370,7 +383,7 @@ function App() {
         const def = DEFAULT_NVIDIA_MODELS[0].id
         setSelectedModel(def)
         setDefaultModel(def)
-        const currentKey = typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey')?.trim() : ''
+        const currentKey = getStoredNvidiaKey()
         setKeyNeeded(!currentKey)
       } finally {
         if (!cancelled) setBooting(false)
@@ -735,7 +748,7 @@ function App() {
     return (
       <KeyActivationFlow
         userId={userId}
-        initialKey={typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey') || '' : ''}
+        initialKey={getStoredNvidiaKey()}
         onComplete={handleKeyActivationComplete}
       />
     )
@@ -801,6 +814,16 @@ function App() {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setKeyNeeded(true)}
+            aria-label="NVIDIA API Key"
+            title="Manage or re-enter NVIDIA API Key"
+            className="flex h-9 items-center gap-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-2.5 text-caption font-medium text-emerald-400 transition duration-150 hover:border-emerald-500/40 hover:bg-emerald-500/15 hover:text-emerald-300"
+          >
+            <Key size={13} className="text-emerald-400" />
+            <span className="hidden sm:inline">API Key</span>
+          </button>
           <button
             type="button"
             onClick={startThread}
@@ -956,13 +979,23 @@ function App() {
                 </div>
 
                 {!active && (
-                  <button
-                    onClick={startThread}
-                    className="mt-6 flex items-center gap-2 rounded-full bg-emerald-400 px-5 py-2.5 text-small font-semibold text-black transition hover:bg-emerald-300 hover:shadow-[0_4px_20px_rgba(16,185,129,0.3)]"
-                  >
-                    <Plus size={15} />
-                    <span>Start a new thread</span>
-                  </button>
+                  <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                    <button
+                      onClick={startThread}
+                      className="flex items-center gap-2 rounded-full bg-emerald-400 px-5 py-2.5 text-small font-semibold text-black transition hover:bg-emerald-300 hover:shadow-[0_4px_20px_rgba(16,185,129,0.3)]"
+                    >
+                      <Plus size={15} />
+                      <span>Start a new thread</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setKeyNeeded(true)}
+                      className="flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.04] px-4 py-2.5 text-small text-zinc-300 transition hover:border-emerald-500/30 hover:bg-white/[0.08] hover:text-white"
+                    >
+                      <Key size={13} className="text-emerald-400" />
+                      <span>NVIDIA Key</span>
+                    </button>
+                  </div>
                 )}
 
                 {/* Quick Action Cards Grid */}

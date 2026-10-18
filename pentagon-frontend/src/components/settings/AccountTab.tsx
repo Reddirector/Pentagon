@@ -14,7 +14,7 @@ import {
   subscribePreferences,
   AVATAR_THEMES,
 } from '../../lib/preferences'
-import { apiRequest, getApiBase, getCapability, setApiBase } from '../../api'
+import { apiRequest, getApiBase, getCapability, setApiBase, getStoredNvidiaKey, setStoredNvidiaKey, clearStoredNvidiaKey } from '../../api'
 import { getSupabase, isSupabaseConfigured } from '../../lib/supabase'
 import { Section, inputClass } from './shared'
 
@@ -128,7 +128,7 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
     setKeyMessage('Storing…')
     try {
       const trimmed = keyInput.trim()
-      localStorage.setItem('pentagon.nvidiaKey', trimmed)
+      setStoredNvidiaKey(trimmed)
       await apiRequest('/api/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -145,7 +145,7 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
   }
 
   function clearKey() {
-    localStorage.removeItem('pentagon.nvidiaKey')
+    clearStoredNvidiaKey()
     setKeyInput('')
     setKeyState('idle')
     setKeyMessage('Key removed from this browser.')
@@ -399,7 +399,7 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
             >
               {savingKey ? 'Saving…' : 'Save key'}
             </button>
-            {typeof window !== 'undefined' && localStorage.getItem('pentagon.nvidiaKey') ? (
+            {getStoredNvidiaKey() ? (
               <button
                 type="button"
                 onClick={clearKey}

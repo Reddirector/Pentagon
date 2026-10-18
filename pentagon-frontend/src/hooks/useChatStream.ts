@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
-import { apiRequest, apiUrl, approvePendingApproval, denyPendingApproval, getCapability, pcmToWavUrl } from '../api'
+import { apiRequest, apiUrl, approvePendingApproval, denyPendingApproval, getCapability, getStoredNvidiaKey, pcmToWavUrl } from '../api'
 import type {
   AgentPlanStep,
   ChatMessage,
@@ -134,7 +134,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       form.set('conversation_id', thread.id)
       form.set('model', modelForMessage)
       form.set('message', question)
-      const savedNvidiaKey = typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey')?.trim() : ''
+      const savedNvidiaKey = getStoredNvidiaKey()
       if (savedNvidiaKey) form.set('nvidia_key', savedNvidiaKey)
       // Web search is not a user toggle: omitting the field lets the backend
       // router decide when a question actually needs live results.
@@ -321,7 +321,7 @@ export function useChatStream(options: UseChatStreamOptions) {
     const capability = await getCapability()
     const headers: Record<string, string> = { Accept: 'text/event-stream' }
     if (capability) headers['X-Pentagon-Capability'] = capability
-    const savedNvidiaKey = typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey')?.trim() : ''
+    const savedNvidiaKey = getStoredNvidiaKey()
     if (savedNvidiaKey) headers['X-Nvidia-Key'] = savedNvidiaKey
     const hasMedia = form.has('image') || form.has('video')
     const endpoint = hasMedia ? '/api/chat' : (agentMode ? '/api/agent/chat' : '/api/chat')

@@ -74,12 +74,36 @@ export function setCapability(token: string): void {
   capabilityOnce = Promise.resolve(trimmed)
 }
 
+export const NVIDIA_KEY_STORAGE = 'pentagon.nvidiaKey_v2'
+
+export function getStoredNvidiaKey(): string {
+  if (typeof window === 'undefined') return ''
+  return localStorage.getItem(NVIDIA_KEY_STORAGE)?.trim() || ''
+}
+
+export function setStoredNvidiaKey(key: string): void {
+  if (typeof window === 'undefined') return
+  const trimmed = key.trim()
+  if (trimmed) {
+    localStorage.setItem(NVIDIA_KEY_STORAGE, trimmed)
+  } else {
+    localStorage.removeItem(NVIDIA_KEY_STORAGE)
+  }
+}
+
+export function clearStoredNvidiaKey(): void {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(NVIDIA_KEY_STORAGE)
+  localStorage.removeItem('pentagon.nvidiaKey')
+  localStorage.removeItem('pentagon.defaultModel')
+}
+
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const capability = await getCapability()
   const headers = new Headers(init?.headers)
   if (capability) headers.set('X-Pentagon-Capability', capability)
   if (typeof window !== 'undefined') {
-    const nvidiaKey = localStorage.getItem('pentagon.nvidiaKey')?.trim()
+    const nvidiaKey = getStoredNvidiaKey()
     if (nvidiaKey && !headers.has('X-Nvidia-Key')) {
       headers.set('X-Nvidia-Key', nvidiaKey)
     }

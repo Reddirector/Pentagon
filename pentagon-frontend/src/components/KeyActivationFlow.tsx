@@ -14,7 +14,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from 'lucide-react'
-import { apiRequest } from '../api'
+import { apiRequest, setStoredNvidiaKey } from '../api'
 import type { ModelInfo } from '../types'
 import { LogomarkBadge } from './Logomark'
 
@@ -92,7 +92,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
       }
 
       // Store key in browser storage and sync
-      localStorage.setItem('pentagon.nvidiaKey', trimmed)
+      setStoredNvidiaKey(trimmed)
       try {
         await apiRequest('/api/keys', {
           method: 'POST',
