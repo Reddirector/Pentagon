@@ -1,0 +1,26 @@
+# Virtualenv & Dependencies
+pentagon/
+venv/
+.venv/
+node_modules/
+pentagon-frontend/node_modules/
+pentagon-frontend/electron-download/
+
+# Local databases and runtime artifacts
+*.db
+*.sqlite
+*.sqlite3
+chroma_data/
+image_uploads/
+speech_models/
+artifacts/
+generated_files/
+.git/
+.agents/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

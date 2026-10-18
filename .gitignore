@@ -61,3 +61,4 @@ npm-debug.log*
 
 # User-created skills (Settings -> Skills) are runtime data, like pentagon.db.
 pentagon-backend/skills/user/
+.vercel
