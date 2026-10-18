@@ -4,7 +4,7 @@
  * from SettingsDialog.tsx; nothing behavioural changed.
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { AlertTriangle, Check, Copy } from 'lucide-react'
+import { AlertTriangle, Check, Copy, Eye, EyeOff } from 'lucide-react'
 import {
   getPreferences,
   setUserAvatarColor,
@@ -28,6 +28,7 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
   const [keyState, setKeyState] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
   const [keyMessage, setKeyMessage] = useState('')
   const [savingKey, setSavingKey] = useState(false)
+  const [showNvidiaKey, setShowNvidiaKey] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
@@ -347,20 +348,31 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
         hint="Stored encrypted on the backend and reused for every request. If the server has a key configured, this is optional."
       >
         <div className="space-y-2.5">
-          <input
-            type="password"
-            value={keyInput}
-            onChange={(event) => {
-              setKeyInput(event.target.value)
-              setKeyState('idle')
-              setKeyMessage('')
-            }}
-            placeholder="nvapi-…"
-            autoComplete="off"
-            spellCheck={false}
-            className={inputClass}
-            aria-label="NVIDIA API key"
-          />
+          <div className="relative flex items-center">
+            <input
+              type={showNvidiaKey ? 'text' : 'password'}
+              value={keyInput}
+              onChange={(event) => {
+                setKeyInput(event.target.value)
+                setKeyState('idle')
+                setKeyMessage('')
+              }}
+              placeholder="nvapi-…"
+              autoComplete="off"
+              spellCheck={false}
+              className={`${inputClass} pr-10 font-mono`}
+              aria-label="NVIDIA API key"
+            />
+            <button
+              type="button"
+              onClick={() => setShowNvidiaKey((prev) => !prev)}
+              aria-label={showNvidiaKey ? 'Hide API key' : 'Show API key'}
+              title={showNvidiaKey ? 'Hide API key' : 'Show API key'}
+              className="absolute right-2 flex size-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
+            >
+              {showNvidiaKey ? <EyeOff size={15} /> : <Eye size={15} />}
+            </button>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"

@@ -6,6 +6,8 @@ import {
   Check,
   ChevronDown,
   Copy,
+  Eye,
+  EyeOff,
   FileSpreadsheet,
   FileText,
   Globe,
@@ -1239,6 +1241,7 @@ function KeyGate({ value, validation, validationMessage, saving, error, onChange
   onChange: (value: string) => void
   onSubmit: (event: FormEvent) => void
 }) {
+  const [showKey, setShowKey] = useState(false)
   const tone = validation === 'valid' ? 'text-emerald-400' : validation === 'invalid' ? 'text-rose-400' : validation === 'checking' ? 'text-amber-300' : 'text-zinc-600'
 
   return (
@@ -1267,7 +1270,7 @@ function KeyGate({ value, validation, validationMessage, saving, error, onChange
           </div>
         )}
 
-        {/* Minimalist Key Input */}
+        {/* Minimalist Key Input with Show/Hide Eye Toggle */}
         <form onSubmit={onSubmit} className="relative w-full">
           <div className="group relative flex items-center rounded-2xl border border-white/[0.08] bg-white/[0.025] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.5)] backdrop-blur-2xl transition-[border-color,box-shadow,background-color] duration-300 hover:border-white/[0.14] focus-within:border-emerald-400/40 focus-within:bg-[#080808] focus-within:shadow-[0_0_35px_rgba(16,185,129,0.12)]">
             <div className="flex pl-3.5 pr-2.5 text-zinc-500 transition-colors group-focus-within:text-emerald-400">
@@ -1275,14 +1278,23 @@ function KeyGate({ value, validation, validationMessage, saving, error, onChange
             </div>
             <input
               id="nvidia-key"
-              type="password"
+              type={showKey ? 'text' : 'password'}
               autoComplete="off"
               spellCheck={false}
               value={value}
               onChange={(event) => onChange(event.target.value)}
               placeholder="nvapi-••••••••••••••••"
-              className="h-10 w-full bg-transparent pr-3 text-small text-zinc-100 outline-none placeholder:text-zinc-600"
+              className="h-10 w-full bg-transparent pr-2 font-mono text-small text-zinc-100 outline-none placeholder:text-zinc-600"
             />
+            <button
+              type="button"
+              onClick={() => setShowKey((prev) => !prev)}
+              aria-label={showKey ? 'Hide API key' : 'Show API key'}
+              title={showKey ? 'Hide API key' : 'Show API key'}
+              className="mr-1 flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
+            >
+              {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
             <button
               type="submit"
               disabled={validation !== 'valid' || saving}
