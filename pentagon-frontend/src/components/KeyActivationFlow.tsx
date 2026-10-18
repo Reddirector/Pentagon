@@ -139,7 +139,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
 
   // Handle final workspace launch
   function handleLaunch() {
-    const finalModel = selectedModel || discoveredModels[0]?.id || 'meta/llama-3.3-70b-instruct'
+    const finalModel = selectedModel || discoveredModels[0]?.id || 'nvidia/llama-3.1-nemotron-70b-instruct'
     localStorage.setItem('pentagon.defaultModel', finalModel)
     onComplete({
       key: trimmed,

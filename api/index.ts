@@ -12,15 +12,23 @@ export const config = {
 }
 
 const DEFAULT_MODELS = [
-  { id: 'meta/llama-3.3-70b-instruct', supports_vision: false, context_window: 131072 },
-  { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
-  { id: 'meta/llama-3.2-3b-instruct', supports_vision: false, context_window: 131072 },
-  { id: 'deepseek-ai/deepseek-r1', supports_vision: false, context_window: 65536 },
   { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
+  { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
+  { id: 'meta/llama-3.2-90b-vision-instruct', supports_vision: true, context_window: 131072 },
   { id: 'mistralai/mistral-large-2-instruct', supports_vision: false, context_window: 131072 },
-  { id: 'google/gemma-2-27b-it', supports_vision: false, context_window: 8192 },
-  { id: 'qwen/qwen2.5-72b-instruct', supports_vision: false, context_window: 32768 },
+  { id: 'deepseek-ai/deepseek-v4.1-flash', supports_vision: false, context_window: 65536 },
+  { id: 'google/gemma-3-12b-it', supports_vision: false, context_window: 8192 },
+  { id: 'google/gemma-4-31b-it', supports_vision: false, context_window: 8192 },
+  { id: 'mistralai/mixtral-8x22b-v0.1', supports_vision: false, context_window: 65536 },
 ]
+
+function normalizeModel(model: string): string {
+  const trimmed = (model || '').trim()
+  if (!trimmed || trimmed.includes('llama-3.3-70b')) {
+    return 'nvidia/llama-3.1-nemotron-70b-instruct'
+  }
+  return trimmed
+}
 
 function corsHeaders(extra: Record<string, string> = {}) {
   return {
@@ -209,23 +217,40 @@ export default async function handler(req: Request): Promise<Response> {
       }
       return jsonResponse({
         models: DEFAULT_MODELS,
-        default_model: 'meta/llama-3.3-70b-instruct',
+        default_model: 'nvidia/llama-3.1-nemotron-70b-instruct',
       })
     }
 
     // 4. Chat streaming: POST /api/chat or POST /api/agent/chat
     if ((path === '/api/chat' || path === '/api/agent/chat') && method === 'POST') {
       let prompt = ''
-      let model = 'meta/llama-3.3-70b-instruct'
+      let model = 'nvidia/llama-3.1-nemotron-70b-instruct'
       let apiKey = extractKey(req)
+      let imageBase64: string | null = null
+      let imageMime = 'image/jpeg'
 
       const contentType = req.headers.get('content-type') || ''
       if (contentType.includes('multipart/form-data')) {
-        const formData = await req.formData()
-        prompt = String(formData.get('message') || '').trim()
-        model = String(formData.get('model') || model).trim()
-        const formKey = formData.get('nvidia_key') || formData.get('api_key')
-        if (formKey) apiKey = String(formKey).trim()
+        try {
+          const formData = await req.formData()
+          prompt = String(formData.get('message') || '').trim()
+          const reqModel = formData.get('model')
+          if (reqModel) model = String(reqModel).trim()
+          const formKey = formData.get('nvidia_key') || formData.get('api_key')
+          if (formKey) apiKey = String(formKey).trim()
+
+          const imageEntry = formData.get('image')
+          if (imageEntry instanceof File && imageEntry.size > 0) {
+            imageMime = imageEntry.type || 'image/jpeg'
+            const buffer = await imageEntry.arrayBuffer()
+            const bytes = new Uint8Array(buffer)
+            let binary = ''
+            for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+            imageBase64 = btoa(binary)
+          }
+        } catch {
+          // ignore form parse error
+        }
       } else {
         try {
           const json = (await req.json()) as { message?: string; model?: string; nvidia_key?: string }
@@ -233,7 +258,7 @@ export default async function handler(req: Request): Promise<Response> {
           if (json.model) model = String(json.model).trim()
           if (json.nvidia_key) apiKey = String(json.nvidia_key).trim()
         } catch {
-          // ignore
+          // ignore json parse error
         }
       }
 
@@ -241,46 +266,88 @@ export default async function handler(req: Request): Promise<Response> {
         return jsonResponse({ detail: 'Please enter your NVIDIA API key.' }, 401)
       }
 
-      // Stream from NVIDIA NIM API
-      const nvidiaResponse = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: prompt || 'Hello' }],
-          temperature: 0.7,
-          max_tokens: 4096,
-          stream: true,
-        }),
-      })
+      model = normalizeModel(model)
 
-      if (!nvidiaResponse.ok) {
-        let errMessage = `NVIDIA API error: ${nvidiaResponse.status}`
-        try {
-          const errBody = (await nvidiaResponse.json()) as { message?: string; detail?: string }
-          errMessage = errBody.message || errBody.detail || errMessage
-        } catch {
-          // keep fallback
-        }
-        return jsonResponse({ detail: errMessage }, nvidiaResponse.status)
+      // If an image is provided, ensure a vision-capable model is used
+      if (imageBase64 && !model.includes('vision') && !model.includes('vl')) {
+        model = 'meta/llama-3.2-11b-vision-instruct'
       }
 
-      if (!nvidiaResponse.body) {
-        return jsonResponse({ detail: 'No response stream from NVIDIA' }, 502)
-      }
+      // Build message payload
+      const userMessage = imageBase64
+        ? {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt || 'Analyze this image.' },
+              { type: 'image_url', image_url: { url: `data:${imageMime};base64,${imageBase64}` } },
+            ],
+          }
+        : { role: 'user', content: prompt || 'Hello' }
 
-      // Transform NVIDIA stream to Pentagon SSE format
       const encoder = new TextEncoder()
       const decoder = new TextDecoder()
-      const nvidiaReader = nvidiaResponse.body.getReader()
 
       const sseStream = new ReadableStream({
         async start(controller) {
-          let buffer = ''
+          // 1. Immediately emit ping to flush response headers in <5ms and eliminate 504 Gateway Timeout!
+          controller.enqueue(encoder.encode(': ping\n\n'))
+          controller.enqueue(
+            encoder.encode(`event: status\ndata: ${JSON.stringify({ message: 'Connected' })}\n\n`)
+          )
+
+          // 2. Keep-alive heartbeat interval every 2 seconds to keep connection active while NVIDIA generates
+          const keepAlive = setInterval(() => {
+            try {
+              controller.enqueue(encoder.encode(': ping\n\n'))
+            } catch {
+              clearInterval(keepAlive)
+            }
+          }, 2000)
+
           try {
+            const nvidiaResponse = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model,
+                messages: [userMessage],
+                temperature: 0.7,
+                max_tokens: 4096,
+                stream: true,
+              }),
+            })
+
+            if (!nvidiaResponse.ok) {
+              let errDetail = `NVIDIA API error: ${nvidiaResponse.status}`
+              try {
+                const errBody = (await nvidiaResponse.json()) as { message?: string; detail?: string }
+                errDetail = errBody.detail || errBody.message || errDetail
+              } catch {
+                // keep status
+              }
+              controller.enqueue(
+                encoder.encode(`event: error\ndata: ${JSON.stringify({ message: errDetail })}\n\n`)
+              )
+              controller.close()
+              clearInterval(keepAlive)
+              return
+            }
+
+            if (!nvidiaResponse.body) {
+              controller.enqueue(
+                encoder.encode(`event: error\ndata: ${JSON.stringify({ message: 'No response stream from NVIDIA' })}\n\n`)
+              )
+              controller.close()
+              clearInterval(keepAlive)
+              return
+            }
+
+            const nvidiaReader = nvidiaResponse.body.getReader()
+            let buffer = ''
+
             while (true) {
               const { done, value } = await nvidiaReader.read()
               if (done) break
@@ -309,22 +376,27 @@ export default async function handler(req: Request): Promise<Response> {
               }
             }
 
-            // Send done signal
+            // Successfully finished
             controller.enqueue(encoder.encode(`event: status\ndata: ${JSON.stringify({ message: 'Done' })}\n\n`))
             controller.enqueue(encoder.encode('event: done\ndata: {}\n\n'))
             controller.close()
           } catch (err) {
-            controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ detail: String(err) })}\n\n`))
+            controller.enqueue(
+              encoder.encode(`event: error\ndata: ${JSON.stringify({ message: err instanceof Error ? err.message : String(err) })}\n\n`)
+            )
             controller.close()
+          } finally {
+            clearInterval(keepAlive)
           }
         },
       })
 
       return new Response(sseStream, {
         headers: corsHeaders({
-          'Content-Type': 'text/event-stream',
+          'Content-Type': 'text/event-stream; charset=utf-8',
           'Cache-Control': 'no-cache, no-transform',
           Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
         }),
       })
     }

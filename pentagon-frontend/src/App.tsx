@@ -110,11 +110,11 @@ function isVideo(file: File) {
  * on offer.
  */
 const DEFAULT_NVIDIA_MODELS: ModelInfo[] = [
-  { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
-  { id: 'meta/llama-3.3-70b-instruct', supports_vision: false, context_window: 131072 },
-  { id: 'deepseek-ai/deepseek-r1', supports_vision: false, context_window: 131072 },
   { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
+  { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
+  { id: 'meta/llama-3.2-90b-vision-instruct', supports_vision: true, context_window: 131072 },
   { id: 'mistralai/mistral-large-2-instruct', supports_vision: false, context_window: 131072 },
+  { id: 'deepseek-ai/deepseek-v4.1-flash', supports_vision: false, context_window: 65536 },
 ]
 
 function chooseDefaultModel(available: ModelInfo[], preferred: string, serverDefault: string): string {
