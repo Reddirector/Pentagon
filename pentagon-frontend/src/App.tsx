@@ -24,7 +24,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { apiRequest, ApiError, getLocalUserId } from './api'
+import { apiRequest, ApiError, getLocalUserId, getApiBase, setApiBase, getCapability, setCapability, apiUrl } from './api'
 import { useApiKeys } from './hooks/useApiKeys'
 import { useCommandSettings } from './hooks/useCommandSettings'
 import { useAutonomy } from './hooks/useAutonomy'
@@ -706,6 +706,7 @@ function App() {
     validationMessage={keys.keyValidationMessage}
     saving={keys.savingKey}
     error={keys.error}
+    userId={userId}
     onChange={(value) => {
       keys.setKeyValue(value)
       keys.setKeyValidation(value.trim() ? 'checking' : 'idle')
@@ -1213,19 +1214,61 @@ const MessageRow = memo(MessageRowImpl, (previous, next) =>
   previous.deciding === next.deciding
 )
 
-function KeyGate({ value, validation, validationMessage, saving, error, onChange, onSubmit }: {
+function KeyGate({ value, validation, validationMessage, saving, error, userId, onChange, onSubmit }: {
   value: string
   validation: Validation
   validationMessage: string
   saving: boolean
   error: string
+  userId: string
   onChange: (value: string) => void
   onSubmit: (event: FormEvent) => void
 }) {
+  const isHostedWeb = typeof window !== 'undefined' && (window.location.hostname.includes('github.io') || window.location.protocol === 'https:')
+  const [showServerConfig, setShowServerConfig] = useState(isHostedWeb && !getApiBase())
+  const [apiBaseInput, setApiBaseInput] = useState(() => getApiBase() || '')
+  const [capabilityInput, setCapabilityInput] = useState('')
+  const [serverStatus, setServerStatus] = useState<string | null>(null)
+  const [testingServer, setTestingServer] = useState(false)
+  const [serverOk, setServerOk] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    void getCapability().then((token) => setCapabilityInput(token))
+  }, [])
+
+  const handleSaveServer = async () => {
+    setTestingServer(true)
+    setServerStatus(null)
+    const trimmed = apiBaseInput.trim().replace(/\/+$/, '')
+    try {
+      const headers: Record<string, string> = {}
+      if (capabilityInput.trim()) headers['X-Pentagon-Capability'] = capabilityInput.trim()
+      const testUrl = trimmed
+        ? `${trimmed}/api/models?user_id=${encodeURIComponent(userId)}`
+        : apiUrl(`/api/models?user_id=${encodeURIComponent(userId)}`)
+      const res = await fetch(testUrl, { headers })
+      if (res.ok || res.status === 404) {
+        setApiBase(trimmed)
+        if (capabilityInput.trim()) setCapability(capabilityInput.trim())
+        setServerOk(true)
+        setServerStatus('Connected to backend successfully!')
+        setTimeout(() => window.location.reload(), 600)
+      } else {
+        setServerOk(false)
+        setServerStatus(`Backend returned HTTP ${res.status}.`)
+      }
+    } catch {
+      setServerOk(false)
+      setServerStatus('Could not reach backend at that address.')
+    } finally {
+      setTestingServer(false)
+    }
+  }
+
   const tone = validation === 'valid' ? 'text-emerald-300' : validation === 'invalid' ? 'text-rose-300' : validation === 'checking' ? 'text-amber-200' : 'text-zinc-500'
-  return <main className="relative grid min-h-screen place-items-center overflow-hidden bg-[#000000] px-5 py-10 text-zinc-100">
+  return <main className="relative grid min-h-screen place-items-center overflow-y-auto bg-[#000000] px-5 py-10 text-zinc-100">
     <div className="pointer-events-none absolute left-1/2 top-0 size-[500px] -translate-x-1/2 rounded-full bg-emerald-300/[0.04] blur-[100px]" />
-    <section className="relative w-full max-w-[440px] rounded-[24px] border border-white/[0.09] bg-[#0b0b0b]/95 p-8 shadow-[0_32px_100px_rgba(0,0,0,.48)] max-sm:p-6">
+    <section className="relative w-full max-w-[460px] rounded-[24px] border border-white/[0.09] bg-[#0b0b0b]/95 p-8 shadow-[0_32px_100px_rgba(0,0,0,.48)] max-sm:p-6">
       <div className="mb-9 flex items-center gap-3"><LogomarkBadge size={36} /><span className="text-body font-semibold tracking-[.2em]">PENTAGON</span></div>
       <p className="mb-3 text-caption font-medium uppercase tracking-[.22em] text-emerald-200/70">Your models · Your key</p>
       <h1 className="text-display font-medium leading-[1.12] tracking-[-.04em]">Bring your NVIDIA models into focus.</h1>
@@ -1237,6 +1280,78 @@ function KeyGate({ value, validation, validationMessage, saving, error, onChange
         <div className={`mt-2.5 flex min-h-4 items-center gap-2 text-micro ${tone}`} aria-live="polite"><span className={`size-1.5 rounded-full ${validation === 'valid' ? 'bg-emerald-300' : validation === 'invalid' ? 'bg-rose-300' : validation === 'checking' ? 'animate-pulse bg-amber-200' : 'bg-zinc-700'}`} />{validationMessage}</div>
         <button type="submit" disabled={validation !== 'valid' || saving} className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 text-small font-semibold text-[#000000] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-zinc-600">{saving ? <LoaderCircle size={14} className="animate-spin" /> : <LockKeyhole size={13} />}{saving ? 'Saving securely…' : 'Store key and continue'}</button>
       </form>
+
+      {/* Backend Server Configuration */}
+      <div className="mt-6 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 text-small">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className={`size-2 rounded-full ${getApiBase() ? 'bg-emerald-400' : isHostedWeb ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+            <span className="text-micro font-medium uppercase tracking-wider text-zinc-300">
+              Backend: {getApiBase() || (isHostedWeb ? 'Not Connected' : 'Local (Same-origin)')}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowServerConfig(!showServerConfig)}
+            className="text-micro text-emerald-300 hover:text-emerald-200 font-medium transition"
+          >
+            {showServerConfig ? 'Close' : 'Configure'}
+          </button>
+        </div>
+
+        {(showServerConfig || (isHostedWeb && !getApiBase())) && (
+          <div className="mt-3.5 space-y-3 border-t border-white/[0.06] pt-3">
+            {isHostedWeb && (
+              <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.05] p-3 text-caption leading-relaxed text-emerald-200">
+                <span className="font-semibold text-emerald-300">Running on GitHub Pages?</span>
+                <br />
+                • <strong>Local Use (Recommended)</strong>: Open the local link at <a href="http://127.0.0.1:5173" target="_blank" rel="noreferrer" className="underline font-semibold text-emerald-300 hover:text-emerald-200">http://127.0.0.1:5173</a> to connect to your local backend instantly with zero setup.
+                <br />
+                • <strong>Remote / Cloud</strong>: Enter your HTTPS backend URL (e.g., Cloudflare Tunnel, ngrok, or cloud host) below.
+              </div>
+            )}
+            <div>
+              <label htmlFor="api-base-url" className="mb-1 block text-micro text-zinc-400">Backend API URL</label>
+              <input
+                id="api-base-url"
+                type="url"
+                value={apiBaseInput}
+                onChange={(e) => setApiBaseInput(e.target.value)}
+                placeholder="https://..."
+                className="h-9 w-full rounded-lg border border-white/[0.1] bg-[#000000] px-3 text-caption text-zinc-100 outline-none focus:border-emerald-300/40"
+              />
+            </div>
+            <div>
+              <label htmlFor="capability-token" className="mb-1 block text-micro text-zinc-400">Capability Token (Optional)</label>
+              <input
+                id="capability-token"
+                type="password"
+                value={capabilityInput}
+                onChange={(e) => setCapabilityInput(e.target.value)}
+                placeholder="Server secret token"
+                className="h-9 w-full rounded-lg border border-white/[0.1] bg-[#000000] px-3 text-caption text-zinc-100 outline-none focus:border-emerald-300/40"
+              />
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                disabled={testingServer}
+                onClick={handleSaveServer}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-400/15 border border-emerald-400/30 px-3 py-1.5 text-caption font-medium text-emerald-200 hover:bg-emerald-400/25 transition disabled:opacity-50"
+              >
+                {testingServer && <LoaderCircle size={12} className="animate-spin" />}
+                {testingServer ? 'Testing…' : 'Save & Connect Server'}
+              </button>
+              {serverStatus && (
+                <span className={`text-caption ${serverOk ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  {serverStatus}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="mt-7 flex items-center gap-2 border-t border-white/[0.06] pt-5 text-caption leading-5 text-zinc-600"><LockKeyhole size={12} className="shrink-0" />Only the local user ID is kept in browser storage.</div>
     </section>
     <div className="absolute bottom-5 text-caption-xs uppercase tracking-[.2em] text-zinc-700">FastAPI · NVIDIA NIM · Local workspace</div>

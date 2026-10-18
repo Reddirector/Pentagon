@@ -138,7 +138,7 @@ class Settings(BaseSettings):
     # dial this server cross-origin, which the browser engine blocks without an
     # explicit allowance. Add any extra origins (a hosted frontend, a Tailscale
     # or LAN address) as a comma-separated list.
-    cors_origins: str = "capacitor://localhost,http://localhost,https://localhost"
+    cors_origins: str = "capacitor://localhost,http://localhost,https://localhost,https://reddirector.github.io,http://127.0.0.1:5173,http://localhost:5173"
 
 
 def cors_origin_list() -> list[str]:

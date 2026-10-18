@@ -32,14 +32,22 @@ export function useApiKeys(userId: string): UseApiKeys {
   // Debounced live validation. Aborted on change so typing `sk-a` + `sk-ab`
   // does not send stale responses out of order.
   useEffect(() => {
-    if (!keyValue.trim()) return
+    const trimmed = keyValue.trim()
+    if (!trimmed) return
+
+    if (!trimmed.startsWith('nvapi-') || trimmed.length < 10) {
+      setKeyValidation('invalid')
+      setKeyValidationMessage('NVIDIA API keys must start with nvapi-')
+      return
+    }
+
     const controller = new AbortController()
     const timer = window.setTimeout(async () => {
       try {
         const result = await apiRequest<{ valid: boolean; reason?: string }>('/api/keys/validate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: keyValue }),
+          body: JSON.stringify({ api_key: trimmed }),
           signal: controller.signal,
         })
         setKeyValidation(result.valid ? 'valid' : 'invalid')
@@ -47,7 +55,14 @@ export function useApiKeys(userId: string): UseApiKeys {
       } catch (cause) {
         if (controller.signal.aborted) return
         setKeyValidation('invalid')
-        setKeyValidationMessage(cause instanceof Error ? cause.message : 'Key validation failed.')
+        const message = cause instanceof Error ? cause.message : 'Key validation failed.'
+        if (message.includes('404')) {
+          setKeyValidationMessage('Backend server not reached (404). Check or configure Backend URL below.')
+        } else if (message.includes('Failed to fetch') || message.includes('NetworkError') || message.includes('network')) {
+          setKeyValidationMessage('Cannot reach backend server. Make sure it is running.')
+        } else {
+          setKeyValidationMessage(message)
+        }
       }
     }, 500)
     return () => { window.clearTimeout(timer); controller.abort() }

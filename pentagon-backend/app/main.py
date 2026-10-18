@@ -144,6 +144,14 @@ async def database_operational_error(_request: Request, exc: OperationalError) -
         headers={"Retry-After": "1"},
     )
 
+
+@app.middleware("http")
+async def add_private_network_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.headers.get("access-control-request-private-network") == "true":
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
 # Leaves room for the configured 120 MiB video upload plus multipart framing,
 # while stopping accidental or hostile unbounded body buffering.
 app.add_middleware(
