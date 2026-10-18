@@ -10,12 +10,9 @@ Executes comprehensive validation across:
 from __future__ import annotations
 
 import io
-import json
 import zipfile
 import pytest
 from fastapi.testclient import TestClient
-
-from app.agent.loop import TurnRequest
 from app.db.models import (
     Conversation,
     GeneratedFile,

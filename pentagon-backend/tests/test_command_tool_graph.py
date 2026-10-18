@@ -13,13 +13,11 @@ Three things are worth proving here, and none of them is "a command ran":
 from __future__ import annotations
 
 import asyncio
-import json
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
-from pydantic import SecretStr
 
 from app.config import settings
 from app.db.models import ApiKey, User

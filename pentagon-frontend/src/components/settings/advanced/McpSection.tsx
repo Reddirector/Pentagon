@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   AlertCircle,
   Brain,
@@ -56,9 +56,9 @@ export function McpSection({ userId: _userId }: { userId: string }) {
   const [testingDraft, setTestingDraft] = useState(false)
   const [draftTestResult, setDraftTestResult] = useState<{ success: boolean; latency_ms: number; tools_count: number; error?: string } | null>(null)
 
-  const loadData = async () => {
+  const loadData = useCallback(async (showSpinner = false) => {
     try {
-      setLoading(true)
+      if (showSpinner) setLoading(true)
       const data = await apiRequest<{ servers: McpServerInfo[]; presets: McpPreset[]; problems: string[] }>('/api/mcp')
       setServers(data.servers)
       setPresets(data.presets || [])
@@ -70,10 +70,29 @@ export function McpSection({ userId: _userId }: { userId: string }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    void loadData()
+    let cancelled = false
+    apiRequest<{ servers: McpServerInfo[]; presets: McpPreset[]; problems: string[] }>('/api/mcp')
+      .then(data => {
+        if (cancelled) return
+        setServers(data.servers)
+        setPresets(data.presets || [])
+        setProblems(data.problems || [])
+        setError('')
+      })
+      .catch(cause => {
+        if (cancelled) return
+        setError(cause instanceof Error ? cause.message : 'Could not load MCP servers.')
+        setServers([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const handleToggle = async (server: McpServerInfo, nextEnabled: boolean) => {

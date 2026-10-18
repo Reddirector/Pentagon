@@ -228,7 +228,6 @@ def test_a_real_turn_persists_its_citations(
 
     initialize_database()
     user_id = f"citations-turn-{uuid4()}"
-    conversation_id = str(uuid4())
     monkeypatch.setattr(
         settings, "key_encryption_secret", SecretStr(Fernet.generate_key().decode())
     )

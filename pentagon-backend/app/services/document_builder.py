@@ -2009,9 +2009,24 @@ __STYLES__
     if (orderSec) orderSec.scrollIntoView({ behavior: 'smooth' });
   }
 
+  function filterMenu(cat) {
+    const filterBtns = document.querySelectorAll('.filter-btn');
+    const cards = document.querySelectorAll('.menu-item-card, .card');
+    filterBtns.forEach(b => {
+      const match = (cat === 'all' && (b.innerText === 'All' || b.getAttribute('data-filter') === 'all')) ||
+                    b.innerText.toLowerCase().includes(cat) ||
+                    b.getAttribute('data-filter') === cat;
+      b.classList.toggle('active', match);
+    });
+    cards.forEach(c => {
+      const itemCat = (c.getAttribute('data-category') || c.getAttribute('data-cat') || '').toLowerCase();
+      c.style.display = (cat === 'all' || itemCat === cat || itemCat.includes(cat)) ? 'flex' : 'none';
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     const filterBtns = document.querySelectorAll('.filter-btn');
-    const cards = document.querySelectorAll('.menu-item-card');
+    const cards = document.querySelectorAll('.menu-item-card, .card');
 
     filterBtns.forEach(btn => {
       btn.addEventListener('click', () => {
@@ -2721,9 +2736,24 @@ def _enhance_html_website(html_str: str, title: str) -> str:
       if (orderSec) orderSec.scrollIntoView({ behavior: 'smooth' });
     }
 
+    function filterMenu(cat) {
+      const filterBtns = document.querySelectorAll('.filter-btn');
+      const cards = document.querySelectorAll('.menu-item-card, .card');
+      filterBtns.forEach(b => {
+        const match = (cat === 'all' && (b.innerText === 'All' || b.getAttribute('data-filter') === 'all')) ||
+                      b.innerText.toLowerCase().includes(cat) ||
+                      b.getAttribute('data-filter') === cat;
+        b.classList.toggle('active', match);
+      });
+      cards.forEach(c => {
+        const itemCat = (c.getAttribute('data-category') || c.getAttribute('data-cat') || '').toLowerCase();
+        c.style.display = (cat === 'all' || itemCat === cat || itemCat.includes(cat)) ? 'flex' : 'none';
+      });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       const filterBtns = document.querySelectorAll('.filter-btn');
-      const cards = document.querySelectorAll('.menu-item-card');
+      const cards = document.querySelectorAll('.menu-item-card, .card');
 
       filterBtns.forEach(btn => {
         btn.addEventListener('click', () => {

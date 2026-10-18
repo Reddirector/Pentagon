@@ -35,14 +35,13 @@ export function useApiKeys(userId: string): UseApiKeys {
     const trimmed = keyValue.trim()
     if (!trimmed) return
 
-    if (!trimmed.startsWith('nvapi-') || trimmed.length < 10) {
-      setKeyValidation('invalid')
-      setKeyValidationMessage('NVIDIA API keys must start with nvapi-')
-      return
-    }
-
     const controller = new AbortController()
     const timer = window.setTimeout(async () => {
+      if (!trimmed.startsWith('nvapi-') || trimmed.length < 10) {
+        setKeyValidation('invalid')
+        setKeyValidationMessage('NVIDIA API keys must start with nvapi-')
+        return
+      }
       try {
         const result = await apiRequest<{ valid: boolean; reason?: string }>('/api/keys/validate', {
           method: 'POST',

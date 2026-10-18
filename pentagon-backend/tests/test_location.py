@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from langchain_core.messages import AIMessage
 
 from app.config import settings
 from app.services import chat_graph, location
@@ -203,8 +204,6 @@ def test_another_user_cannot_supply_the_coordinates(monkeypatch):
 
 
 def test_the_tool_is_absent_when_the_switch_is_off(monkeypatch):
-    from langchain_core.messages import AIMessage
-
     monkeypatch.setattr(settings, "command_tool_enabled", True)
     monkeypatch.setattr(settings, "location_enabled", False)
     model = _RecordingModel()
@@ -238,8 +237,6 @@ def test_the_tool_appears_when_both_switches_are_on(monkeypatch):
 
 class _RecordingModel:
     def __init__(self):
-        from langchain_core.messages import AIMessage
-
         self.messages = [AIMessage(content="ok")]
         self.bound = []
 

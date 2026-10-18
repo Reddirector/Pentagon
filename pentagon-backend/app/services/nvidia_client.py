@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
@@ -9,6 +10,8 @@ from langchain_openai import ChatOpenAI
 
 from app.config import settings
 from app.services.rate_limiter import RateLimitTimeout, current_provider_lane, rate_limiter
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
