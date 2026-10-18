@@ -44,7 +44,65 @@ function extractKey(req: Request, bodyKey?: string): string {
   if (headerKey) return headerKey
   const authHeader = req.headers.get('Authorization')?.trim()
   if (authHeader?.startsWith('Bearer ')) return authHeader.slice(7).trim()
+  try {
+    const url = new URL(req.url)
+    const queryKey = url.searchParams.get('api_key') || url.searchParams.get('nvidia_key')
+    if (queryKey?.trim()) return queryKey.trim()
+  } catch {
+    // ignore
+  }
   return ''
+}
+
+function parseNvidiaModels(raw: unknown) {
+  const data = raw as { data?: Array<{ id: string }> }
+  if (!Array.isArray(data?.data) || data.data.length === 0) {
+    return { models: DEFAULT_MODELS, default_model: 'meta/llama-3.3-70b-instruct' }
+  }
+
+  // Filter out pure embeddings, rerankers, speech models
+  const chatCandidates = data.data
+    .filter((m) => {
+      const id = (m.id || '').toLowerCase()
+      if (id.includes('embed') || id.includes('rerank') || id.includes('parakeet') || id.includes('whisper') || id.includes('bge-')) {
+        return false
+      }
+      return true
+    })
+    .map((m) => {
+      const id = m.id
+      const lower = id.toLowerCase()
+      const supportsVision = lower.includes('vision') || lower.includes('vl') || lower.includes('image') || lower.includes('omni')
+      const isReasoning = lower.includes('r1') || lower.includes('reason') || lower.includes('qwq')
+      let contextWindow = 131072
+      if (lower.includes('gemma')) contextWindow = 8192
+      else if (lower.includes('deepseek-r1')) contextWindow = 65536
+      else if (lower.includes('qwen2.5')) contextWindow = 32768
+      else if (lower.includes('mistral')) contextWindow = 131072
+
+      return {
+        id,
+        supports_vision: supportsVision,
+        is_reasoning: isReasoning,
+        context_window: contextWindow,
+      }
+    })
+
+  // Prioritize flagship models at the top
+  const priorityKeywords = ['llama-3.3-70b', 'deepseek-r1', 'nemotron-70b', 'llama-3.2-11b', 'mistral-large', 'qwen2.5-72b']
+  chatCandidates.sort((a, b) => {
+    const aPri = priorityKeywords.findIndex((k) => a.id.toLowerCase().includes(k))
+    const bPri = priorityKeywords.findIndex((k) => b.id.toLowerCase().includes(k))
+    if (aPri !== -1 && bPri !== -1) return aPri - bPri
+    if (aPri !== -1) return -1
+    if (bPri !== -1) return 1
+    return a.id.localeCompare(b.id)
+  })
+
+  const models = chatCandidates.length > 0 ? chatCandidates : DEFAULT_MODELS
+  const defaultModel = models.find((m) => m.id.includes('llama-3.3-70b'))?.id || models[0].id
+
+  return { models, default_model: defaultModel }
 }
 
 function getNormalizedPath(req: Request): string {
@@ -102,7 +160,13 @@ export default async function handler(req: Request): Promise<Response> {
           headers: { Authorization: `Bearer ${apiKey}` },
         })
         if (res.ok) {
-          return jsonResponse({ valid: true, reason: 'Key verified' })
+          const parsed = parseNvidiaModels(await res.json())
+          return jsonResponse({
+            valid: true,
+            reason: 'Key verified',
+            models: parsed.models,
+            default_model: parsed.default_model,
+          })
         }
         if (res.status === 401 || res.status === 403) {
           return jsonResponse({ valid: false, reason: 'Invalid NVIDIA API key' })
@@ -111,7 +175,12 @@ export default async function handler(req: Request): Promise<Response> {
       } catch (err) {
         // If external call had network glitch but format is correct, accept valid
         if (apiKey.length > 20) {
-          return jsonResponse({ valid: true, reason: 'Key verified' })
+          return jsonResponse({
+            valid: true,
+            reason: 'Key verified',
+            models: DEFAULT_MODELS,
+            default_model: 'meta/llama-3.3-70b-instruct',
+          })
         }
         return jsonResponse({ valid: false, reason: err instanceof Error ? err.message : 'Validation error' })
       }
@@ -131,18 +200,8 @@ export default async function handler(req: Request): Promise<Response> {
             headers: { Authorization: `Bearer ${apiKey}` },
           })
           if (res.ok) {
-            const data = (await res.json()) as { data?: Array<{ id: string }> }
-            if (Array.isArray(data.data) && data.data.length > 0) {
-              const models = data.data.map((m) => ({
-                id: m.id,
-                supports_vision: m.id.includes('vision') || m.id.includes('vl') || m.id.includes('image'),
-                context_window: 131072,
-              }))
-              return jsonResponse({
-                models,
-                default_model: models.find((m) => m.id.includes('llama-3.3-70b'))?.id || models[0].id,
-              })
-            }
+            const parsed = parseNvidiaModels(await res.json())
+            return jsonResponse(parsed)
           }
         } catch {
           // Fall back to curated list

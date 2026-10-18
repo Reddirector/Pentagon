@@ -1,18 +1,13 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import type { FormEvent } from 'react'
 import {
-  ArrowRight,
   ArrowUp,
   Check,
   ChevronDown,
   Copy,
-  Eye,
-  EyeOff,
   FileSpreadsheet,
   FileText,
   Globe,
   Image as ImageIcon,
-  KeyRound,
   LoaderCircle,
   LockKeyhole,
   Menu,
@@ -27,7 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import { apiRequest, getLocalUserId } from './api'
-import { useApiKeys } from './hooks/useApiKeys'
+import { KeyActivationFlow } from './components/KeyActivationFlow'
 import { useCommandSettings } from './hooks/useCommandSettings'
 import { useAutonomy } from './hooks/useAutonomy'
 import { useAgentBadges } from './hooks/useAgentBadges'
@@ -36,7 +31,7 @@ import { useChatStream } from './hooks/useChatStream'
 import { useAudioUrls } from './hooks/useAudioUrls'
 import { useAmbientSignals } from './hooks/useAmbientSignals'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
-import type { Validation, ConversationDetail, TranscriptInfo } from './hooks/types/app'
+import type { ConversationDetail, TranscriptInfo } from './hooks/types/app'
 import { AssistantDetails } from './components/MessageContent'
 import { CommandApproval, CommandLog } from './components/CommandPanel'
 import { Sidebar } from './components/Sidebar'
@@ -132,7 +127,6 @@ function App() {
   const [userId] = useState(getLocalUserId)
   const [booting, setBooting] = useState(true)
   const [keyNeeded, setKeyNeeded] = useState(false)
-  const keys = useApiKeys(userId)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [defaultModel, setDefaultModel] = useState('')
   const [threads, setThreads] = useState<Conversation[]>([])
@@ -293,12 +287,43 @@ function App() {
     return stoppedReply ? 'Reply stopped.' : 'Reply finished.'
   }, [streaming, transcribing, uploading, switching, messages, stoppedReply])
 
+  const handleKeyActivationComplete = useCallback(
+    ({
+      models: discovered,
+      selectedModel: chosen,
+    }: {
+      key: string
+      models: ModelInfo[]
+      selectedModel: string
+    }) => {
+      if (discovered && discovered.length > 0) {
+        setModels(discovered)
+      }
+      if (chosen) {
+        setSelectedModel(chosen)
+        setDefaultModel(chosen)
+      }
+      setKeyNeeded(false)
+    },
+    [],
+  )
+
   useEffect(() => {
     let cancelled = false
     async function hydrate() {
       setBooting(true)
       let preferredModel = ''
       let list: Conversation[] = []
+      const localKey = typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey')?.trim() : ''
+
+      if (!localKey) {
+        if (!cancelled) {
+          setKeyNeeded(true)
+          setBooting(false)
+        }
+        return
+      }
+
       try {
         // Whether the shell tool is available is fixed for the session, so it
         // belongs in the one bootstrap fetch rather than in an effect of its
@@ -341,19 +366,19 @@ function App() {
         setKeyNeeded(false)
       } catch {
         if (cancelled) return
-        const localKey = typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey') : null
         setModels(DEFAULT_NVIDIA_MODELS)
         const def = DEFAULT_NVIDIA_MODELS[0].id
         setSelectedModel(def)
         setDefaultModel(def)
-        setKeyNeeded(!localKey)
+        const currentKey = typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey')?.trim() : ''
+        setKeyNeeded(!currentKey)
       } finally {
         if (!cancelled) setBooting(false)
       }
     }
     void hydrate()
     return () => { cancelled = true }
-  },    [userId, loadCommandSettings, refreshBadges, loadAutonomySettings])
+  }, [userId, loadCommandSettings, refreshBadges, loadAutonomySettings])
 
   useEffect(() => {
     if (!followConversation.current || !conversationViewport.current) return
@@ -695,23 +720,26 @@ function App() {
   }
 
 
-  if (booting) return <div className="grid h-full min-h-dvh place-items-center bg-[#000000]"><div className="relative flex items-center justify-center"><div className="absolute size-28 rounded-full bg-emerald-400/[0.15] blur-2xl animate-pulse" /><LogomarkBadge size={54} /></div></div>
+  if (booting) {
+    return (
+      <div className="grid h-full min-h-dvh place-items-center bg-[#000000]">
+        <div className="relative flex items-center justify-center">
+          <div className="absolute size-28 rounded-full bg-emerald-400/[0.15] blur-2xl animate-pulse" />
+          <LogomarkBadge size={54} />
+        </div>
+      </div>
+    )
+  }
 
-  if (keyNeeded) return <KeyGate
-    value={keys.keyValue}
-    validation={keys.keyValidation}
-    validationMessage={keys.keyValidationMessage}
-    saving={keys.savingKey}
-    error={keys.error}
-    userId={userId}
-    onChange={(value) => {
-      keys.setKeyValue(value)
-      keys.setKeyValidation(value.trim() ? 'checking' : 'idle')
-      keys.setKeyValidationMessage(value.trim() ? 'Verifying key…' : 'Enter NVIDIA API key')
-      keys.setError('')
-    }}
-    onSubmit={(event) => void keys.saveKey(event)}
-  />
+  if (keyNeeded) {
+    return (
+      <KeyActivationFlow
+        userId={userId}
+        initialKey={typeof window !== 'undefined' ? localStorage.getItem('pentagon.nvidiaKey') || '' : ''}
+        onComplete={handleKeyActivationComplete}
+      />
+    )
+  }
 
   return <div className="flex h-dvh min-h-[620px] overflow-hidden bg-transparent text-zinc-100 selection:bg-emerald-300/30">
     <AmbientLayer />
@@ -1149,99 +1177,5 @@ const MessageRow = memo(MessageRowImpl, (previous, next) =>
   previous.deciding === next.deciding
 )
 
-function KeyGate({ value, validation, validationMessage, saving, error, onChange, onSubmit }: {
-  value: string
-  validation: Validation
-  validationMessage: string
-  saving: boolean
-  error: string
-  userId?: string
-  onChange: (value: string) => void
-  onSubmit: (event: FormEvent) => void
-}) {
-  const [showKey, setShowKey] = useState(false)
-  const tone = validation === 'valid' ? 'text-emerald-400' : validation === 'invalid' ? 'text-rose-400' : validation === 'checking' ? 'text-amber-300' : 'text-zinc-600'
-
-  return (
-    <main className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[#000000] px-6 text-zinc-100">
-      {/* Calm ambient background graphic glow and geometric orbital rings */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div className="size-[540px] rounded-full bg-gradient-to-tr from-emerald-500/[0.08] via-teal-500/[0.03] to-transparent blur-[120px]" />
-        <div className="absolute size-[320px] rounded-full border border-emerald-500/[0.05]" />
-        <div className="absolute size-[480px] rounded-full border border-white/[0.02]" />
-        <div className="absolute size-[640px] rounded-full border border-white/[0.015]" />
-      </div>
-
-      <section className="relative z-10 flex w-full max-w-[380px] flex-col items-center text-center">
-        {/* Sleek Centerpiece Logo Graphic */}
-        <div className="relative mb-8 flex items-center justify-center">
-          <div className="absolute size-36 rounded-full bg-emerald-400/[0.18] blur-3xl transition duration-700" />
-          <div className="relative flex size-28 items-center justify-center rounded-3xl border border-white/[0.12] bg-[#090a0d]/90 shadow-[0_24px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl ring-1 ring-white/[0.06]">
-            <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-white/[0.08] to-transparent" />
-            <LogomarkBadge size={72} className="transition duration-500 hover:scale-105" />
-          </div>
-        </div>
-
-        {error && (
-          <div role="alert" className="mb-5 w-full rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-4 py-2 text-caption text-rose-300 backdrop-blur-md">
-            {error}
-          </div>
-        )}
-
-        {/* Minimalist Key Input with Show/Hide Eye Toggle */}
-        <form onSubmit={onSubmit} className="relative w-full">
-          <div className="group relative flex items-center rounded-2xl border border-white/[0.08] bg-white/[0.025] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.5)] backdrop-blur-2xl transition-[border-color,box-shadow,background-color] duration-300 hover:border-white/[0.14] focus-within:border-emerald-400/40 focus-within:bg-[#080808] focus-within:shadow-[0_0_35px_rgba(16,185,129,0.12)]">
-            <div className="flex pl-3.5 pr-2.5 text-zinc-500 transition-colors group-focus-within:text-emerald-400">
-              <KeyRound size={17} />
-            </div>
-            <input
-              id="nvidia-key"
-              type={showKey ? 'text' : 'password'}
-              autoComplete="off"
-              spellCheck={false}
-              value={value}
-              onChange={(event) => onChange(event.target.value)}
-              placeholder="nvapi-••••••••••••••••"
-              className="h-10 w-full bg-transparent pr-2 font-mono text-small text-zinc-100 outline-none placeholder:text-zinc-600"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey((prev) => !prev)}
-              aria-label={showKey ? 'Hide API key' : 'Show API key'}
-              title={showKey ? 'Hide API key' : 'Show API key'}
-              className="mr-1 flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-white/[0.08] hover:text-zinc-200"
-            >
-              {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-            <button
-              type="submit"
-              disabled={validation !== 'valid' || saving}
-              aria-label="Enter"
-              className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-400 text-black shadow-sm transition hover:bg-emerald-300 active:scale-95 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-zinc-600"
-            >
-              {saving ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowRight size={16} />}
-            </button>
-          </div>
-
-          {/* Minimal Status Feedback */}
-          <div className={`mt-3.5 flex items-center justify-center gap-2 text-micro transition-colors duration-300 ${tone}`} aria-live="polite">
-            <span
-              className={`size-1.5 rounded-full transition-all duration-300 ${
-                validation === 'valid'
-                  ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]'
-                  : validation === 'invalid'
-                  ? 'bg-rose-400'
-                  : validation === 'checking'
-                  ? 'animate-pulse bg-amber-300'
-                  : 'bg-zinc-800'
-              }`}
-            />
-            <span>{validation === 'idle' ? 'Enter NVIDIA API key' : validationMessage}</span>
-          </div>
-        </form>
-      </section>
-    </main>
-  )
-}
-
 export default App
+

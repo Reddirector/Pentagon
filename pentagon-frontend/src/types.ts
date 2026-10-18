@@ -1,4 +1,9 @@
-export type ModelInfo = { id: string; supports_vision?: boolean; context_window?: number }
+export type ModelInfo = {
+  id: string
+  supports_vision?: boolean
+  is_reasoning?: boolean
+  context_window?: number
+}
 
 export type Conversation = {
   id: string

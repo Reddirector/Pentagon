@@ -127,20 +127,29 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
     setSavingKey(true)
     setKeyMessage('Storing…')
     try {
+      const trimmed = keyInput.trim()
+      localStorage.setItem('pentagon.nvidiaKey', trimmed)
       await apiRequest('/api/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, api_key: keyInput.trim() }),
+        body: JSON.stringify({ user_id: userId, api_key: trimmed }),
       })
-      setKeyInput('')
       setKeyState('idle')
-      setKeyMessage('Saved. It is encrypted on the server and reused for every request.')
+      setKeyMessage('Saved. Ready and active for model queries.')
       onKeySaved()
     } catch (cause) {
       setKeyMessage(cause instanceof Error ? cause.message : 'Could not store the key.')
     } finally {
       setSavingKey(false)
     }
+  }
+
+  function clearKey() {
+    localStorage.removeItem('pentagon.nvidiaKey')
+    setKeyInput('')
+    setKeyState('idle')
+    setKeyMessage('Key removed from this browser.')
+    onKeySaved()
   }
 
   async function submitAuth(event: React.FormEvent) {
@@ -390,6 +399,15 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
             >
               {savingKey ? 'Saving…' : 'Save key'}
             </button>
+            {typeof window !== 'undefined' && localStorage.getItem('pentagon.nvidiaKey') ? (
+              <button
+                type="button"
+                onClick={clearKey}
+                className="h-9 rounded-lg border border-rose-500/30 px-3 text-small text-rose-300 transition hover:bg-rose-500/10"
+              >
+                Clear key
+              </button>
+            ) : null}
             {keyMessage && (
               <span className={`text-small ${keyState === 'invalid' ? 'text-zinc-400' : 'text-zinc-500'}`}>
                 {keyMessage}
