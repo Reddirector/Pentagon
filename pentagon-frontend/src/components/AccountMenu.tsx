@@ -36,8 +36,8 @@ export function AccountMenu({
   const [copied, setCopied] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const userName = prefs.userName || 'Aditya'
-  const userEmail = prefs.userEmail || 'aditya@pentagon.ai'
+  const userName = prefs.userName.trim() || 'User'
+  const userEmail = prefs.userEmail.trim() || 'user@pentagon.local'
   const avatarTheme = AVATAR_THEMES[prefs.userAvatarColor] ?? AVATAR_THEMES.emerald
 
   // Derive 1-2 letter initial
@@ -46,7 +46,7 @@ export function AccountMenu({
     .filter(Boolean)
     .slice(0, 2)
     .map((s) => s[0].toUpperCase())
-    .join('') || 'A'
+    .join('') || 'U'
 
   // Close when clicking outside or pressing Escape
   useEffect(() => {

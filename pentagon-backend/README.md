@@ -20,7 +20,7 @@ project folder.
 
 ## Run locally
 
-From `/home/aditya/Desktop/Pentagon`:
+From the repository root:
 
 ```bash
 source pentagon/bin/activate
@@ -48,7 +48,7 @@ The API is at `http://127.0.0.1:8000`; interactive API docs are at
 
 ## Run Dev Server
 
-From `/home/aditya/Desktop/Pentagon/pentagon-backend`, activate the workspace
+From `pentagon-backend`, activate the workspace
 environment and start Uvicorn with reload enabled:
 
 ```bash
@@ -198,7 +198,7 @@ forward `/api/*` requests unchanged to FastAPI; it contains no model or
 business logic. Keep the Python backend running separately while using the
 desktop app.
 
-Terminal 1, from `/home/aditya/Desktop/Pentagon`:
+Terminal 1, from repository root:
 
 ```bash
 source pentagon/bin/activate
@@ -209,7 +209,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 Terminal 2:
 
 ```bash
-cd /home/aditya/Desktop/Pentagon/pentagon-frontend
+cd pentagon-frontend
 npm ci
 npm run electron:dev
 ```

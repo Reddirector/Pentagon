@@ -165,7 +165,7 @@ function App() {
   const [settingsTab, setSettingsTab] = useState<'Account' | 'Permissions' | 'Advanced'>('Account')
   const [settingsSection, setSettingsSection] = useState<'Skills' | 'MCP Servers' | 'Commands' | 'Data' | 'Appearance' | 'Model' | 'Audit log' | 'About' | undefined>(undefined)
   const prefs = useSyncExternalStore(subscribePreferences, getPreferences)
-  const userName = prefs.userName || 'Aditya'
+  const userName = prefs.userName.trim()
   // Agent mode: the same composer, a different route. The agent loop's events
   // (tool timeline, plan, approvals, questions, artifacts) render under the
   // answer instead of the graph's plain token stream. The choice is ours to
@@ -981,7 +981,9 @@ function App() {
                 </p>
 
                 <h1 className="max-w-xl text-balance text-hero-fluid font-medium leading-[1.14] tracking-[-.04em] text-zinc-100">
-                  {active ? `How can I help you today, ${userName}?` : `Welcome back, ${userName}`}
+                  {active
+                    ? (userName ? `How can I help you today, ${userName}?` : 'How can I help you today?')
+                    : (userName ? `Welcome back, ${userName}` : 'Welcome back')}
                 </h1>
 
                 <p className="mt-2.5 max-w-lg text-body text-zinc-400">
@@ -1143,15 +1145,15 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
   deciding?: boolean
 }) {
   const prefs = useSyncExternalStore(subscribePreferences, getPreferences)
-  const currentUserName = prefs.userName || 'Aditya'
+  const currentUserName = prefs.userName.trim() || 'You'
   const currentAvatarTheme = AVATAR_THEMES[prefs.userAvatarColor] ?? AVATAR_THEMES.emerald
   const userInitials =
-    currentUserName
+    (currentUserName === 'You' ? 'U' : currentUserName)
       .split(' ')
       .filter(Boolean)
       .slice(0, 2)
       .map((s) => s[0].toUpperCase())
-      .join('') || 'A'
+      .join('') || 'U'
   const user = message.role === 'user'
   return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
     {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center"><Logomark size={20} /></div>}

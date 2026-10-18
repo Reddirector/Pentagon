@@ -175,8 +175,8 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
     setAuthBusy(false)
   }
 
-  const userName = prefs.userName || 'Aditya'
-  const userEmail = prefs.userEmail || 'aditya@pentagon.ai'
+  const userName = prefs.userName || 'User'
+  const userEmail = prefs.userEmail || 'user@pentagon.local'
   const avatarTheme = AVATAR_THEMES[prefs.userAvatarColor] ?? AVATAR_THEMES.emerald
   const initials =
     userName
@@ -218,7 +218,7 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
                 type="text"
                 value={prefs.userName}
                 onChange={(e) => setUserName(e.target.value)}
-                placeholder="Aditya"
+                placeholder="Your name"
                 className={inputClass}
                 aria-label="Display name"
               />
@@ -229,7 +229,7 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
                 type="email"
                 value={prefs.userEmail}
                 onChange={(e) => setUserEmail(e.target.value)}
-                placeholder="aditya@pentagon.ai"
+                placeholder="user@example.com"
                 className={inputClass}
                 aria-label="Email address"
               />
