@@ -10,6 +10,7 @@ import httpx
 
 from app.config import settings
 from app.services.nvidia_client import NvidiaApiError, list_models_for_user
+from app.services.rate_limiter import current_provider_lane, rate_limiter
 
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ async def _nvidia_embeddings(
         for start in range(0, len(texts), 32):
             batch = texts[start : start + 32]
             try:
+                await rate_limiter.acquire(current_provider_lane())
                 response = await client.post(
                     f"{settings.nvidia_base_url.rstrip('/')}/embeddings",
                     headers={"Authorization": f"Bearer {api_key}"},

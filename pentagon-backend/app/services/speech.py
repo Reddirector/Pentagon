@@ -17,6 +17,7 @@ from faster_whisper import WhisperModel
 from piper import PiperVoice
 
 from app.config import settings
+from app.services.rate_limiter import current_provider_lane, rate_limiter
 
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,7 @@ async def transcribe_audio(
     if settings.nvidia_riva_asr_url and api_key:
         try:
             nvidia_audio = await asyncio.to_thread(_asr_wav_bytes, content, filename)
+            await rate_limiter.acquire(current_provider_lane())
             async with httpx.AsyncClient(timeout=120) as client:
                 response = await client.post(
                     f"{settings.nvidia_riva_asr_url.rstrip('/')}/v1/audio/transcriptions",
@@ -228,6 +230,7 @@ async def _nvidia_audio_chunks(
         data["voice"] = voice
     started = False
     try:
+        await rate_limiter.acquire(current_provider_lane())
         async with httpx.AsyncClient(timeout=120) as client:
             async with client.stream(
                 "POST",

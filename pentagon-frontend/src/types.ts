@@ -1,4 +1,4 @@
-export type ModelInfo = { id: string; supports_vision?: boolean }
+export type ModelInfo = { id: string; supports_vision?: boolean; context_window?: number }
 
 export type Conversation = {
   id: string
@@ -56,6 +56,8 @@ export type ChatMessage = {
   verification?: Verification
   /** Human-readable notes the turn emitted (wrap-up, repair). */
   statusNotes?: string[]
+  /** Files generated inline by document_generation during the turn. */
+  generatedFiles?: GeneratedFileInfo[]
 }
 
 export type DocumentInfo = {
@@ -236,4 +238,97 @@ export type AutonomySettings = {
     category?: string
     overrideEnabled?: boolean
   }>
+}
+
+/** A file pushed by the document_generation tool while the turn streamed. */
+export type GeneratedFileInfo = {
+  id: string
+  filename: string
+  format: string
+  media_type: string
+  size: number
+  conversation_id: string
+  created_at: string | null
+  storage_path: string
+}
+
+export type WorkflowNodeType =
+  | 'trigger'
+  | 'web_search'
+  | 'llm_transform'
+  | 'document_generation'
+  | 'image_generation'
+  | 'shell_command'
+  | 'condition'
+  | string
+
+export type WorkflowNode = {
+  id: string
+  type: WorkflowNodeType
+  title: string
+  description?: string
+  config: Record<string, any>
+  position?: { x: number; y: number }
+}
+
+export type WorkflowEdge = {
+  id?: string
+  source: string
+  target: string
+  condition?: string
+}
+
+export type Workflow = {
+  id: string
+  user_id?: string
+  name: string
+  description: string
+  icon: string
+  category: string
+  is_template?: boolean
+  nodes: WorkflowNode[]
+  edges: WorkflowEdge[]
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export type WorkflowStepResult = {
+  node_id: string
+  title: string
+  type: string
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+  output?: any
+  logs?: string[]
+  duration_ms?: number
+  error?: string
+}
+
+export type WorkflowDeliverable = {
+  id: string
+  node_id?: string
+  title?: string
+  filename: string
+  format: string
+  size_bytes: number
+  download_url: string
+}
+
+export type WorkflowRun = {
+  id: string
+  workflow_id: string
+  user_id: string
+  status: 'pending' | 'running' | 'success' | 'failed' | 'cancelled'
+  inputs: Record<string, any>
+  step_results: Record<string, WorkflowStepResult>
+  outputs: {
+    files?: WorkflowDeliverable[]
+    last_completed_step?: string
+    total_steps?: number
+    deliverables_count?: number
+    [key: string]: any
+  }
+  error_message?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+  created_at?: string | null
 }

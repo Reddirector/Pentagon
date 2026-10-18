@@ -497,7 +497,12 @@ def test_new_users_default_to_balanced(client: TestClient) -> None:
 
 
 @pytest.mark.parametrize("level", [MIN_PERMISSION_LEVEL, 2, MAX_PERMISSION_LEVEL])
-def test_level_round_trips_through_the_api(client: TestClient, level) -> None:
+def test_level_round_trips_through_the_api(client: TestClient, level, monkeypatch, tmp_path) -> None:
+    from app.services import sandbox_runner
+
+    monkeypatch.setattr(settings, "command_tool_enabled", True)
+    monkeypatch.setattr(settings, "command_working_directory", str(tmp_path))
+    monkeypatch.setattr(sandbox_runner, "sandbox_available", lambda: True)
     user_id = f"perm-{uuid4()}"
     with SessionLocal() as db:
         db.add(User(id=user_id, command_tool_enabled=True))

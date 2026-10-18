@@ -104,7 +104,9 @@ def test_availability_is_false_when_the_cli_is_missing(monkeypatch):
 
 def test_registry_hides_sandbox_tools_without_docker(monkeypatch):
     monkeypatch.setattr(sandbox_runner, "sandbox_available", lambda: False)
-    assert not {"python_exec", "create_artifact"} & set(build_registry().names())
+    names = set(build_registry().names())
+    assert "python_exec" not in names
+    assert "create_artifact" in names
     monkeypatch.setattr(sandbox_runner, "sandbox_available", lambda: True)
     names = build_registry().names()
     assert "python_exec" in names

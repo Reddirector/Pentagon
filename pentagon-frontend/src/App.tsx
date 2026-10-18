@@ -1,59 +1,101 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
-import { ArrowUp, Check, ChevronDown, Copy, FileText, Image as ImageIcon, LoaderCircle, LockKeyhole, Menu, MessageSquare, Mic, Paperclip, Plus, ShieldCheck, Square, Video, X } from 'lucide-react'
-import { apiRequest, ApiError, apiUrl, getLocalUserId, pcmToWavUrl } from './api'
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import type { FormEvent } from 'react'
 import {
-  fetchAutonomySettings,
-  applyAutonomyPreset,
-  putAutonomySetting,
-  fetchPendingApprovals,
-  approvePendingApproval,
-  denyPendingApproval,
-} from './api'
-import type { AutonomySettings, PendingApproval } from './types'
+  ArrowUp,
+  Check,
+  ChevronDown,
+  Copy,
+  FileSpreadsheet,
+  FileText,
+  Globe,
+  Image as ImageIcon,
+  LoaderCircle,
+  LockKeyhole,
+  Menu,
+  MessageSquare,
+  Mic,
+  Paperclip,
+  Plus,
+  Presentation,
+  ShieldCheck,
+  Square,
+  Video,
+  Workflow,
+  X,
+  Zap,
+} from 'lucide-react'
+import { apiRequest, ApiError, getLocalUserId } from './api'
+import { useApiKeys } from './hooks/useApiKeys'
+import { useCommandSettings } from './hooks/useCommandSettings'
+import { useAutonomy } from './hooks/useAutonomy'
+import { useAgentBadges } from './hooks/useAgentBadges'
+import { usePendingApprovals, usePendingCommands } from './hooks/usePendingApprovals'
+import { useChatStream } from './hooks/useChatStream'
+import { useAudioUrls } from './hooks/useAudioUrls'
+import { useAmbientSignals } from './hooks/useAmbientSignals'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import type { Validation, ConversationDetail, TranscriptInfo } from './hooks/types/app'
 import { AssistantDetails } from './components/MessageContent'
 import { CommandApproval, CommandLog } from './components/CommandPanel'
 import { Sidebar } from './components/Sidebar'
 import { Logomark, LogomarkBadge } from './components/Logomark'
 import { ThinkingIndicator } from './components/ThinkingIndicator'
 import { AmbientLayer } from './components/AmbientLayer'
-import { CommandPalette } from './components/CommandPalette'
-import { SettingsDialog } from './components/SettingsDialog'
-import { PermissionPanel } from './components/PermissionPanel'
 import { AgentActivity } from './components/AgentActivity'
-import { setAmbientSignal } from './lib/ambient'
-import { getPreferences, toggleSidebarCollapsed } from './lib/preferences'
-import type { AgentPlanStep, ChatMessage, CommandRun, CommandSettings, Conversation, DocumentInfo, ExecutionTrace, ModelInfo, PendingCommand, PendingToolApproval, SourcesUsed, Verification } from './types'
+import { ModelSelector } from './components/ModelSelector'
+import { AVATAR_THEMES, getPreferences, subscribePreferences } from './lib/preferences'
+import type { ChatMessage, Conversation, DocumentInfo, ModelInfo } from './types'
 
-type ConversationDetail = Conversation & { messages: ChatMessage[]; summary_at_switch: string | null }
-type TranscriptInfo = { durationMs: number; provider: string }
-type Validation = 'idle' | 'checking' | 'valid' | 'invalid'
+const CommandPalette = lazy(() => import('./components/CommandPalette').then((m) => ({ default: m.CommandPalette })))
+const SettingsDialog = lazy(() => import('./components/SettingsDialog').then((m) => ({ default: m.SettingsDialog })))
+const WorkflowDesigner = lazy(() => import('./components/WorkflowDesigner').then((m) => ({ default: m.WorkflowDesigner })))
 
-/** How often streamed text is committed to the message list. Each commit re-parses
-    the answer through react-markdown, so this trades a little latency for a
-    steady, inexpensive update rate. */
-const STREAM_FLUSH_MS = 45
-
-// The two panes of the main area. Permissions is a standing question about the
-// whole session rather than anything to do with the current turn, which is why
-// it lives beside the conversation instead of inside it.
-const WORKSPACE_TABS = ['Chat', 'Permissions'] as const
-type WorkspaceTab = (typeof WORKSPACE_TABS)[number]
+const DASHBOARD_ACTIONS = [
+  {
+    icon: FileText,
+    badge: 'Word Document',
+    tag: '.docx',
+    title: 'Enterprise Business Proposal',
+    description: 'Executive summary, market sizing, financial forecast, and roadmap.',
+    prompt: 'Create a comprehensive 5-page enterprise SaaS business proposal with executive summary, market analysis, financial projections, and implementation roadmap as a Word document (.docx).',
+    agent: true,
+  },
+  {
+    icon: FileSpreadsheet,
+    badge: 'Excel Spreadsheet',
+    tag: '.xlsx',
+    title: 'SaaS Financial & Revenue Model',
+    description: 'Monthly cohorts, revenue projection, CAC/LTV, and cash flow formulas.',
+    prompt: 'Build a multi-year SaaS financial model spreadsheet with monthly revenue forecasts, customer cohorts, CAC/LTV calculations, and EBITDA summaries (.xlsx).',
+    agent: true,
+  },
+  {
+    icon: Presentation,
+    badge: 'Slide Presentation',
+    tag: '.pptx',
+    title: 'Investor Pitch Deck',
+    description: '10 structured slides on problem, solution, traction, and team.',
+    prompt: 'Generate an engaging 10-slide startup pitch deck presentation covering the problem, solution, market size, product demo, unit economics, and team (.pptx).',
+    agent: true,
+  },
+  {
+    icon: Globe,
+    badge: 'Deep Research',
+    tag: 'Web & Sources',
+    title: 'Frontier AI Research Report',
+    description: 'Multi-query web synthesis of reasoning models and benchmark papers.',
+    prompt: 'Perform deep research on current 2026 breakthroughs in agentic AI architectures and multi-step reasoning models, synthesizing verified findings and citations.',
+    agent: true,
+  },
+]
 
 function titleFor(message: string) {
   const normalized = message.trim().replace(/\s+/g, ' ')
   return normalized.length > 54 ? `${normalized.slice(0, 51)}…` : normalized || 'New thread'
 }
 
-function decodeAudio(value: string): Uint8Array {
-  const raw = atob(value)
-  const bytes = new Uint8Array(raw.length)
-  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index)
-  return bytes
-}
-
 function isDocument(file: File) {
-  return /\.(pdf|docx|txt)$/i.test(file.name)
+  return /\.(pdf|docx?|pptx?|xlsx?|csv|tsv|txt|md|markdown|json|ya?ml|html?|xml|rst|py|js|ts|tsx|jsx|sh|sql|log)$/i.test(file.name)
 }
 
 function isImage(file: File) {
@@ -84,10 +126,7 @@ function App() {
   const [userId] = useState(getLocalUserId)
   const [booting, setBooting] = useState(true)
   const [keyNeeded, setKeyNeeded] = useState(false)
-  const [keyValue, setKeyValue] = useState('')
-  const [keyValidation, setKeyValidation] = useState<Validation>('idle')
-  const [keyValidationMessage, setKeyValidationMessage] = useState('Enter a key to validate it with NVIDIA.')
-  const [savingKey, setSavingKey] = useState(false)
+  const keys = useApiKeys(userId)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [defaultModel, setDefaultModel] = useState('')
   const [threads, setThreads] = useState<Conversation[]>([])
@@ -119,22 +158,13 @@ function App() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [dragging, setDragging] = useState(false)
-  const [commandSettings, setCommandSettings] = useState<CommandSettings>({
-    enabled: false,
-    available: false,
-    approval_timeout_seconds: 300,
-    desktop_available: false,
-    location_available: false,
-    permission_level: 2,
-    permission_levels: [],
-    permission_name: 'Balanced',
-  })
-  const [autonomySettings, setAutonomySettings] = useState<AutonomySettings | null>(null)
-  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
-  const [pendingApprovalsError, setPendingApprovalsError] = useState('')
-  const [autonomyBusy, setAutonomyBusy] = useState(false)
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('Chat')
+  const { commandSettings, setCommandSettings, loadCommandSettings } = useCommandSettings(userId)
+  const { autonomySettings, load: loadAutonomySettings, changeSetting: changeAutonomySetting, changePreset: changeAutonomyPreset } = useAutonomy(userId)
+  const { badges: agentBadges, refresh: refreshBadges } = useAgentBadges()
   const [deciding, setDeciding] = useState<string | null>(null)
+  const prefs = useSyncExternalStore(subscribePreferences, getPreferences)
+  const [settingsTab, setSettingsTab] = useState<'Account' | 'Permissions' | 'Advanced'>('Account')
+  const userName = prefs.userName || 'Aditya'
   // Agent mode: the same composer, a different route. The agent loop's events
   // (tool timeline, plan, approvals, questions, artifacts) render under the
   // answer instead of the graph's plain token stream. The choice is ours to
@@ -142,84 +172,8 @@ function App() {
   const [agentMode, setAgentMode] = useState(() => {
     try { return window.localStorage.getItem('pentagon.agentMode') === '1' } catch { return false }
   })
-  const [agentBadges, setAgentBadges] = useState<Record<string, { badge: string }>>({})
+  const [viewMode, setViewMode] = useState<'chat' | 'workflows'>('chat')
   const [canRetry, setCanRetry] = useState(false)
-  const lastSend = useRef<{ question: string; threadId: string; assistantId: string } | null>(null)
-
-  // Capability badges come from the server's probe cache -- a plain GET, no
-  // network beyond our own backend -- so the header can say how a model
-  // tool-calls without spending anything to find out.
-  const refreshBadges = useCallback(async () => {
-    try {
-      const data = await apiRequest<Record<string, { badge: string }>>('/api/agent/badges', { method: 'GET' })
-      setAgentBadges(data ?? {})
-    } catch {
-      // Decoration: a failed read leaves badges absent, never wrong.
-    }
-  }, [])
-
-  // --- command tool bootstrap ---------------------------------------------
-  // Defined with useCallback so the effect can depend on it honestly rather
-  // than being exempted from the dependency check.
-  const loadCommandSettings = useCallback(async () => {
-    try {
-      const result = await apiRequest<CommandSettings>(
-        `/api/commands/settings?user_id=${encodeURIComponent(userId)}`,
-      )
-      setCommandSettings(result)
-    } catch {
-      // A server without the tool simply has no settings; the toggle stays off.
-      setCommandSettings({
-        enabled: false,
-        available: false,
-        approval_timeout_seconds: 300,
-        desktop_available: false,
-        location_available: false,
-        permission_level: 2,
-        permission_levels: [],
-        permission_name: 'Balanced',
-      })
-    }
-  }, [userId])
-
-  const loadAutonomySettings = useCallback(async () => {
-    try {
-      const settings = await fetchAutonomySettings(userId)
-      setAutonomySettings(settings)
-    } catch {
-      // A server without the autonomy system returns nothing; the panel shows
-      // the fallback empty state rather than crashing.
-      setAutonomySettings(null)
-    }
-  }, [userId])
-
-  // The per-category setters delegate to the API and then refresh the local
-  // snapshot so the six rows always show what the server accepted.
-  const changeAutonomySetting = useCallback(
-    async (category: string, level: string) => {
-      setAutonomyBusy(true)
-      try {
-        await putAutonomySetting(userId, category, level)
-        await loadAutonomySettings()
-      } finally {
-        setAutonomyBusy(false)
-      }
-    },
-    [userId, loadAutonomySettings],
-  )
-
-  const changeAutonomyPreset = useCallback(
-    async (preset: string) => {
-      setAutonomyBusy(true)
-      try {
-        await applyAutonomyPreset(userId, preset)
-        await loadAutonomySettings()
-      } finally {
-        setAutonomyBusy(false)
-      }
-    },
-    [userId, loadAutonomySettings],
-  )
 
   // Saving a level sends the current `enabled` alongside it, because the one
   // endpoint owns both fields. The response replaces local state wholesale so
@@ -274,11 +228,54 @@ function App() {
   // long session with speech grew without bound. Registered on creation and
   // revoked below once no message points at them any more.
   const audioUrls = useRef<Set<string>>(new Set())
+  const loadThreadRef = useRef<(id: string) => Promise<void>>(() => Promise.resolve())
+  const isDraftThread = Boolean(active && 'isDraft' in active && active.isDraft)
+  const chat = useChatStream({
+    userId,
+    agentMode,
+    hasActiveThread: Boolean(active),
+    isDraftThread,
+    selectedModel,
+    streaming,
+    transcribing,
+    uploading,
+    draft,
+    setDraft,
+    media,
+    setMedia,
+    queuedDocuments,
+    setQueuedDocuments,
+    transcriptInfo,
+    setTranscriptInfo,
+    setMessages,
+    setActive,
+    setStreaming,
+    setStoppedReply,
+    setNotice,
+    setError,
+    setCanRetry,
+    setDeciding,
+    deciding,
+    setRecording,
+    setTranscribing,
+    recording,
+    followConversation,
+    streamAbort,
+    createRemoteThread,
+    refreshThreads,
+    refreshBadges,
+    uploadDocument,
+    acceptFiles,
+    onAudioUrl: (url) => {
+      audioUrls.current.add(url)
+    },
+    onApprovalResolved: (id) => {
+      void loadThreadRef.current(id)
+    },
+  })
 
-  const activeModel = models.find((item) => item.id === selectedModel)
   const activeId = active?.id || null
   const sidebarThreads = active && 'isDraft' in active && active.isDraft ? [active as Conversation, ...threads] : threads
-  const isDraftThread = Boolean(active && 'isDraft' in active && active.isDraft)
   const conversationAnnouncement = useMemo(() => {
     if (transcribing) return 'Transcribing your recording.'
     if (uploading) return 'Uploading a document.'
@@ -350,29 +347,7 @@ function App() {
     }
     void hydrate()
     return () => { cancelled = true }
-  }, [userId, loadCommandSettings, refreshBadges])
-
-  useEffect(() => {
-    if (!keyValue.trim()) return
-    const controller = new AbortController()
-    const timer = window.setTimeout(async () => {
-      try {
-        const result = await apiRequest<{ valid: boolean; reason?: string }>('/api/keys/validate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: keyValue }),
-          signal: controller.signal,
-        })
-        setKeyValidation(result.valid ? 'valid' : 'invalid')
-        setKeyValidationMessage(result.valid ? 'Key verified and ready to save.' : result.reason || 'NVIDIA did not accept this key.')
-      } catch (cause) {
-        if (controller.signal.aborted) return
-        setKeyValidation('invalid')
-        setKeyValidationMessage(cause instanceof Error ? cause.message : 'Key validation failed.')
-      }
-    }, 500)
-    return () => { window.clearTimeout(timer); controller.abort() }
-  }, [keyValue])
+  },    [userId, loadCommandSettings, refreshBadges, loadAutonomySettings])
 
   useEffect(() => {
     if (!followConversation.current || !conversationViewport.current) return
@@ -389,38 +364,21 @@ function App() {
   }, [messages, streaming])
   useEffect(() => () => recorder.current?.stream.getTracks().forEach((track) => track.stop()), [])
 
-  /**
-   * Show the approval prompt while a turn is in flight.
-   *
-   * This polls rather than waiting for a server-sent event, and that is
-   * deliberate. The server blocks inside the tool node until the decision
-   * arrives, so it has no opportunity to push anything down the same stream
-   * while the question is outstanding -- there is nothing to emit from until
-   * the answer comes back. Polling the pending list is also what makes a
-   * reload mid-request recoverable rather than stranded.
-   */
-  useEffect(() => {
-    if (!streaming || !commandSettings.enabled || !active) return
-    const conversationId = active.id
-    let cancelled = false
-    const poll = async () => {
-      if (cancelled) return
-      try {
-        const rows = await apiRequest<PendingCommand[]>(
-          `/api/commands/pending?user_id=${encodeURIComponent(userId)}`
-          + `&conversation_id=${encodeURIComponent(conversationId)}`,
-        )
-        if (cancelled || !rows.length) return
-        const locationRequest = rows.find((row) => row.kind === 'location')
-        if (locationRequest && answeredLocation.current !== locationRequest.request_id) {
-          // Only the window can ask the user for a fix, so the permission
-          // prompt belongs here rather than in the backend. Declining simply
-          // answers with nothing, and the server falls back to the network.
-          answeredLocation.current = locationRequest.request_id
-          void answerLocationRequest(locationRequest.request_id)
-        }
-        const showable = rows.find((row) => row.kind !== 'location')
-        if (!showable) return
+  usePendingCommands(
+    userId,
+    streaming ? (active?.id ?? null) : null,
+    commandSettings.enabled,
+    {
+      onLocationRequest: (requestId) => {
+        if (answeredLocation.current === requestId) return
+        answeredLocation.current = requestId
+        // Only the window can ask the user for a fix, so the permission
+        // prompt belongs here rather than in the backend. Declining simply
+        // answers with nothing, and the server falls back to the network
+        // estimate.
+        void answerLocationRequest(requestId)
+      },
+      onShowable: (showable) => {
         setMessages((current) =>
           current.map((item) =>
             item.role === 'assistant' && !item.pendingCommand && !item.content
@@ -428,134 +386,40 @@ function App() {
               : item,
           ),
         )
-      } catch {
-        /* The prompt is re-checked on the next tick; a failed poll is not fatal. */
-      }
-    }
-    void poll()
-    const timer = window.setInterval(poll, 1500)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [streaming, commandSettings.enabled, active, userId, answerLocationRequest])
+      },
+      onProgress: () => {},
+    },
+  )
 
   // Live approval-queue banner. Unlike the older command-only prompt, this reads
   // the new /api/pending-approvals endpoint, which surfaces the autonomy gate's
   // interrupt card (the always_ask / ask_first_time branch) anywhere in the app.
-  useEffect(() => {
-    if (!active || !commandSettings.enabled) return
-    const conversationId = active.id
-    let cancelled = false
-    const poll = async () => {
-      if (cancelled) return
-      try {
-        const response = await fetchPendingApprovals(userId, conversationId)
-        if (cancelled) return
-        setPendingApprovals(response.pending)
-        setPendingApprovalsError('')
-      } catch (cause) {
-        if (cancelled) return
-        setPendingApprovals([])
-        setPendingApprovalsError(cause instanceof Error ? cause.message : 'Could not load pending approvals.')
+  const { pending: pendingApprovals, error: pendingApprovalsError, dismiss: dismissPendingApproval } =
+    usePendingApprovals(userId, active?.id ?? null, (approval, _approved) => {
+      const targetId = approval.conversation_id || active?.id
+      if (targetId) {
+        void loadThread(targetId)
       }
-    }
-    void poll()
-    const timer = window.setInterval(poll, 2000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [active, commandSettings.enabled, userId])
-
-  function dismissPendingApproval(approval: PendingApproval, approved: boolean) {
-    setPendingApprovals((current) => current.filter((item) => item.id !== approval.id))
-    void (approved
-      ? approvePendingApproval(approval.id, userId)
-      : denyPendingApproval(approval.id, userId))
-      .catch(() => {
-        // Re-fetch so a failed resolve does not leave the banner stale.
-        void fetchPendingApprovals(userId, active?.id ?? '')
-          .then((response) => setPendingApprovals(response.pending))
-          .catch(() => setPendingApprovals([]))
-      })
-  }
-
+    })
   useEffect(() => () => streamAbort.current?.abort(), [])
-  useEffect(() => {
-    const live = new Set(messages.map((item) => item.audioUrl).filter((url): url is string => Boolean(url)))
-    for (const url of audioUrls.current) {
-      if (live.has(url)) continue
-      URL.revokeObjectURL(url)
-      audioUrls.current.delete(url)
-    }
-  }, [messages])
-  useEffect(() => () => {
-    for (const url of audioUrls.current) URL.revokeObjectURL(url)
-    audioUrls.current.clear()
-  }, [])
+  useAudioUrls(messages)
+  useAmbientSignals({
+    streaming,
+    streamingWithContent: Boolean(messages[messages.length - 1]?.content),
+    transcribing,
+    uploading,
+    switching,
+    error,
+    composerFocused,
+    lastMessageHasContent: Boolean(messages[messages.length - 1]?.content),
+  })
 
-  // The ambient layer reacts to what the app is actually doing.
-  useEffect(() => {
-    const lastMessage = messages[messages.length - 1]
-    setAmbientSignal('streaming', streaming && Boolean(lastMessage?.content))
-    setAmbientSignal('thinking', streaming || transcribing || uploading || switching)
-    setAmbientSignal('error', Boolean(error))
-    setAmbientSignal('focus', composerFocused)
-    setAmbientSignal('offline', !navigator.onLine)
-  }, [streaming, transcribing, uploading, switching, error, messages, composerFocused])
-
-  useEffect(() => {
-    const sync = () => setAmbientSignal('offline', !navigator.onLine)
-    window.addEventListener('online', sync)
-    window.addEventListener('offline', sync)
-    return () => {
-      window.removeEventListener('online', sync)
-      window.removeEventListener('offline', sync)
-    }
-  }, [])
-
-  useEffect(() => {
-    function onKeyDown(event: globalThis.KeyboardEvent) {
-      const meta = event.metaKey || event.ctrlKey
-      if (meta && event.key.toLowerCase() === 'k') {
-        event.preventDefault()
-        setPaletteOpen((value) => !value)
-        return
-      }
-      if (event.key === 'Escape') {
-        setPaletteOpen(false)
-        return
-      }
-      const target = event.target as HTMLElement | null
-      const typing = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA'
-      if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-        event.preventDefault()
-        jumpToMessage(event.key === 'ArrowDown' ? 1 : -1)
-        return
-      }
-      if (event.key === '/' && !typing && active) {
-        event.preventDefault()
-        document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Write a message"]')?.focus()
-        return
-      }
-      if (meta && event.shiftKey && event.key.toLowerCase() === 'o') {
-        event.preventDefault()
-        startThread()
-        return
-      }
-      // ⌘B / Ctrl+B folds the sidebar away to an icon rail. Ignored on a phone,
-      // where the sidebar is already a full-width drawer.
-      if (meta && !event.shiftKey && event.key.toLowerCase() === 'b') {
-        if (window.matchMedia('(min-width: 768px)').matches) {
-          event.preventDefault()
-          toggleSidebarCollapsed()
-        }
-        return
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+  useKeyboardShortcuts({
+    active: Boolean(active),
+    onTogglePalette: () => setPaletteOpen((value) => !value),
+    onNewThread: () => startThread(),
+    onJumpToMessage: (offset) => jumpToMessage(offset),
+    onFocusComposer: () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Write a message"]')?.focus(),
   })
 
   function handleConversationScroll() {
@@ -598,28 +462,6 @@ function App() {
     const list = await apiRequest<Conversation[]>(`/api/conversations?user_id=${encodeURIComponent(userId)}`)
     setThreads(list)
     return list
-  }
-
-  async function saveKey(event: FormEvent) {
-    event.preventDefault()
-    if (keyValidation !== 'valid' || savingKey) return
-    setSavingKey(true)
-    setError('')
-    try {
-      await apiRequest('/api/keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, api_key: keyValue }),
-      })
-      setKeyValue('')
-      setKeyNeeded(false)
-      setBooting(true)
-      window.location.reload()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not store the NVIDIA key.')
-    } finally {
-      setSavingKey(false)
-    }
   }
 
   async function renameThread(id: string, title: string) {
@@ -760,6 +602,7 @@ function App() {
       setError(cause instanceof Error ? cause.message : 'Could not load this thread.')
     }
   }
+  loadThreadRef.current = loadThread
 
   async function createRemoteThread(firstMessage: string): Promise<ConversationDetail> {
     if (active && !isDraftThread) return active as ConversationDetail
@@ -819,7 +662,7 @@ function App() {
     for (const file of files) {
       if (isDocument(file)) accepted.push(file)
       else if (isImage(file) || isVideo(file)) nextMedia = file
-      else setError(`${file.name} is not a supported image, video, PDF, DOCX, or TXT file.`)
+      else setError(`${file.name} is not a supported file format.`)
     }
     if (nextMedia) setMedia(nextMedia)
     if (!accepted.length) return
@@ -841,98 +684,6 @@ function App() {
     finally { setUploading(false) }
   }
 
-  async function sendMessage(event?: FormEvent) {
-    event?.preventDefault()
-    const typed = draft.trim()
-    if (streaming || transcribing || uploading || !active || !selectedModel || (!typed && !media)) return
-    if (agentMode && media) {
-      setError('Agent mode is text-only for now — switch back to Standard chat to attach media.')
-      return
-    }
-    const question = typed || (media && isVideo(media) ? 'Describe what happens in this video with timestamps.' : 'Describe what is in this image.')
-    const pendingDocs = [...queuedDocuments]
-    const mediaForMessage = media
-    const modelForMessage = selectedModel
-    followConversation.current = true
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(), role: 'user', content: question, model_used: modelForMessage,
-      attachmentName: mediaForMessage?.name,
-    }
-    const assistantId = crypto.randomUUID()
-    setError('')
-    setNotice('')
-    setStreaming(true)
-    setStoppedReply(false)
-    setDraft('')
-    setTranscriptInfo(null)
-    // The composer is emptied above, but nothing is committed to the thread
-    // until the uploads finish. Without this the typed question was lost for
-    // good whenever an attachment failed: it was gone from the composer and
-    // never appeared in the conversation.
-    let messageShown = false
-    try {
-      const thread = await createRemoteThread(question)
-      lastSend.current = { question, threadId: thread.id, assistantId }
-      setCanRetry(false)
-      let uploaded = 0
-      for (const file of pendingDocs) {
-        await uploadDocument(file, thread.id)
-        uploaded += 1
-        // Trim as we go, so a failure part-way through leaves exactly the
-        // files that never made it, not all of them again.
-        setQueuedDocuments((items) => items.slice(uploaded))
-      }
-      setQueuedDocuments([])
-      const assistant: ChatMessage = { id: assistantId, role: 'assistant', content: '', model_used: modelForMessage }
-      setMessages((current) => [...current, userMessage, assistant])
-      messageShown = true
-      const form = new FormData()
-      form.set('user_id', userId)
-      form.set('conversation_id', thread.id)
-      form.set('model', modelForMessage)
-      form.set('message', question)
-      // Web search is not a user toggle: omitting the field lets the backend
-      // router decide when a question actually needs live results.
-      if (transcriptInfo && !agentMode) form.set('respond_with_audio', 'true')
-      if (mediaForMessage) form.set(isVideo(mediaForMessage) ? 'video' : 'image', mediaForMessage)
-      if (transcriptInfo) {
-        form.set('transcription_duration_ms', String(transcriptInfo.durationMs))
-        form.set('transcription_provider', transcriptInfo.provider)
-      }
-      setMedia(null)
-      await streamResponse(form, assistantId)
-      const list = await refreshThreads()
-      const refreshed = list.find((item) => item.id === thread.id)
-      if (refreshed) setActive((current) => current && current.id === refreshed.id ? { ...current, title: refreshed.title, updated_at: refreshed.updated_at } : current)
-    } catch (cause) {
-      if (cause instanceof DOMException && cause.name === 'AbortError') {
-        setNotice('Stopped. The partial answer above was kept.')
-        if (messageShown) setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'Stopped before an answer was produced.' } : item))
-      } else {
-        setError(cause instanceof Error ? cause.message : 'The chat request failed.')
-        if (messageShown) {
-          setCanRetry(true)
-          setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'I could not complete that request.' } : item))
-        } else {
-          // Nothing reached the thread -- creating it or uploading an
-          // attachment failed first -- so the question goes back to the
-          // composer instead of vanishing along with the cleared draft.
-          setDraft((current) => (current.trim() ? current : question))
-        }
-      }
-    } finally {
-      setStreaming(false)
-      // A finished agent turn is when a new badge may exist: the first turn
-      // with a model probes it once and caches the result.
-      if (agentMode) void refreshBadges()
-    }
-  }
-
-  function stopStreaming() {
-    setStoppedReply(true)
-    streamAbort.current?.abort()
-  }
-
   function toggleAgentMode() {
     setAgentMode((current) => {
       const next = !current
@@ -941,425 +692,26 @@ function App() {
     })
   }
 
-  /** Answer an agent turn's approval card. The turn stays blocked until the server hears this. */
-  async function decideAgentTools(turnId: string, callIds: string[]) {
-    if (deciding) return
-    setDeciding(turnId)
-    try {
-      await apiRequest('/api/agent/decisions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, turn_id: turnId, call_ids: callIds }),
-      })
-      setMessages((current) => current.map((item) => (item.turnId === turnId && item.pendingToolApproval ? { ...item, pendingToolApproval: null } : item)))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not send your approval.')
-    } finally {
-      setDeciding(null)
-    }
-  }
-
-  /** Decline: an empty list means nothing on the card may run. */
-  async function denyAgentTools(turnId: string) {
-    if (deciding) return
-    setDeciding(turnId)
-    try {
-      await apiRequest('/api/agent/decisions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, turn_id: turnId, call_ids: [] }),
-      })
-      setMessages((current) => current.map((item) => (item.turnId === turnId && item.pendingToolApproval ? { ...item, pendingToolApproval: null } : item)))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not send your decision.')
-    } finally {
-      setDeciding(null)
-    }
-  }
-
-  /** Answer a question the turn asked through ask_user. */
-  async function answerAgentQuestion(turnId: string, text: string) {
-    if (deciding) return
-    setDeciding(turnId)
-    try {
-      await apiRequest('/api/agent/answers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, turn_id: turnId, answer: text }),
-      })
-      setMessages((current) => current.map((item) => (item.turnId === turnId && item.agentQuestion ? { ...item, agentQuestion: { ...item.agentQuestion, answered: true } } : item)))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not send your answer.')
-    } finally {
-      setDeciding(null)
-    }
-  }
-
-  /** Re-ask the question that just failed -- the answer is what was missing. */
-  async function retryLastMessage() {
-    const last = lastSend.current
-    if (!last || streaming || !selectedModel) return
-    setError('')
-    setNotice('')
-    setCanRetry(false)
-    setStreaming(true)
-    setStoppedReply(false)
-    setMessages((current) => current.map((item) => (item.id === last.assistantId
-      ? {
-          ...item,
-          content: '',
-          turnId: undefined,
-          agentSteps: undefined,
-          agentPlan: undefined,
-          agentArtifacts: undefined,
-          agentQuestion: null,
-          pendingToolApproval: null,
-          verification: undefined,
-          statusNotes: undefined,
-        }
-      : item)))
-    const form = new FormData()
-    form.set('user_id', userId)
-    form.set('conversation_id', last.threadId)
-    form.set('model', selectedModel)
-    form.set('message', last.question)
-    // Regenerate: the question is already the thread's last row.
-    form.set('regenerate', 'true')
-    try {
-      await streamResponse(form, last.assistantId)
-      const list = await refreshThreads()
-      const refreshed = list.find((item) => item.id === last.threadId)
-      if (refreshed) setActive((current) => current && current.id === refreshed.id ? { ...current, title: refreshed.title, updated_at: refreshed.updated_at } : current)
-    } catch (cause) {
-      if (cause instanceof DOMException && cause.name === 'AbortError') {
-        setNotice('Stopped. The partial answer above was kept.')
-      } else {
-        setError(cause instanceof Error ? cause.message : 'The chat request failed.')
-        setCanRetry(true)
-      }
-    } finally {
-      setStreaming(false)
-      if (agentMode) void refreshBadges()
-    }
-  }
-
-  /** Answer the approval prompt. The turn stays blocked until the server hears this. */
-  async function decideCommand(requestId: string, approved: boolean, value?: Record<string, unknown>) {
-    if (deciding) return
-    setDeciding(requestId)
-    try {
-      await apiRequest('/api/commands/decide', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: requestId, approved, user_id: userId, value: value ?? {} }),
-      })
-      // Clear the prompt whether or not the write landed: if the request failed
-      // the server is no longer waiting, and a card the user cannot dismiss is
-      // worse than one that disappears.
-      setMessages((current) =>
-        current.map((item) =>
-          item.pendingCommand?.request_id === requestId
-            ? { ...item, pendingCommand: null }
-            : item,
-        ),
-      )
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not send your decision.')
-    } finally {
-      setDeciding(null)
-    }
-  }
-
   function focusSearch() {
     document.querySelector<HTMLInputElement>('input[aria-label="Search conversations"]')?.focus()
   }
 
-  async function streamResponse(form: FormData, assistantId: string) {
-    const controller = new AbortController()
-    streamAbort.current = controller
-    const response = await fetch(apiUrl(agentMode ? '/api/agent/chat' : '/api/chat'), {
-      method: 'POST',
-      body: form,
-      headers: { Accept: 'text/event-stream' },
-      signal: controller.signal,
-    })
-    if (!response.ok) {
-      let message = `Chat request failed (${response.status})`
-      try { message = (await response.json() as { detail?: string }).detail || message } catch { /* Keep status fallback. */ }
-      throw new Error(message)
-    }
-    if (!response.body) throw new Error('The backend did not return a stream.')
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let pending = ''
-    let audioChunks: Uint8Array[] = []
-    let sampleRate = 22050
-    let channels = 1
-    let bufferedText = ''
-    let flushTimer: number | null = null
-    let lastFlushAt = 0
-    // A stream that sends nothing at all is dead, not slow. The server emits a
-    // keep-alive comment every second while it waits (on the model, or on an
-    // approval card), so any real silence this long means the connection or
-    // the backend is gone and the UI must say so instead of spinning forever.
-    // Bytes of any kind -- tokens, events, pings -- re-arm the timer.
-    const SSE_READ_STALL_MS = 75_000
-    let stallTimer: number | null = null
-    let stallError: Error | null = null
-    const armStallTimer = () => {
-      if (stallTimer !== null) window.clearTimeout(stallTimer)
-      stallTimer = window.setTimeout(() => {
-        stallTimer = null
-        // Recorded, not thrown, from here: a timer callback cannot reject into
-        // the reader loop. The loop re-throws it once the abort lands.
-        stallError = new Error('The connection to Pentagon stopped responding. Please try again.')
-        streamAbort.current?.abort()
-      }, SSE_READ_STALL_MS)
-    }
-    armStallTimer()
-    const update = (changes: Partial<ChatMessage>) => setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, ...changes } : item))
-    /** Functional variant: appending to an agent timeline needs the previous item, not a patch. */
-    const mutate = (fn: (item: ChatMessage) => ChatMessage) => setMessages((current) => current.map((item) => (item.id === assistantId ? fn(item) : item)))
-    const flushText = () => {
-      if (flushTimer !== null) {
-        window.clearTimeout(flushTimer)
-        flushTimer = null
-      }
-      lastFlushAt = performance.now()
-      if (!bufferedText) return
-      const content = bufferedText
-      bufferedText = ''
-      setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, content: item.content + content } : item))
-    }
-    // Every flush re-parses the whole answer through react-markdown, so the
-    // cost of a flush grows with the answer. Flushing on each animation frame
-    // therefore produced an uneven cadence -- fine at first, then visibly
-    // stuttering as the response got longer. A fixed window keeps the text
-    // advancing steadily and cuts the number of parses to roughly a third.
-    const queueText = (content: string) => {
-      bufferedText += content
-      if (flushTimer !== null) return
-      const wait = Math.max(0, STREAM_FLUSH_MS - (performance.now() - lastFlushAt))
-      flushTimer = window.setTimeout(flushText, wait)
-    }
-    const dispatch = (block: string) => {
-      const lines = block.split('\n')
-      const eventName = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() || 'message'
-      const raw = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n')
-      if (!raw) return
-      let payload: Record<string, unknown>
-      try { payload = JSON.parse(raw) as Record<string, unknown> } catch { return }
-      if (eventName === 'token' && typeof payload.content === 'string') {
-        queueText(payload.content)
-      } else if (eventName === 'metadata') {
-        update({
-          sources_used: payload.sources_used as SourcesUsed,
-          execution_trace: payload.execution_trace as ExecutionTrace,
-          // Only set when the turn actually ran commands, so a normal reply
-          // leaves the previous value alone rather than clearing it.
-          ...(Array.isArray(payload.command_runs)
-            ? { commandRuns: payload.command_runs as CommandRun[] }
-            : {}),
-        })
-      } else if (eventName === 'audio_chunk' && typeof payload.content === 'string') {
-        audioChunks.push(decodeAudio(payload.content))
-        if (typeof payload.sample_rate_hz === 'number') sampleRate = payload.sample_rate_hz
-        if (typeof payload.channels === 'number') channels = payload.channels
-      } else if (eventName === 'audio_end') {
-        if (typeof payload.sample_rate_hz === 'number') sampleRate = payload.sample_rate_hz
-        if (typeof payload.channels === 'number') channels = payload.channels
-        const audioUrl = pcmToWavUrl(audioChunks, sampleRate, channels)
-        if (audioUrl) {
-          audioUrls.current.add(audioUrl)
-          update({ audioUrl })
-        }
-        audioChunks = []
-      } else if (eventName === 'audio_error') {
-        setError(String(payload.message || 'The text response is ready, but speech synthesis failed.'))
-      } else if (eventName === 'conversation' && typeof payload.turn_id === 'string') {
-        // Graph replies carry no turn id; agent turns carry the one the
-        // decision routes need.
-        mutate((item) => ({ ...item, turnId: payload.turn_id as string }))
-      } else if (eventName === 'tool_start') {
-        mutate((item) => ({
-          ...item,
-          agentSteps: [...(item.agentSteps ?? []), { id: String(payload.id ?? crypto.randomUUID()), tool: String(payload.tool ?? 'tool'), status: 'running' }],
-        }))
-      } else if (eventName === 'tool_result') {
-        mutate((item) => ({
-          ...item,
-          agentSteps: (item.agentSteps ?? []).map((step) => step.id === String(payload.id)
-            ? {
-                ...step,
-                status: payload.ok ? 'ok' : 'error',
-                summary: typeof payload.summary === 'string' ? payload.summary : step.summary,
-                elapsed_ms: typeof payload.elapsed_ms === 'number' ? payload.elapsed_ms : step.elapsed_ms,
-              }
-            : step),
-        }))
-      } else if (eventName === 'status') {
-        const note = typeof payload.message === 'string' ? payload.message : ''
-        const revised = typeof payload.answer === 'string' ? payload.answer : null
-        // A repaired answer supersedes the tokens that already streamed.
-        if (revised !== null) bufferedText = ''
-        mutate((item) => ({
-          ...item,
-          ...(note ? { statusNotes: [...(item.statusNotes ?? []), note] } : {}),
-          ...(revised !== null ? { content: revised } : {}),
-        }))
-      } else if (eventName === 'plan') {
-        mutate((item) => ({ ...item, agentPlan: Array.isArray(payload.steps) ? payload.steps as AgentPlanStep[] : item.agentPlan }))
-      } else if (eventName === 'ask_user') {
-        mutate((item) => ({
-          ...item,
-          agentQuestion: {
-            question: String(payload.question ?? ''),
-            options: Array.isArray(payload.options) ? payload.options.map(String) : [],
-            answered: false,
-          },
-        }))
-      } else if (eventName === 'artifact') {
-        mutate((item) => {
-          const id = String(payload.id ?? payload.name ?? 'artifact')
-          if ((item.agentArtifacts ?? []).some((entry) => entry.id === id)) return item
-          return {
-            ...item,
-            agentArtifacts: [...(item.agentArtifacts ?? []), {
-              id,
-              name: String(payload.name ?? id),
-              path: typeof payload.path === 'string' ? payload.path : undefined,
-              bytes: typeof payload.bytes === 'number' ? payload.bytes : undefined,
-            }],
-          }
-        })
-      } else if (eventName === 'approval_required') {
-        mutate((item) => ({
-          ...item,
-          pendingToolApproval: {
-            turn_id: String(payload.turn_id ?? item.turnId ?? ''),
-            calls: Array.isArray(payload.calls) ? payload.calls as PendingToolApproval['calls'] : [],
-          },
-        }))
-      } else if (eventName === 'done') {
-        mutate((item) => ({
-          ...item,
-          ...(payload.verification ? { verification: payload.verification as Verification } : {}),
-          // Whatever was still waiting is closed by the turn's end.
-          pendingToolApproval: null,
-          agentQuestion: null,
-        }))
-      } else if (eventName === 'error') {
-        throw new Error(String(payload.message || 'The model request failed.'))
-      }
-    }
-    try {
-      while (true) {
-        const { value, done } = await reader.read()
-        if (stallError) throw stallError
-        if (done) break
-        armStallTimer()
-        if (streamAbort.current?.signal.aborted) break
-        pending += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
-        let boundary = pending.indexOf('\n\n')
-        while (boundary >= 0) {
-          dispatch(pending.slice(0, boundary))
-          pending = pending.slice(boundary + 2)
-          boundary = pending.indexOf('\n\n')
-        }
-      }
-      pending += decoder.decode()
-      if (pending.trim()) dispatch(pending)
-      if (stallError) throw stallError
-    } catch (cause) {
-      // A stall aborts its own stream, so the read rejects with a plain
-      // AbortError; re-throw the recorded reason instead of letting that look
-      // like the user pressing Stop.
-      if (stallError) throw stallError
-      throw cause
-    } finally {
-      if (stallTimer !== null) window.clearTimeout(stallTimer)
-      flushText()
-      streamAbort.current = null
-    }
-  }
-
-  async function toggleRecording() {
-    if (recording) { recorder.current?.stop(); setRecording(false); return }
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setError('Audio recording is not available in this browser.')
-      return
-    }
-    setError('')
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const chunks: Blob[] = []
-      const mediaRecorder = new MediaRecorder(stream)
-      recorder.current = mediaRecorder
-      mediaRecorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
-      mediaRecorder.onstop = () => {
-        stream.getTracks().forEach((track) => track.stop())
-        recorder.current = null
-        const mime = mediaRecorder.mimeType || 'audio/webm'
-        const ext = mime.includes('wav') ? 'wav' : mime.includes('mpeg') ? 'mp3' : 'webm'
-        void transcribeRecording(new Blob(chunks, { type: mime }), ext)
-      }
-      mediaRecorder.start()
-      setRecording(true)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Microphone permission was denied.') }
-  }
-
-  async function transcribeRecording(blob: Blob, extension: string) {
-    setTranscribing(true)
-    setNotice('Transcribing audio…')
-    const form = new FormData()
-    form.set('user_id', userId)
-    form.set('file', blob, `recording.${extension}`)
-    try {
-      const result = await apiRequest<{ text: string; execution_trace?: { transcription?: { duration_ms?: number; provider?: string } } }>('/api/voice/transcribe', { method: 'POST', body: form })
-      if (!result.text.trim()) {
-        setNotice('No speech was detected. Record another clip or type a message.')
-        return
-      }
-      setDraft((current) => current ? `${current.trimEnd()} ${result.text.trim()}` : result.text.trim())
-      const trace = result.execution_trace?.transcription
-      setTranscriptInfo({ durationMs: trace?.duration_ms || 0, provider: trace?.provider || 'unspecified' })
-      setNotice('Transcript added to the composer. Review or edit it before sending.')
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not transcribe this recording.') }
-    finally { setTranscribing(false) }
-  }
-
-  async function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files || [])
-    event.target.value = ''
-    await acceptFiles(files)
-  }
-
-  async function handleSubmit(event: FormEvent) {
-    await sendMessage(event)
-  }
-
-  function handleComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      void sendMessage()
-    }
-  }
 
   if (booting) return <div className="grid h-full min-h-dvh place-items-center bg-[#000000] text-sm text-zinc-500"><div className="flex items-center gap-3"><LogomarkBadge size={32} /><span>Connecting to Pentagon…</span></div></div>
 
   if (keyNeeded) return <KeyGate
-    value={keyValue}
-    validation={keyValidation}
-    validationMessage={keyValidationMessage}
-    saving={savingKey}
-    error={error}
+    value={keys.keyValue}
+    validation={keys.keyValidation}
+    validationMessage={keys.keyValidationMessage}
+    saving={keys.savingKey}
+    error={keys.error}
     onChange={(value) => {
-      setKeyValue(value)
-      setKeyValidation(value.trim() ? 'checking' : 'idle')
-      setKeyValidationMessage(value.trim() ? 'Checking the key with NVIDIA…' : 'Enter a key to validate it with NVIDIA.')
-      setError('')
+      keys.setKeyValue(value)
+      keys.setKeyValidation(value.trim() ? 'checking' : 'idle')
+      keys.setKeyValidationMessage(value.trim() ? 'Checking the key with NVIDIA…' : 'Enter a key to validate it with NVIDIA.')
+      keys.setError('')
     }}
-    onSubmit={(event) => void saveKey(event)}
+    onSubmit={(event) => void keys.saveKey(event)}
   />
 
   return <div className="flex h-dvh min-h-[620px] overflow-hidden bg-transparent text-zinc-100 selection:bg-emerald-300/30">
@@ -1374,12 +726,18 @@ function App() {
     ) : null}
     <Sidebar
       conversations={sidebarThreads}
+      userId={userId}
       onOpenPalette={() => {
         setPaletteOpen(true)
         setSidebarOpen(false)
       }}
-      onOpenSettings={() => {
+      onOpenSettings={(tab) => {
+        if (tab) setSettingsTab(tab)
         setSettingsOpen(true)
+        setSidebarOpen(false)
+      }}
+      onOpenWorkflows={() => {
+        setViewMode('workflows')
         setSidebarOpen(false)
       }}
       open={sidebarOpen}
@@ -1408,93 +766,111 @@ function App() {
           >
             <Menu size={16} />
           </button>
-          <div className="flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.12] bg-black px-3 py-2">
-            <Logomark size={16} />
-            {/* Native <select>: the popup is drawn by the OS, so the options carry
-                explicit black/white rather than inheriting the panel's greys. */}
-            <select aria-label="Choose model" value={selectedModel} disabled={!models.length || switching || streaming} onChange={(event) => void switchModel(event.target.value)} className="h-7 max-w-[min(58vw,360px)] min-w-0 appearance-none bg-black text-small font-medium text-white outline-none disabled:text-zinc-500 sm:max-w-[min(38vw,360px)] lg:max-w-[min(34vw,360px)]">
-              {!models.length && <option value="" className="bg-black text-white">No models available</option>}
-              {models.map((model) => <option value={model.id} key={model.id} className="bg-black text-white">{model.id}{model.supports_vision ? ' · Vision' : ''}</option>)}
-            </select>
-            <ChevronDown size={12} className="shrink-0 text-zinc-400" />
-          </div>
-          
-          {activeModel?.supports_vision && <span className="hidden items-center gap-1.5 rounded-full border border-violet-300/15 bg-violet-300/[0.06] px-2.5 py-1.5 text-micro text-violet-200 md:inline-flex"><ImageIcon size={11} />Vision ready</span>}
-          {agentBadges[selectedModel]?.badge && <span title="Cached capability probe: how this model tool-calls" className="hidden items-center gap-1.5 rounded-full border border-emerald-300/15 bg-emerald-300/[0.06] px-2.5 py-1.5 text-micro text-emerald-200 md:inline-flex"><ShieldCheck size={11} />{agentBadges[selectedModel]?.badge}</span>}
+
+          <ModelSelector
+            models={models}
+            selectedModel={selectedModel}
+            onSelectModel={(id) => void switchModel(id)}
+            disabled={!models.length || switching || streaming}
+            switching={switching}
+            agentBadge={agentBadges[selectedModel]?.badge}
+          />
         </div>
+
         <div className="flex shrink-0 items-center gap-2 max-sm:gap-1.5">
-          <button onClick={startThread} className="grid size-8 place-items-center rounded-lg text-zinc-500 transition hover:bg-white/[0.06] hover:text-white md:hidden" title="New thread"><Plus size={16} /></button>
+          {/* Mode switch: Chat vs Agent vs Workflows */}
+          <div className="flex items-center rounded-xl border border-white/[0.08] bg-white/[0.03] p-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode('chat')
+                if (agentMode) toggleAgentMode()
+              }}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-micro font-medium transition ${
+                viewMode === 'chat' && !agentMode
+                  ? 'bg-white/[0.1] text-white shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <MessageSquare size={12} />
+              <span className="max-sm:hidden">Chat</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode('chat')
+                if (!agentMode) toggleAgentMode()
+              }}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-micro font-medium transition ${
+                viewMode === 'chat' && agentMode
+                  ? 'border border-emerald-400/30 bg-emerald-400/15 text-emerald-300 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Zap size={12} className={agentMode ? 'text-emerald-400' : ''} />
+              <span>Agent</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode('workflows')
+              }}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-micro font-medium transition ${
+                viewMode === 'workflows'
+                  ? 'border border-sky-400/30 bg-sky-400/15 text-sky-300 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Workflow size={12} className={viewMode === 'workflows' ? 'text-sky-400' : ''} />
+              <span>Workflows</span>
+            </button>
+          </div>
+
+          {/* Autonomy / Permissions quick badge */}
+          <button
+            type="button"
+            onClick={() => {
+              setSettingsTab('Permissions')
+              setSettingsOpen(true)
+            }}
+            title="Safety & Tool Permissions: Click to view or adjust"
+            className="hidden items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-micro text-zinc-300 transition hover:border-emerald-400/30 hover:bg-white/[0.06] hover:text-white md:inline-flex"
+          >
+            <ShieldCheck size={13} className="text-emerald-400" />
+            <span className="font-medium">{autonomySettings?.preset ?? 'Balanced'}</span>
+          </button>
+
+          <button
+            onClick={startThread}
+            className="grid size-8 place-items-center rounded-lg text-zinc-400 transition hover:bg-white/[0.06] hover:text-white md:hidden"
+            title="New thread"
+          >
+            <Plus size={16} />
+          </button>
         </div>
       </header>
 
-      {/* Chat / Permissions. The permission level is a standing question rather
-          than a per-turn one, so it gets a first-class tab here instead of
-          being buried in Settings -- but it is the same component and the same
-          saved value that Settings edits, so the two can never disagree. */}
-      <div role="tablist" aria-label="Workspace" className="z-10 flex shrink-0 items-center gap-1 border-b border-white/[0.065] bg-[#000000]/90 px-3 backdrop-blur-xl sm:px-5 lg:px-7">
-        {WORKSPACE_TABS.map((name) => (
-          <button
-            key={name}
-            type="button"
-            role="tab"
-            id={`workspace-tab-${name}`}
-            aria-selected={workspaceTab === name}
-            aria-controls={`workspace-panel-${name}`}
-            onClick={() => setWorkspaceTab(name)}
-            className={`relative flex min-h-9 items-center gap-1.5 px-2.5 text-small transition ${
-              workspaceTab === name
-                ? 'text-zinc-100'
-                : 'text-zinc-500 hover:text-zinc-200'
-            }`}
-          >
-            {name === 'Chat' ? <MessageSquare size={13} /> : <ShieldCheck size={13} />}
-            {name}
-            {name === 'Permissions' && (
-              <span className="rounded-md border border-emerald-300/20 bg-emerald-300/[0.08] px-1.5 py-px text-caption-xs text-emerald-200">
-                {autonomySettings?.preset ?? 'Custom'}
-              </span>
-            )}
-            {workspaceTab === name && (
-              <span aria-hidden="true" className="absolute inset-x-1.5 -bottom-px h-px bg-emerald-300/70" />
-            )}
-          </button>
-        ))}
-      </div>
-
-      {workspaceTab === 'Permissions' ? (
-        <section
-          id="workspace-panel-Permissions"
-          role="tabpanel"
-          aria-labelledby="workspace-tab-Permissions"
-          className="relative min-h-0 flex-1 overflow-y-auto"
-        >
-          <div className="mx-auto w-full max-w-[620px] px-4 py-6 sm:px-7 sm:py-8">
-            {autonomySettings ? (
-              <PermissionPanel
-                settings={autonomySettings}
-                busy={autonomyBusy}
-                onChange={changeAutonomySetting}
-                onPresetChange={changeAutonomyPreset}
-              />
-            ) : (
-              <p className="text-small text-zinc-500">Loading permissions…</p>
-            )}
-          </div>
-        </section>
+      {viewMode === 'workflows' ? (
+        <Suspense fallback={<div className="flex h-full min-h-0 flex-1 items-center justify-center text-xs text-zinc-500">Loading Workflow Studio...</div>}>
+          <WorkflowDesigner
+            userId={userId}
+            onClose={() => setViewMode('chat')}
+          />
+        </Suspense>
       ) : (
       <section
         id="workspace-panel-Chat"
-        role="tabpanel"
-        aria-labelledby="workspace-tab-Chat"
+        role="region"
+        aria-label="Conversation"
         className="relative flex min-h-0 flex-1 flex-col"
       >
         {(!atBottom && messages.length > 0) ? <button type="button" onClick={jumpToLatest} className="panel-enter absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/[0.1] bg-[#0f0f0f]/95 px-3 py-1.5 text-micro text-zinc-300 shadow-[0_10px_30px_rgba(0,0,0,.45)] backdrop-blur transition hover:border-emerald-300/30 hover:text-zinc-100">
           <ChevronDown size={12} className="rotate-180" />Jump to latest
         </button> : null}
         <div ref={conversationViewport} onScroll={handleConversationScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="Conversation" role="log" aria-live="off">
-          <div className="mx-auto flex w-full max-w-[850px] flex-1 flex-col px-4 pb-5 pt-5 sm:px-7 sm:pt-8">
+          <div className="mx-auto flex w-full max-w-[980px] 2xl:max-w-[1140px] flex-1 flex-col px-4 pb-5 pt-5 sm:px-7 sm:pt-8">
             {notice && <div role="status" className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-small text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
-            {error && <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-small leading-5 text-rose-200"><span>{error}</span><span className="flex shrink-0 items-center gap-2">{canRetry && !streaming && lastSend.current && <button type="button" onClick={() => void retryLastMessage()} className="rounded-lg border border-rose-300/25 px-2.5 py-1 text-caption text-rose-100 transition hover:bg-rose-300/10">Try again</button>}<button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></span></div>}
+            {error && <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-small leading-5 text-rose-200"><span>{error}</span><span className="flex shrink-0 items-center gap-2">{canRetry && !streaming && <button type="button" onClick={() => void chat.retryLastMessage()} className="rounded-lg border border-rose-300/25 px-2.5 py-1 text-caption text-rose-100 transition hover:bg-rose-300/10">Try again</button>}<button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></span></div>}
             {pendingApprovals.length > 0 && (
               <div className="mb-4 space-y-2" role="region" aria-label="Pending approval">
                 <div className="flex gap-2 rounded-xl border border-amber-300/20 bg-amber-300/[0.05] px-3.5 py-2.5">
@@ -1569,29 +945,101 @@ function App() {
                 onCopy={() => void copyMessage(message)}
                 onDecideCommand={(approved) => {
                   const pending = message.pendingCommand
-                  if (pending) void decideCommand(pending.request_id, approved)
+                  if (pending) void chat.decideCommand(pending.request_id, approved)
                 }}
-                onApproveTools={(turnId, callIds) => void decideAgentTools(turnId, callIds)}
-                onDenyTools={(turnId) => void denyAgentTools(turnId)}
-                onAnswerQuestion={(turnId, text) => void answerAgentQuestion(turnId, text)}
+                onApproveTools={(turnId, callIds) => void chat.decideAgentTools(turnId, callIds)}
+                onDenyTools={(turnId) => void chat.denyAgentTools(turnId)}
+                onAnswerQuestion={(turnId, text) => void chat.answerAgentQuestion(turnId, text)}
                 commandTimeoutSeconds={commandSettings.approval_timeout_seconds}
                 deciding={Boolean((message.pendingCommand && deciding === message.pendingCommand.request_id) || (message.turnId && deciding === message.turnId))}
               />)}
-            </div> : <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-16 text-center">
-              <div className="mb-7 grid size-[66px] place-items-center"><Logomark size={60} /></div>
-              <p className="mb-3 text-caption font-medium uppercase tracking-[.23em] text-emerald-200/70">A focused place to think</p>
-              <h1 className="max-w-xl text-balance text-hero-fluid font-medium leading-[1.12] tracking-[-.045em] text-zinc-100">{active ? 'What should we explore?' : 'A clear space for your next idea.'}</h1>
-              <p className="mt-4 max-w-md text-body leading-6 text-zinc-500">Bring a question, a document, or a moment from a video. Pentagon will show the sources and work behind each reply.</p>
-              {!active && <button onClick={startThread} className="mt-7 flex items-center gap-2 rounded-full bg-emerald-300 px-4 py-2.5 text-small font-semibold text-[#000000] transition hover:bg-emerald-200"><Plus size={14} />Start a new thread</button>}
-              {active && <div className="mt-8 grid w-full max-w-lg grid-cols-2 gap-2.5 max-sm:grid-cols-1">
-                {['Summarize the key points in my documents', 'Explain this code and show an example', 'Compare the main ideas in this topic', 'Describe what happens in an attached video'].map((suggestion) => <button key={suggestion} onClick={() => setDraft(suggestion)} className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-3 text-left text-micro text-zinc-400 transition hover:border-emerald-300/20 hover:bg-emerald-300/[0.04] hover:text-zinc-200">{suggestion}</button>)}
-              </div>}
-            </div>}
+            </div> : (
+              <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-10 text-center">
+                <div className="relative mb-5 grid size-[68px] place-items-center">
+                  <div className="absolute inset-0 rounded-full bg-emerald-400/[0.08] blur-xl" />
+                  <Logomark size={56} />
+                </div>
+
+                <p className="mb-2 text-caption font-semibold uppercase tracking-[.25em] text-emerald-300/80">
+                  Intelligent Workspace
+                </p>
+
+                <h1 className="max-w-xl text-balance text-hero-fluid font-medium leading-[1.14] tracking-[-.04em] text-zinc-100">
+                  {active ? `How can I help you today, ${userName}?` : `Welcome back, ${userName}`}
+                </h1>
+
+                <p className="mt-2.5 max-w-lg text-body text-zinc-400">
+                  Generate production-ready Word, Excel, Slide, and PDF documents, conduct deep web investigations, or reason through complex problems.
+                </p>
+
+                {!active && (
+                  <button
+                    onClick={startThread}
+                    className="mt-6 flex items-center gap-2 rounded-full bg-emerald-400 px-5 py-2.5 text-small font-semibold text-black transition hover:bg-emerald-300 hover:shadow-[0_4px_20px_rgba(16,185,129,0.3)]"
+                  >
+                    <Plus size={15} />
+                    <span>Start a new thread</span>
+                  </button>
+                )}
+
+                {/* Quick Action Cards Grid */}
+                <div className="mt-8 grid w-full max-w-2xl grid-cols-2 gap-3 max-sm:grid-cols-1">
+                  {DASHBOARD_ACTIONS.map((card) => {
+                    const Icon = card.icon
+                    return (
+                      <button
+                        key={card.title}
+                        type="button"
+                        onClick={() => {
+                          if (!active) startThread()
+                          if (card.agent && !agentMode) toggleAgentMode()
+                          setDraft(card.prompt)
+                        }}
+                        className="group flex flex-col items-start rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-emerald-400/30 hover:bg-emerald-400/[0.04] hover:shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+                      >
+                        <div className="mb-2.5 flex w-full items-center justify-between">
+                          <div className="grid size-8 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-emerald-400 transition group-hover:border-emerald-400/30 group-hover:bg-emerald-400/10">
+                            <Icon size={16} />
+                          </div>
+                          <span className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 font-mono text-[10px] text-zinc-400 group-hover:text-emerald-300">
+                            {card.tag}
+                          </span>
+                        </div>
+                        <div className="text-small font-semibold text-zinc-200 group-hover:text-white">
+                          {card.title}
+                        </div>
+                        <div className="mt-1 line-clamp-2 text-micro leading-relaxed text-zinc-500">
+                          {card.description}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Shortcut hints pill bar */}
+                <div className="mt-7 flex flex-wrap items-center justify-center gap-3 text-caption text-zinc-500">
+                  <span className="flex items-center gap-1.5">
+                    <kbd className="rounded border border-white/[0.1] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">⌘N</kbd>
+                    <span>New thread</span>
+                  </span>
+                  <span>·</span>
+                  <span className="flex items-center gap-1.5">
+                    <kbd className="rounded border border-white/[0.1] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">⌘K</kbd>
+                    <span>Commands</span>
+                  </span>
+                  <span>·</span>
+                  <span className="flex items-center gap-1.5">
+                    <kbd className="rounded border border-white/[0.1] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">⌘B</kbd>
+                    <span>Sidebar</span>
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         <div
-          className={`relative mx-auto w-full max-w-[850px] px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 sm:px-7 sm:pb-5 ${dragging ? 'after:pointer-events-none after:absolute after:inset-x-7 after:top-0 after:bottom-5 after:rounded-2xl after:border after:border-dashed after:border-emerald-300/60 after:bg-emerald-300/[0.04] after:content-["Drop_files_to_attach"] after:grid after:place-items-center after:text-body after:text-emerald-100' : ''}`}
+          className={`relative mx-auto w-full max-w-[980px] 2xl:max-w-[1140px] px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 sm:px-7 sm:pb-5 ${dragging ? 'after:pointer-events-none after:absolute after:inset-x-7 after:top-0 after:bottom-5 after:rounded-2xl after:border after:border-dashed after:border-emerald-300/60 after:bg-emerald-300/[0.04] after:content-["Drop_files_to_attach"] after:grid after:place-items-center after:text-body after:text-emerald-100' : ''}`}
           onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false) }}
           onDrop={(event) => { event.preventDefault(); setDragging(false); void acceptFiles(Array.from(event.dataTransfer.files)) }}
@@ -1600,17 +1048,17 @@ function App() {
           <div aria-hidden="true" className="pointer-events-none -mt-12 h-12 bg-gradient-to-t from-[#000000] via-[#000000]/70 to-transparent" />
           {media && <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-micro text-zinc-300"><span className="text-emerald-200">{isVideo(media) ? <Video size={13} /> : <ImageIcon size={13} />}</span><span className="min-w-0 flex-1 truncate">{media.name}</span><span className="text-zinc-600">{isVideo(media) ? 'Video' : 'Image'}</span><button onClick={() => setMedia(null)} aria-label="Remove attachment" className="text-zinc-500 hover:text-white"><X size={13} /></button></div>}
           {queuedDocuments.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{queuedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className="panel-enter inline-flex max-w-full items-center gap-1.5 rounded-lg border border-sky-300/10 bg-sky-300/[0.045] px-2 py-1.5 text-caption text-sky-100/80"><FileText size={11} /><span className="max-w-[180px] truncate">{file.name}</span><span className="text-sky-100/40">queued</span><button onClick={() => setQueuedDocuments((items) => items.filter((_, current) => current !== index))} aria-label={`Remove ${file.name}`}><X size={11} /></button></span>)}</div>}
-          <form onSubmit={(event) => void handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#0f0f0f] p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition-[border-color,box-shadow] duration-200 ease-out focus-within:border-emerald-300/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,.045),0_20px_90px_rgba(0,0,0,.28)]">
-            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKey} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} rows={2} disabled={!active || streaming || transcribing} placeholder={active ? 'Message Pentagon…' : 'Start a new thread to begin'} className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-body-lg leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed" aria-label="Write a message" />
+          <form onSubmit={(event) => void chat.handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#0f0f0f] p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition-[border-color,box-shadow] duration-200 ease-out focus-within:border-emerald-300/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,.045),0_20px_90px_rgba(0,0,0,.28)]">
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={chat.handleComposerKey} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} rows={2} disabled={!active || streaming || transcribing} placeholder={active ? 'Message Pentagon…' : 'Start a new thread to begin'} className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-body-lg leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed" aria-label="Write a message" />
             <div className="flex items-center justify-between gap-2 px-1 pb-0.5">
               <div className="flex flex-wrap items-center gap-1.5">
-                <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.txt" multiple hidden onChange={(event) => void handleAttachmentChange(event)} />
+                <input ref={fileInput} type="file" accept={agentMode ? ".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log" : "image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log"} multiple hidden onChange={(event) => void chat.handleAttachmentChange(event)} />
                 <button type="button" onClick={toggleAgentMode} aria-pressed={agentMode} disabled={streaming || transcribing} title={agentMode ? 'Agent mode: plan, tool timeline, approval cards. Text only.' : 'Standard chat: direct answers with sources.'} className={`flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro transition disabled:opacity-40 ${agentMode ? 'border border-emerald-300/30 bg-emerald-300/[0.08] text-emerald-200' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'}`}>Agent</button>
-                <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, or document"><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
-                <button type="button" onClick={() => void toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
+                <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title={agentMode ? "Attach documents (PDF, Word, Excel, PowerPoint, CSV, Markdown, text, code)" : "Attach an image, video, or document"}><Paperclip size={13} /><span className="max-sm:hidden">Attach</span></button>
+                <button type="button" onClick={() => void chat.toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
               </div>
               {streaming
-                ? <button type="button" onClick={stopStreaming} className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-zinc-200 transition-[background-color,transform] duration-200 ease-out hover:bg-white/[0.1] active:scale-95" aria-label="Stop generating" title="Stop generating"><Square size={13} fill="currentColor" /></button>
+                ? <button type="button" onClick={chat.stopStreaming} className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-zinc-200 transition-[background-color,transform] duration-200 ease-out hover:bg-white/[0.1] active:scale-95" aria-label="Stop generating" title="Stop generating"><Square size={13} fill="currentColor" /></button>
                 : <button type="submit" disabled={!active || !selectedModel || transcribing || (!draft.trim() && !media)} className="grid size-8 shrink-0 place-items-center rounded-xl bg-emerald-300 text-[#000000] transition-[background-color,box-shadow,transform] duration-200 ease-out hover:-translate-y-px hover:bg-emerald-200 hover:shadow-[0_6px_18px_rgba(255,255,255,.12)] active:translate-y-0 active:scale-95 disabled:translate-y-0 disabled:scale-100 disabled:bg-white/[0.06] disabled:text-zinc-600 disabled:shadow-none" aria-label="Send message" title="Send message">{transcribing ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.4} />}</button>}
               <span className="sr-only">{queuedDocuments.length ? `${queuedDocuments.length} documents queued` : uploading ? 'Uploading document' : ''}</span>
             </div>
@@ -1622,36 +1070,42 @@ function App() {
             )}
           </div>
         </div>
-      </section>
-      )}
+      </section>)}
     </main>
-    {paletteOpen ? <CommandPalette
-      onNewThread={startThread}
-      onFocusSearch={focusSearch}
-      onOpenSettings={() => setSettingsOpen(true)}
-      onClose={() => setPaletteOpen(false)}
-    /> : null}
+    {paletteOpen ? (
+      <Suspense fallback={null}>
+        <CommandPalette
+          onNewThread={startThread}
+          onFocusSearch={focusSearch}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onClose={() => setPaletteOpen(false)}
+        />
+      </Suspense>
+    ) : null}
     {settingsOpen ? (
-      <SettingsDialog
-        userId={userId}
-        models={models}
-        serverDefaultModel={defaultModel}
-        documents={documents}
-        threads={threads}
-        threadCount={threads.length}
-        onRenameThread={(id, title) => void renameThread(id, title)}
-        onDeleteThread={(id) => void deleteThread(id)}
-        onClose={() => setSettingsOpen(false)}
-        onKeySaved={() => void refreshModels()}
-        commandSettings={commandSettings}
-        onCommandSettingsChange={(enabled) => setCommandSettings((current) => ({ ...current, enabled }))}
-        autonomySettings={autonomySettings}
-        onAutonomySettingChange={changeAutonomySetting}
-        onAutonomyPresetChange={changeAutonomyPreset}
-        onDocumentDeleted={(documentId) =>
-          setDocuments((current) => current.filter((item) => item.document_id !== documentId))
-        }
-      />
+      <Suspense fallback={null}>
+        <SettingsDialog
+          initialTab={settingsTab}
+          userId={userId}
+          models={models}
+          serverDefaultModel={defaultModel}
+          documents={documents}
+          threads={threads}
+          threadCount={threads.length}
+          onRenameThread={(id, title) => void renameThread(id, title)}
+          onDeleteThread={(id) => void deleteThread(id)}
+          onClose={() => setSettingsOpen(false)}
+          onKeySaved={() => void refreshModels()}
+          commandSettings={commandSettings}
+          onCommandSettingsChange={(enabled) => setCommandSettings((current) => ({ ...current, enabled }))}
+          autonomySettings={autonomySettings}
+          onAutonomySettingChange={changeAutonomySetting}
+          onAutonomyPresetChange={changeAutonomyPreset}
+          onDocumentDeleted={(documentId) =>
+            setDocuments((current) => current.filter((item) => item.document_id !== documentId))
+          }
+        />
+      </Suspense>
     ) : null}
   </div>
 }
@@ -1668,23 +1122,39 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
   commandTimeoutSeconds?: number
   deciding?: boolean
 }) {
+  const prefs = useSyncExternalStore(subscribePreferences, getPreferences)
+  const currentUserName = prefs.userName || 'Aditya'
+  const currentAvatarTheme = AVATAR_THEMES[prefs.userAvatarColor] ?? AVATAR_THEMES.emerald
+  const userInitials =
+    currentUserName
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s) => s[0].toUpperCase())
+      .join('') || 'A'
   const user = message.role === 'user'
   return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
     {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center"><Logomark size={20} /></div>}
     <div className={`min-w-0 ${user ? 'max-w-[78%]' : 'w-full max-w-[calc(100%-40px)]'}`}>
-      <div className={`mb-2 flex items-center gap-2 text-micro ${user ? 'justify-end pr-1 text-zinc-500' : 'text-zinc-500'}`}><span className="font-medium text-zinc-300">{user ? 'You' : 'Pentagon'}</span></div>
+      <div className={`mb-2 flex items-center gap-2 text-micro ${user ? 'justify-end pr-1 text-zinc-500' : 'text-zinc-500'}`}><span className="font-medium text-zinc-300">{user ? currentUserName : 'Pentagon'}</span></div>
       {user ? <div className="rounded-2xl rounded-tr-md border border-white/[0.07] bg-[#171717] px-4 py-3 text-body-lg leading-6 text-zinc-100">
         <div className="whitespace-pre-wrap break-words">{message.content}</div>
         {message.attachmentName && <div className="mt-2 flex items-center gap-1.5 text-caption text-zinc-500"><Paperclip size={11} />{message.attachmentName}</div>}
       </div> : <div className="min-w-0 pt-0.5">
-        {message.content ? <div className={isStreaming ? 'streaming-answer' : undefined}><AssistantDetails message={message} /></div> : <ThinkingIndicator model={message.model_used} />}
-      <AgentActivity
-        message={message}
-        busy={deciding}
-        onApprove={(turnId, callIds) => onApproveTools?.(turnId, callIds)}
-        onDeny={(turnId) => onDenyTools?.(turnId)}
-        onAnswer={(turnId, text) => onAnswerQuestion?.(turnId, text)}
-      />
+        <AgentActivity
+          message={message}
+          busy={deciding}
+          onApprove={(turnId, callIds) => onApproveTools?.(turnId, callIds)}
+          onDeny={(turnId) => onDenyTools?.(turnId)}
+          onAnswer={(turnId, text) => onAnswerQuestion?.(turnId, text)}
+        />
+        {message.content || (message.generatedFiles && message.generatedFiles.length > 0) ? (
+          <div className={isStreaming ? 'streaming-answer' : undefined}>
+            <AssistantDetails message={message} />
+          </div>
+        ) : (!message.agentSteps?.length ? (
+          <ThinkingIndicator model={message.model_used} />
+        ) : null)}
       {/* Above the answer: while a command is pending there is nothing to read
           yet, so the prompt has to be the thing the eye lands on. */}
       {message.pendingCommand && onDecideCommand ? <CommandApproval
@@ -1699,7 +1169,13 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
       </div> : null}
       </div>}
     </div>
-    {user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-white/[0.08] bg-white/[0.04] text-caption text-zinc-400">Y</div>}
+    {user && (
+      <div
+        className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border ${currentAvatarTheme.border} ${currentAvatarTheme.bg} text-[11px] font-semibold ${currentAvatarTheme.text}`}
+      >
+        {userInitials}
+      </div>
+    )}
   </article>
 }
 

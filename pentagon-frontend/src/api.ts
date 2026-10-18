@@ -11,7 +11,7 @@ const API_BASE_KEY = 'pentagon.apiBase'
 
 // Local-forward declarations so api.ts can be imported without its own type file.
 // (types.ts is the canonical source; these exist to keep api.ts self-contained.)
-import type { AutonomySettings, PendingApprovalsResponse, AuditLogEntry } from './types'
+import type { AutonomySettings, PendingApprovalsResponse, AuditLogEntry, Workflow, WorkflowRun } from './types'
 
 /**
  * The backend origin to talk to.
@@ -55,14 +55,23 @@ export function apiUrl(path: string): string {
  */
 let capabilityOnce: Promise<string> | null = null
 
-function getCapability(): Promise<string> {
+export function getCapability(): Promise<string> {
   if (!capabilityOnce) {
     const bridge = (globalThis as { pentagon?: { capability?: () => Promise<string> } }).pentagon
+    const fromStorage = typeof window !== 'undefined' ? localStorage.getItem('pentagon.capability')?.trim() : ''
+    const envCapability = String(import.meta.env.VITE_PENTAGON_CAPABILITY ?? '').trim()
     capabilityOnce = bridge?.capability
       ? bridge.capability().catch(() => '')
-      : Promise.resolve(String(import.meta.env.VITE_PENTAGON_CAPABILITY ?? '').trim())
+      : Promise.resolve(fromStorage || envCapability)
   }
   return capabilityOnce
+}
+
+export function setCapability(token: string): void {
+  const trimmed = token.trim()
+  if (trimmed) localStorage.setItem('pentagon.capability', trimmed)
+  else localStorage.removeItem('pentagon.capability')
+  capabilityOnce = Promise.resolve(trimmed)
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -213,5 +222,143 @@ export async function fetchAuditLog(
   if (decision) params.set('decision', decision)
   return apiRequest<{ rows: AuditLogEntry[]; limit: number }>('/api/audit-log?' + params.toString())
 }
+
+export type FilePreviewData = {
+  id: string
+  filename: string
+  format: string
+  media_type: string
+  size: number
+  preview: 'inline' | 'bytes' | 'image'
+  text?: string
+  image_data_url?: string
+  download_url?: string
+  truncated?: boolean
+  sheets?: Array<{ name: string; rows: string[][] }>
+  slides?: Array<{ slide_number: number; title: string; items: string[]; tables?: string[][][] }>
+  docx_elements?: Array<{ kind: string; text?: string; rows?: string[][] }>
+  pdf_pages?: string[]
+  pdf_page_images?: string[]
+  page_count?: number
+}
+
+
+export async function downloadGeneratedFile(fileId: string, filename: string): Promise<void> {
+  const userId = getLocalUserId()
+  const capability = await getCapability()
+  const params = new URLSearchParams({ user_id: userId })
+  if (capability) params.set('token', capability)
+  const url = apiUrl(`/api/files/${encodeURIComponent(fileId)}/download?${params.toString()}`)
+
+  const headers = new Headers()
+  if (capability) headers.set('X-Pentagon-Capability', capability)
+  const res = await fetch(url, { headers })
+  if (!res.ok) throw new ApiError(`Download failed (${res.status})`, res.status)
+  const blob = await res.blob()
+  const blobUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 2000)
+}
+
+export async function getFileBlobUrl(fileId: string): Promise<string> {
+  const userId = getLocalUserId()
+  const capability = await getCapability()
+  const params = new URLSearchParams({ user_id: userId, inline: 'true' })
+  if (capability) params.set('token', capability)
+  const url = apiUrl(`/api/files/${encodeURIComponent(fileId)}/download?${params.toString()}`)
+
+  const headers = new Headers()
+  if (capability) headers.set('X-Pentagon-Capability', capability)
+  const res = await fetch(url, { headers })
+  if (!res.ok) throw new ApiError(`Failed to fetch file (${res.status})`, res.status)
+  const buf = await res.arrayBuffer()
+  const blob = new Blob([buf], { type: 'application/pdf' })
+  return URL.createObjectURL(blob)
+}
+
+export async function fetchFilePreview(fileId: string): Promise<FilePreviewData> {
+  const userId = getLocalUserId()
+  return apiRequest<FilePreviewData>(`/api/files/${encodeURIComponent(fileId)}/preview?user_id=${encodeURIComponent(userId)}`)
+}
+
+export type WorkflowsResponse = {
+  templates: Workflow[]
+  workflows: Workflow[]
+}
+
+export async function fetchWorkflows(userId: string): Promise<WorkflowsResponse> {
+  return apiRequest<WorkflowsResponse>(`/api/workflows?user_id=${encodeURIComponent(userId)}`)
+}
+
+export async function fetchWorkflow(id: string, userId: string): Promise<Workflow> {
+  return apiRequest<Workflow>(`/api/workflows/${encodeURIComponent(id)}?user_id=${encodeURIComponent(userId)}`)
+}
+
+export async function createWorkflow(data: {
+  user_id: string
+  name: string
+  description?: string
+  icon?: string
+  category?: string
+  nodes: any[]
+  edges: any[]
+}): Promise<Workflow> {
+  return apiRequest<Workflow>('/api/workflows', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateWorkflow(
+  id: string,
+  data: {
+    user_id: string
+    name?: string
+    description?: string
+    icon?: string
+    category?: string
+    nodes?: any[]
+    edges?: any[]
+  },
+): Promise<Workflow> {
+  return apiRequest<Workflow>(`/api/workflows/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteWorkflow(id: string, userId: string): Promise<void> {
+  await apiRequest(`/api/workflows/${encodeURIComponent(id)}?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function runWorkflow(
+  workflowId: string,
+  userId: string,
+  inputs: Record<string, any>,
+): Promise<WorkflowRun> {
+  return apiRequest<WorkflowRun>(`/api/workflows/${encodeURIComponent(workflowId)}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, inputs }),
+  })
+}
+
+export async function fetchWorkflowRun(runId: string, userId: string): Promise<WorkflowRun> {
+  return apiRequest<WorkflowRun>(`/api/workflows/runs/${encodeURIComponent(runId)}?user_id=${encodeURIComponent(userId)}`)
+}
+
+export async function fetchWorkflowRuns(workflowId: string, userId: string): Promise<{ runs: WorkflowRun[] }> {
+  return apiRequest<{ runs: WorkflowRun[] }>(`/api/workflows/${encodeURIComponent(workflowId)}/runs?user_id=${encodeURIComponent(userId)}`)
+}
+
 
 

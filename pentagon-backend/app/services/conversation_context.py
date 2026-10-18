@@ -12,6 +12,7 @@ from app.services.nvidia_client import make_chat_model
 logger = logging.getLogger(__name__)
 _SUMMARY_WORD_LIMIT = 199
 _RECENT_RAW_MESSAGE_COUNT = 6
+_MAX_HISTORY_MESSAGE_CHARS = 8_000
 
 
 def build_model_history(
@@ -20,7 +21,9 @@ def build_model_history(
     summary_at_switch: str | None,
     active_model: str | None,
 ) -> list[Any]:
-    recent_messages = messages[-_RECENT_RAW_MESSAGE_COUNT:] if summary_at_switch else messages
+    # Model input is a sliding window even when the active model never changed.
+    # Database history remains complete; only the prompt is bounded.
+    recent_messages = messages[-_RECENT_RAW_MESSAGE_COUNT:]
     history: list[Any] = []
     if summary_at_switch:
         history.append(
@@ -32,10 +35,11 @@ def build_model_history(
             )
         )
     for message in recent_messages:
+        content = (message.content or "")[:_MAX_HISTORY_MESSAGE_CHARS]
         if message.role == "user":
-            history.append(HumanMessage(content=message.content))
+            history.append(HumanMessage(content=content))
         else:
-            history.append(AIMessage(content=message.content))
+            history.append(AIMessage(content=content))
     return history
 
 

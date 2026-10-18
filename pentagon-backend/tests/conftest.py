@@ -27,6 +27,7 @@ if _TEST_DATABASE_URL.startswith("postgres"):
     _TEST_SCHEMA = f"pentagon_test_{secrets.token_hex(4)}"
     os.environ["DATABASE_SCHEMA"] = _TEST_SCHEMA
 os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
+os.environ["CAPABILITY_TOKEN_PATH"] = str(_TEST_DIRECTORY / "capability-token")
 
 # The request-budget limiter is process-wide and sized for NVIDIA's free tier
 # (~40/min); with a real bucket, unrelated tests would queue behind each other
@@ -42,6 +43,27 @@ os.environ["JOB_WORKER_ENABLED"] = "false"
 from app.db.session import initialize_database  # noqa: E402
 
 initialize_database()
+
+# All ordinary API tests model calls made by this local Pentagon installation.
+# Tests that exercise missing/incorrect credentials pass an explicit empty or
+# wrong header so the client default cannot hide the authorization boundary.
+from fastapi import testclient as _fastapi_testclient  # noqa: E402
+from starlette import testclient as _starlette_testclient  # noqa: E402
+
+_OriginalTestClient = _fastapi_testclient.TestClient
+
+
+class _CapabilityTestClient(_OriginalTestClient):
+    def __init__(self, app, *args, **kwargs):  # noqa: ANN001
+        from app.services.capability import load_or_create
+
+        headers = dict(kwargs.pop("headers", {}) or {})
+        headers.setdefault("X-Pentagon-Capability", load_or_create())
+        super().__init__(app, *args, headers=headers, **kwargs)
+
+
+_fastapi_testclient.TestClient = _CapabilityTestClient
+_starlette_testclient.TestClient = _CapabilityTestClient
 
 if _TEST_SCHEMA is not None:
     # The app creates the chat checkpoint tables at startup (app/main.py); the

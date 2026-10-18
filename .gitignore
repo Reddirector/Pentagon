@@ -33,8 +33,9 @@ speech_models/
 sandbox/
 # ...but the code sandbox Dockerfile is source: keep the backend's in.
 !pentagon-backend/sandbox/
-# Agent-generated artifacts (create_artifact) are runtime output.
+# Agent-generated artifacts (create_artifact) and generated_files are runtime output.
 artifacts/
+generated_files/
 
 # Python caches
 __pycache__/
@@ -48,7 +49,6 @@ __pycache__/
 .gradle/
 .idea/
 .vscode/
-.freebuff/
 .DS_Store
 *.swp
 

@@ -86,6 +86,12 @@ class User(Base):
 
     api_key: Mapped["ApiKey | None"] = relationship(back_populates="user", uselist=False)
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="user")
+    workflows: Mapped[list["Workflow"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    workflow_runs: Mapped[list["WorkflowRun"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class ApiKey(Base):
@@ -204,6 +210,36 @@ class Document(Base):
     collection_name: Mapped[str] = mapped_column(String(128), index=True)
     filename: Mapped[str] = mapped_column(String(255))
     chunk_count: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+
+
+class GeneratedFile(Base):
+    """A file the model produced with ``document_generation``.
+
+    The row is the source of truth for the UI's file list; the bytes live in a
+    storage bucket (Supabase Storage when configured, otherwise a private
+    directory under ``settings.generated_file_directory``). Ownership is
+    enforced the same way every other table's is -- every query filters on
+    ``user_id`` -- and the bytes are only ever handed out by the download
+    route after that check passes, so neither a bucket listing nor a guessed
+    file id exposes another user's file.
+    """
+
+    __tablename__ = "generated_files"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255))
+    # docx | pdf | xlsx | csv | md
+    format: Mapped[str] = mapped_column(String(8))
+    media_type: Mapped[str] = mapped_column(String(120))
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    # Opaque key inside the bucket: '<user>/<conversation>/<id><ext>'. Never a
+    # public URL -- the download route resolves it after the ownership check.
+    storage_path: Mapped[str] = mapped_column(String(1024))
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
 
 
@@ -444,3 +480,57 @@ class ActionAuditLog(Base):
     decision: Mapped[DECISION] = mapped_column(String(24))
     arguments_summary: Mapped[str] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+
+
+class Workflow(Base):
+    """A user-defined or template workflow graph composed of DAG steps."""
+
+    __tablename__ = "workflows"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    icon: Mapped[str] = mapped_column(String(64), default="workflow")
+    category: Mapped[str] = mapped_column(String(64), default="general")
+    is_template: Mapped[bool] = mapped_column(Boolean, default=False)
+    nodes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    edges: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+
+    user: Mapped["User"] = relationship(back_populates="workflows")
+    runs: Mapped[list["WorkflowRun"]] = relationship(
+        back_populates="workflow", cascade="all, delete-orphan"
+    )
+
+
+class WorkflowRun(Base):
+    """An execution run of a workflow."""
+
+    __tablename__ = "workflow_runs"
+    __table_args__ = (
+        Index("ix_workflow_runs_workflow_user", "workflow_id", "user_id"),
+        Index("ix_workflow_runs_created_at", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflows.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), default="pending")  # pending, running, success, failed, cancelled
+    inputs: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    step_results: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    outputs: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+
+    user: Mapped["User"] = relationship(back_populates="workflow_runs")
+    workflow: Mapped["Workflow"] = relationship(back_populates="runs")

@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import logging
 import socket
 from typing import Any
 from urllib.parse import urlparse
 
+import httpcore
 import httpx
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class WebSearchNotConfigured(RuntimeError):
@@ -20,6 +24,69 @@ _MAX_FETCH_PAGES = 3
 _FETCH_TIMEOUT_SECONDS = 12.0
 _ALLOWED_SCHEMES = {"http", "https"}
 _TEXTUAL_CONTENT_TYPES = ("text/", "application/xhtml", "application/xml")
+
+
+def _is_blocked_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        )
+    except ValueError:
+        return True
+
+
+class SafeHTTPConnection(httpcore.AsyncHTTPConnection):
+    """Inspects the connected socket peer IP before transmitting HTTP data to block DNS rebinding."""
+
+    async def _connect(self, request: httpcore.Request) -> httpcore.AsyncNetworkStream:
+        stream = await super()._connect(request)
+        raw = getattr(stream._stream, "_raw_socket", None)
+        if raw is not None:
+            peer = raw.getpeername()
+            peer_ip = peer[0] if isinstance(peer, tuple) and len(peer) > 0 else None
+            if peer_ip and _is_blocked_ip(str(peer_ip)):
+                await stream.aclose()
+                raise ValueError(f"Refusing to connect to private or loopback IP address: {peer_ip}")
+        return stream
+
+
+class SafeConnectionPool(httpcore.AsyncConnectionPool):
+    def create_connection(self, origin: httpcore.Origin) -> httpcore.AsyncConnectionInterface:
+        return SafeHTTPConnection(
+            origin=origin,
+            ssl_context=self._ssl_context,
+            socket_options=self._socket_options,
+            network_backend=self._network_backend,
+        )
+
+
+class SSRFSafeTransport(httpx.AsyncHTTPTransport):
+    """Transport that verifies connected socket IP to defeat TOCTOU DNS rebinding."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pool = SafeConnectionPool(
+            ssl_context=self._pool._ssl_context,
+            max_connections=self._pool._max_connections,
+            max_keepalive_connections=self._pool._max_keepalive_connections,
+            keepalive_expiry=self._pool._keepalive_expiry,
+            network_backend=self._pool._network_backend,
+        )
+
+
+def create_ssrf_safe_client(timeout: float = _FETCH_TIMEOUT_SECONDS) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        transport=SSRFSafeTransport(),
+        timeout=timeout,
+        headers={"User-Agent": "Pentagon/1.0 (+https://github.com/Reddirector/Pentagon)"},
+        follow_redirects=False,
+    )
 
 
 def _is_blocked_address(host: str) -> bool:
@@ -37,6 +104,8 @@ def _is_blocked_address(host: str) -> bool:
                 addresses.add(ipaddress.ip_address(info[4][0]))
             except ValueError:
                 return True
+    if not addresses:
+        return True
     for address in addresses:
         if (
             address.is_private
@@ -111,6 +180,8 @@ async def _search_ddgs(query: str) -> list[dict[str, Any]]:
     def _run() -> list[dict[str, Any]]:
         with DDGS(timeout=10) as client:
             rows = list(client.text(query, max_results=5))
+            if not rows:
+                rows = list(client.news(query, max_results=5))
         return [row for row in rows if isinstance(row, dict)]
 
     try:
@@ -155,11 +226,13 @@ async def _search_tavily(query: str) -> list[dict[str, Any]]:
 
 
 async def search_web(query: str) -> list[dict[str, Any]]:
-    """Search the web and return grounded page text, never snippets alone.
+    """Search the web and return grounded page text, falling back to snippets if needed.
 
     Uses keyless DuckDuckGo search first and falls back to Tavily when a key is
     configured. The top results are fetched concurrently and their readable
     text replaces the search snippet, so answers can cite real page content.
+    If full page extraction fails or is blocked by anti-bot measures, the
+    search snippet is preserved so real-time findings are not dropped.
     """
     results = await _search_ddgs(query)
     if not results:
@@ -173,11 +246,7 @@ async def search_web(query: str) -> list[dict[str, Any]]:
     if not results:
         raise WebSearchNotConfigured("Web search returned no usable URLs.")
 
-    async with httpx.AsyncClient(
-        timeout=_FETCH_TIMEOUT_SECONDS,
-        headers={"User-Agent": "Pentagon/1.0 (+https://github.com/Reddirector/Pentagon)"},
-        follow_redirects=False,
-    ) as client:
+    async with create_ssrf_safe_client(_FETCH_TIMEOUT_SECONDS) as client:
         pages = await asyncio.gather(
             *(_fetch_page(client, row["url"]) for row in results),
             return_exceptions=True,
@@ -185,9 +254,42 @@ async def search_web(query: str) -> list[dict[str, Any]]:
 
     grounded: list[dict[str, Any]] = []
     for row, page in zip(results, pages):
-        if isinstance(page, BaseException) or not page.strip():
-            continue
-        grounded.append({**row, "content": page})
+        if not isinstance(page, BaseException) and isinstance(page, str) and page.strip():
+            grounded.append({**row, "content": page.strip()})
+        elif row.get("content") and str(row.get("content")).strip():
+            # Fall back to snippet if page scraping was blocked or failed
+            grounded.append({**row, "content": str(row["content"]).strip()})
     if not grounded:
         raise WebSearchNotConfigured("Could not read the text of any search result.")
     return grounded
+
+
+async def search_images(query: str, max_results: int = 4) -> list[dict[str, Any]]:
+    """Search for real public images on the web via DuckDuckGo Images.
+
+    Returns a list of dicts with 'title', 'image_url', 'thumbnail_url', and 'source_url'.
+    """
+    from ddgs import DDGS
+
+    def _run() -> list[dict[str, Any]]:
+        with DDGS(timeout=10) as client:
+            rows = list(client.images(query, max_results=max_results))
+        return [row for row in rows if isinstance(row, dict)]
+
+    try:
+        rows = await asyncio.to_thread(_run)
+    except Exception as exc:
+        logger.debug("Web image search failed for '%s': %s", query, exc)
+        return []
+
+    images: list[dict[str, Any]] = []
+    for row in rows:
+        img_url = row.get("image") or row.get("thumbnail")
+        if img_url and isinstance(img_url, str) and img_url.startswith(("http://", "https://")):
+            images.append({
+                "title": str(row.get("title") or "Web image"),
+                "image_url": img_url,
+                "thumbnail_url": str(row.get("thumbnail") or ""),
+                "source_url": str(row.get("url") or ""),
+            })
+    return images

@@ -26,7 +26,7 @@ from app.db.models import ApiKey, User
 from app.db.session import SessionLocal, initialize_database
 from app.main import app
 from app.security.crypto import encrypt_api_key
-from app.services import chat_graph, command_runner
+from app.services import chat_graph, command_runner, sandbox_runner
 from app.services.permissions import (
     DEFAULT_PERMISSION_LEVEL,
     level_info,
@@ -57,10 +57,22 @@ def isolated_registry():
 
 
 @pytest.fixture
-def server_allows_commands(monkeypatch):
+def server_allows_commands(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "command_tool_enabled", True)
+    monkeypatch.setattr(settings, "command_working_directory", str(tmp_path))
     monkeypatch.setattr(settings, "command_approval_timeout_seconds", 0.2)
     monkeypatch.setattr(settings, "command_max_calls_per_turn", 4)
+    monkeypatch.setattr(sandbox_runner, "sandbox_available", lambda: True)
+
+    async def fake_run_shell(command, *, workspace, timeout_s):
+        stdout = ""
+        if command.startswith("echo ") and ">" not in command:
+            stdout = command[5:].strip("'\"") + "\n"
+        return sandbox_runner.SandboxOutcome(
+            0, stdout, "", False, 1.0, False, False, False
+        )
+
+    monkeypatch.setattr(sandbox_runner, "run_shell", fake_run_shell)
 
 
 @pytest.fixture
@@ -107,6 +119,13 @@ class _ScriptedModel:
         return self.responses.pop(0) if self.responses else AIMessage(content="done")
 
 
+def _bound_tool_names(model) -> list[str]:
+    return [
+        tool.get("function", {}).get("name") if isinstance(tool, dict) else getattr(tool, "name", None)
+        for tool in (model.bound_tools or [])
+    ]
+
+
 def _tool_call(command: str, call_id: str = "call_1") -> AIMessage:
     return AIMessage(
         content="",
@@ -130,7 +149,13 @@ def test_tool_is_never_offered_when_disabled(server_allows_commands, monkeypatch
 
     result = asyncio.run(graph.ainvoke(_state(command_tool_enabled=False)))
 
-    assert model.bound_tools is None, "the tool was bound even though it was disabled"
+    # Document generation rides along unconditionally (the autonomy gate, not
+    # a feature switch, decides whether it runs); the point here is that the
+    # shell tool specifically is never offered when its gates say no.
+    assert "run_shell_command" not in _bound_tool_names(model), (
+        "the shell tool was bound even though it was disabled"
+    )
+    assert set(_bound_tool_names(model)).issubset({"document_generation", "image_generation"})
     assert result["answer"] == "no tools here"
     assert result["command_runs"] == []
 
@@ -143,7 +168,8 @@ def test_tool_is_not_offered_when_the_server_switch_is_off(monkeypatch) -> None:
 
     asyncio.run(graph.ainvoke(_state(command_tool_enabled=True)))
 
-    assert model.bound_tools is None
+    assert "run_shell_command" not in _bound_tool_names(model)
+    assert set(_bound_tool_names(model)).issubset({"document_generation", "image_generation"})
 
 
 def test_a_read_only_command_runs_and_its_output_reaches_the_model(
@@ -317,10 +343,12 @@ def test_settings_report_availability_and_default_to_off(
 
 
 def test_desktop_availability_is_reported_independently(
-    client: TestClient, monkeypatch
+    client: TestClient, monkeypatch, tmp_path
 ) -> None:
     """A deployment can allow shell access while refusing desktop control."""
     monkeypatch.setattr(settings, "command_tool_enabled", True)
+    monkeypatch.setattr(settings, "command_working_directory", str(tmp_path))
+    monkeypatch.setattr(sandbox_runner, "sandbox_available", lambda: True)
     monkeypatch.setattr(settings, "desktop_actions_enabled", False)
     new_id = f"cmdtool-{uuid4()}"
     with SessionLocal() as db:

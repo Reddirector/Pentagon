@@ -1,6 +1,6 @@
 """Two lanes, one bucket: chat never queues behind an indexing job.
 
-The budget here is NVIDIA's free tier (~40 requests/minute), and RAG indexing
+The budget here is NVIDIA's shared cap (~40 requests/minute), and RAG indexing
 would spend all of it. These tests pin the two promises the design makes:
 
 * a background job can spend at most its fraction of the bucket, so chat's
@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.db.models import ApiKey, User
+from app.db.models import ApiKey, Conversation, ModelCapabilities, User
 from app.db.session import SessionLocal
 from app.main import app
 from app.rag2.jobs import default_queue, register_handler, run_once
@@ -30,6 +30,7 @@ from app.services.rate_limiter import (
     LANE_INTERACTIVE,
     RateLimiter,
     RateLimitTimeout,
+    current_provider_lane,
 )
 
 
@@ -166,7 +167,7 @@ def test_unknown_lane_is_a_programming_error() -> None:
 
 
 # --- wiring ----------------------------------------------------------------
-def _provision(monkeypatch) -> str:
+def _provision(monkeypatch) -> tuple[str, str, str]:
     from cryptography.fernet import Fernet
     from pydantic import SecretStr
 
@@ -177,8 +178,18 @@ def _provision(monkeypatch) -> str:
         settings, "key_encryption_secret", SecretStr(Fernet.generate_key().decode())
     )
     user_id = f"lane-{uuid4()}"
+    conversation_id = str(uuid4())
+    model_id = f"test/{uuid4()}"
     with SessionLocal() as db:
         db.add(User(id=user_id))
+        db.add(Conversation(id=conversation_id, user_id=user_id, title="rate test"))
+        db.add(
+            ModelCapabilities(
+                model_id=model_id,
+                native_tools=True,
+                parallel_tools=True,
+            )
+        )
         db.add(
             ApiKey(
                 user_id=user_id,
@@ -187,7 +198,7 @@ def _provision(monkeypatch) -> str:
             )
         )
         db.commit()
-    return user_id
+    return user_id, conversation_id, model_id
 
 
 def _reset_jobs() -> None:
@@ -223,43 +234,45 @@ def _install_refusal(monkeypatch) -> list[str]:
 
 def test_chat_route_pays_for_admission(monkeypatch) -> None:
     """The chat route must consult the limiter on the interactive lane."""
-    user_id = _provision(monkeypatch)
+    user_id, conversation_id, model_id = _provision(monkeypatch)
     seen = _install_refusal(monkeypatch)
     with TestClient(app) as client:
         response = client.post(
             "/api/chat",
             json={
                 "user_id": user_id,
-                "conversation_id": str(uuid4()),
-                "model": "test/model",
+                "conversation_id": conversation_id,
+                "model": model_id,
                 "message": "hello",
             },
         )
-    assert response.status_code == 429, response.text
+    assert response.status_code == 200
+    assert "Pentagon's model request budget is busy" in response.text
     assert seen == [LANE_INTERACTIVE]
 
 
 def test_agent_route_pays_for_admission(monkeypatch) -> None:
-    user_id = _provision(monkeypatch)
+    user_id, conversation_id, model_id = _provision(monkeypatch)
     seen = _install_refusal(monkeypatch)
     with TestClient(app) as client:
         response = client.post(
             "/api/agent/chat",
             json={
                 "user_id": user_id,
-                "conversation_id": str(uuid4()),
-                "model": "test/model",
+                "conversation_id": conversation_id,
+                "model": model_id,
                 "message": "hello",
             },
         )
-    assert response.status_code == 429, response.text
+    assert response.status_code == 200
+    assert "Pentagon's model request budget is busy" in response.text
     assert seen == [LANE_INTERACTIVE]
 
 
 def test_index_jobs_wait_for_the_background_lane(monkeypatch) -> None:
     """A job claimed under a busy budget is re-queued, never left running."""
     _reset_jobs()
-    user_id = _provision(monkeypatch)
+    user_id, _conversation_id, _model_id = _provision(monkeypatch)
     with SessionLocal() as db:
         from app.db.models import Conversation
         from app.rag2 import collections as service
@@ -271,7 +284,11 @@ def test_index_jobs_wait_for_the_background_lane(monkeypatch) -> None:
 
     kind = f"lane-test-{uuid4()}"
     ran: list[str] = []
-    register_handler(kind, lambda ctx: ran.append(ctx.job.id))
+    async def handler(ctx):
+        await rl.rate_limiter.acquire(current_provider_lane())
+        ran.append(ctx.job.id)
+
+    register_handler(kind, handler)
     job = default_queue.enqueue(
         user_id=user_id, collection_id=collection.id, kind=kind
     )

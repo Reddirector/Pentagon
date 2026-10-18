@@ -10,8 +10,10 @@ from app.tools import (
     calculator,
     create_artifact,
     deep_research,
+    document_generation,
     fetch_url,
     get_current_time,
+    image_generation,
     python_exec,
     read_document,
     read_result,
@@ -41,17 +43,22 @@ def build_registry() -> ToolRegistry:
     # T11: bounded research. Always registered -- a missing key or a missed
     # deadline is an honest per-call failure, not a missing capability.
     registry.register(deep_research.TOOL_SPEC, deep_research.run)
+    # Document generation: pure Python rendering (python-docx, reportlab,
+    # openpyxl) plus a bucket write, so it is always available and always
+    # gated as a local_filesystem_write -- no sandbox needed to write a file
+    # the user asked for.
+    registry.register(document_generation.TOOL_SPEC, document_generation.run)
+    registry.register(image_generation.TOOL_SPEC, image_generation.run)
     # T9: the JS-rendering browser needs Playwright plus its Chromium, so it
     # exists only when they do; fetch_url covers plain documents without them.
     if browser.browser_available():
         registry.register(browse_page.TOOL_SPEC, browse_page.run)
-    # T8: code execution exists only when the Docker sandbox does. Without
-    # Docker the tools are simply not registered -- there is no host-code
-    # path to fall back to (python_exec would DENIED anyway if it raced a
-    # daemon that died after startup).
+    # Artifacts are bounded text files in a dedicated output folder; they do
+    # not execute code and remain available without Docker. Arbitrary Python
+    # execution exists only when the Docker sandbox does, with no host fallback.
+    registry.register(create_artifact.TOOL_SPEC, create_artifact.run)
     if sandbox_runner.sandbox_available():
         registry.register(python_exec.TOOL_SPEC, python_exec.run)
-        registry.register(create_artifact.TOOL_SPEC, create_artifact.run)
     # T10: tools contributed by user-configured MCP servers. The bridge has
     # to have connected by now (app lifespan does it at startup); until it
     # has, this contributes nothing and the registry stays honest.

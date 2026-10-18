@@ -71,6 +71,7 @@ if is_sqlite:
     def enable_sqlite_foreign_keys(dbapi_connection: object, connection_record: object) -> None:
         cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
 
@@ -118,6 +119,7 @@ def initialize_database() -> None:
     if schema is not None and dialect == "postgresql":
         _ensure_app_schema(schema)
     Base.metadata.create_all(bind=engine)
+    _install_action_audit_append_only_triggers(dialect)
     if dialect == "sqlite":
         # WAL lets the API's sessions, the langgraph checkpointer, and the
         # background job worker share one SQLite file: readers stop blocking a
@@ -130,6 +132,19 @@ def initialize_database() -> None:
                 connection.exec_driver_sql("PRAGMA journal_mode=WAL")
         except Exception:  # pragma: no cover - best effort, never fatal
             pass
+        url = engine.url
+        db_path = getattr(url, "database", None) or getattr(url, "get_database", lambda: None)()
+        if db_path and db_path != ":memory:":
+            try:
+                import os
+                import stat
+                from pathlib import Path
+
+                p = Path(db_path).resolve()
+                if p.is_file():
+                    os.chmod(p, stat.S_IRUSR | stat.S_IWUSR)
+            except OSError:
+                pass
     message_columns = {column["name"] for column in inspect(engine).get_columns("messages")}
     if "image_path" not in message_columns:
         with engine.begin() as connection:
@@ -157,6 +172,8 @@ def initialize_database() -> None:
                     f"BOOLEAN NOT NULL DEFAULT {false_literal}"
                 )
             )
+
+
     # The approval level rides along with the same additive-migration rule.
     # DEFAULT 2 is Balanced, the behaviour that already shipped, so upgrading
     # neither tightens nor loosens anyone's existing setup. The column is
@@ -195,3 +212,42 @@ def initialize_database() -> None:
             # Table may not exist yet on very first run; create_all above
             # handles that, and the UPDATE is best-effort.
             pass
+
+def _install_action_audit_append_only_triggers(dialect: str) -> None:
+    """Enforce append-only audit rows below the ORM layer."""
+    if dialect == "sqlite":
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "CREATE TRIGGER IF NOT EXISTS action_audit_log_no_update "
+                "BEFORE UPDATE ON action_audit_log BEGIN "
+                "SELECT RAISE(ABORT, 'action_audit_log is append-only'); END"
+            )
+            connection.exec_driver_sql(
+                "CREATE TRIGGER IF NOT EXISTS action_audit_log_no_delete "
+                "BEFORE DELETE ON action_audit_log BEGIN "
+                "SELECT RAISE(ABORT, 'action_audit_log is append-only'); END"
+            )
+        return
+    if dialect == "postgresql":
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "CREATE OR REPLACE FUNCTION pentagon_reject_audit_mutation() "
+                "RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+                "RAISE EXCEPTION 'action_audit_log is append-only'; END; $$"
+            )
+            connection.exec_driver_sql(
+                "DROP TRIGGER IF EXISTS action_audit_log_no_update ON action_audit_log"
+            )
+            connection.exec_driver_sql(
+                "DROP TRIGGER IF EXISTS action_audit_log_no_delete ON action_audit_log"
+            )
+            connection.exec_driver_sql(
+                "CREATE TRIGGER action_audit_log_no_update BEFORE UPDATE "
+                "ON action_audit_log FOR EACH ROW EXECUTE FUNCTION "
+                "pentagon_reject_audit_mutation()"
+            )
+            connection.exec_driver_sql(
+                "CREATE TRIGGER action_audit_log_no_delete BEFORE DELETE "
+                "ON action_audit_log FOR EACH ROW EXECUTE FUNCTION "
+                "pentagon_reject_audit_mutation()"
+            )

@@ -66,3 +66,23 @@ def test_search_raises_when_nothing_usable_is_returned(monkeypatch):
 
     with pytest.raises(WebSearchNotConfigured):
         asyncio.run(search_web("anything"))
+
+
+def test_search_falls_back_to_snippets_when_page_fetch_fails(monkeypatch):
+    async def fake_ddgs(query: str):
+        return [
+            {"title": "Blocked site", "url": "https://example.com/blocked", "content": "reliable search snippet info"},
+        ]
+
+    async def failing_fetch(client, url: str):
+        raise httpx.ConnectTimeout("Anti-bot timeout")
+
+    monkeypatch.setattr(web_search, "_search_ddgs", fake_ddgs)
+    monkeypatch.setattr(web_search, "_fetch_page", failing_fetch)
+
+    import asyncio
+
+    results = asyncio.run(search_web("trending AI topic"))
+    assert len(results) == 1
+    assert results[0]["url"] == "https://example.com/blocked"
+    assert results[0]["content"] == "reliable search snippet info"

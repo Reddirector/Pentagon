@@ -1,17 +1,10 @@
 -- Pentagon — RAG 2 schema (Advanced RAG upgrade §4)
--- Apply after supabase/schema.sql in the Supabase SQL editor or via
--- `supabase db push`. Every table is owner-only: RLS enabled with an
--- `auth.uid() = user_id` policy, exactly like the base schema's own rows.
---
--- The local-first SQLite build implements the same contract by scoping every
--- query on `user_id` (DECISIONS #8); this file is the schema spec.
-
 create table collections (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   description text,
-  embedding_model text not null,                 -- id + version, see Section 6
+  embedding_model text not null,
   graph_enabled boolean not null default false,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -40,8 +33,8 @@ create table chunks (
   page int,
   section text,
   text text not null,
-  lang text,                    -- BCP-47 or "hi-Latn" for romanized Hindi
-  script text,                  -- Latn, Deva, Arab, Hans, ...
+  lang text,
+  script text,
   token_count int,
   created_at timestamptz default now()
 );
@@ -52,7 +45,7 @@ create table kg_entities (
   user_id uuid not null references auth.users(id) on delete cascade,
   collection_id uuid not null references collections(id) on delete cascade,
   canonical_name text not null,
-  names jsonb not null default '{}',             -- {"en": "India", "hi": "भारत"}
+  names jsonb not null default '{}',
   aliases jsonb not null default '[]',
   type text not null default 'Other',
   description text,
@@ -76,7 +69,7 @@ create table kg_relations (
 create index on kg_relations (collection_id, source_id);
 create index on kg_relations (collection_id, target_id);
 
-create table kg_provenance (                      -- which chunks support which entity/relation
+create table kg_provenance (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   collection_id uuid not null references collections(id) on delete cascade,
@@ -104,8 +97,8 @@ create table index_jobs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   collection_id uuid not null references collections(id) on delete cascade,
-  kind text not null,                             -- ingest | embed | graph_extract | graph_resolve | communities | summarize | reindex
-  status text not null default 'queued',          -- queued | running | paused | done | failed | cancelled
+  kind text not null,
+  status text not null default 'queued',
   progress real not null default 0,
   llm_calls_estimated int,
   llm_calls_used int not null default 0,
@@ -125,7 +118,6 @@ alter table kg_provenance enable row level security;
 alter table kg_communities enable row level security;
 alter table index_jobs enable row level security;
 
--- Owner-only, same pattern as the base schema's "own rows" policies.
 create policy "own rows" on collections for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows" on collection_files for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows" on conversation_collections for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

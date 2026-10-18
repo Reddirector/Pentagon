@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 
 from app.agent.schemas import ToolContext, ToolResult, ToolSpec
-from app.services.web_search import _ensure_public_url, _fetch_page
+from app.services.web_search import _ensure_public_url, _fetch_page, create_ssrf_safe_client
 
 TOOL_SPEC = ToolSpec(
     name="fetch_url",
@@ -56,11 +56,7 @@ async def run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             hint='Pass the page address, e.g. {"url": "https://example.com/article"}.',
         )
     url = url.strip()
-    async with httpx.AsyncClient(
-        timeout=12.0,
-        headers={"User-Agent": "Pentagon/1.0 (+https://github.com/Reddirector/Pentagon)"},
-        follow_redirects=False,
-    ) as client:
+    async with create_ssrf_safe_client(12.0) as client:
         try:
             await _ensure_public_url(client, url)
             text = await _fetch_page(client, url)

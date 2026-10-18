@@ -1,6 +1,6 @@
 """Two lanes sharing one request budget, chat first.
 
-NVIDIA's free tier is roughly 40 requests/minute for everything, and RAG
+NVIDIA's shared cap is roughly 40 requests/minute, and RAG
 indexing (embedding batches, graph extraction, community summaries) would
 happily spend all of it. So there is one bucket -- ``rate_limit_per_minute``
 tokens, refilled at the same rate -- and two ways to spend from it:
@@ -21,14 +21,16 @@ does nothing at all. Waits are bounded -- a caller that cannot get a permit
 inside ``rate_limit_wait_seconds`` raises :class:`RateLimitTimeout`, which the
 routes turn into a 429 rather than a hang.
 
-Accounting is admission-based: one permit per chat turn and one per index-job
-step. The agent loop's per-call budgets (RAG §10.6) are a separate, stricter
-control that sits closer to the model calls themselves.
+Accounting happens at each provider request, including retries, vision calls,
+embeddings, and chat completions. The agent loop's per-turn budgets are a
+separate limit on how much work one user request can trigger.
 """
 
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
+from contextvars import ContextVar
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -38,6 +40,23 @@ from app.config import settings
 
 LANE_INTERACTIVE = "interactive"
 LANE_BACKGROUND = "background"
+_provider_lane: ContextVar[str] = ContextVar("pentagon_provider_lane", default=LANE_INTERACTIVE)
+
+
+def current_provider_lane() -> str:
+    return _provider_lane.get()
+
+
+@contextmanager
+def provider_lane(lane: str):
+    """Mark provider requests made in this context as interactive or background."""
+    if lane not in {LANE_INTERACTIVE, LANE_BACKGROUND}:
+        raise ValueError(f"unknown provider lane {lane!r}")
+    token = _provider_lane.set(lane)
+    try:
+        yield
+    finally:
+        _provider_lane.reset(token)
 
 
 class RateLimitTimeout(Exception):

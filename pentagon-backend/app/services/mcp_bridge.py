@@ -151,17 +151,34 @@ def safe_tool_name(server: str, tool: str) -> str:
 
 
 def derive_tier(annotations: dict[str, Any], configured: str) -> str:
-    """MCP annotations, when present, are the server's own declaration.
+    """Use server configuration as the floor; remote hints may only escalate.
 
-    readOnlyHint=True is the only path down to read (auto-run); a declared
-    destructiveHint=True escalates to always-ask. Everything else falls back
-    to the server's configured tier -- unknown capabilities stay gated.
+    An MCP server controls its annotations, so ``readOnlyHint`` can never
+    downgrade a configured write or destructive tool into auto-approved read.
     """
-    if annotations.get("readOnlyHint") is True:
-        return "read"
+    baseline = configured if configured in _TIERS else "write"
+    severity = {"read": 0, "write": 1, "external_send": 1, "destructive": 2}
     if annotations.get("destructiveHint") is True:
-        return "destructive"
-    return configured if configured in _TIERS else "write"
+        hinted = "destructive"
+        if severity[hinted] > severity[baseline]:
+            return hinted
+    return baseline
+
+
+_MCP_INHERITED_ENV = frozenset(
+    {
+        "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL",
+        "SYSTEMROOT", "WINDIR", "APPDATA", "LOCALAPPDATA", "USERPROFILE",
+    }
+)
+
+
+def child_environment(configured: dict[str, str], inherited: dict[str, str] | None = None) -> dict[str, str]:
+    """Keep runtime essentials and only credentials explicitly assigned to an MCP server."""
+    source = os.environ if inherited is None else inherited
+    env = {key: value for key, value in source.items() if key in _MCP_INHERITED_ENV}
+    env.update(configured)
+    return env
 
 
 def build_spec(config: ServerConfig, entry: dict[str, Any]) -> ToolSpec:
@@ -243,7 +260,10 @@ class McpSession:
     async def start(self) -> None:
         """Spawn, handshake, cache tools/list. Raises BridgeError on failure."""
         await self.close()
-        env = {**os.environ, **self.config.env} if self.config.env else None
+        # MCP credentials must be explicit in this server's config. Passing the
+        # backend's complete environment leaked unrelated API/database keys to
+        # every child process.
+        env = child_environment(self.config.env)
         try:
             self._proc = await asyncio.create_subprocess_exec(
                 *self.config.command,

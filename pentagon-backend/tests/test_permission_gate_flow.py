@@ -53,12 +53,30 @@ def _write_call(command: str, call_id: str = "call_1") -> AIMessage:
 
 
 @pytest.fixture(autouse=True)
-def _commands_enabled(monkeypatch):
+def _commands_enabled(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "command_tool_enabled", True)
     monkeypatch.setattr(settings, "command_approval_timeout_seconds", 0.2)
     monkeypatch.setattr(settings, "command_max_calls_per_turn", 4)
+    monkeypatch.setattr(settings, "command_working_directory", str(tmp_path))
+    monkeypatch.setattr(command_runner.sandbox_runner, "sandbox_available", lambda: True)
+    runs = []
+
+    async def fake_run_shell(command, *, workspace, timeout_s):
+        runs.append((command, str(workspace), timeout_s))
+        return command_runner.sandbox_runner.SandboxOutcome(
+            exit_code=0,
+            stdout="simulated container result",
+            stderr="",
+            timed_out=False,
+            duration_ms=1.0,
+            stdout_truncated=False,
+            stderr_truncated=False,
+            docker_error=False,
+        )
+
+    monkeypatch.setattr(command_runner.sandbox_runner, "run_shell", fake_run_shell)
     command_runner.REGISTRY = command_runner.CommandRegistry()
-    yield
+    yield runs
     command_runner.REGISTRY = command_runner.CommandRegistry()
 
 
@@ -129,7 +147,7 @@ def test_shell_category_follows_the_command_classifier() -> None:
 
 
 def test_a_read_only_command_runs_unattended_and_is_audited(
-    user_id: str, monkeypatch, tmp_path
+    user_id: str, monkeypatch, tmp_path, _commands_enabled
 ) -> None:
     model = _ScriptedModel(
         [_write_call("echo gate-read-only"), AIMessage(content="done")]
@@ -145,10 +163,11 @@ def test_a_read_only_command_runs_unattended_and_is_audited(
     assert [run["command"] for run in result["command_runs"]] == ["echo gate-read-only"]
     assert result["command_runs"][0]["exit_code"] == 0
     assert _decisions(user_id) == ["auto_approved"]
+    assert [run[0] for run in _commands_enabled] == ["echo gate-read-only"]
 
 
 def test_a_write_command_pauses_and_only_runs_after_approval(
-    user_id: str, monkeypatch, tmp_path
+    user_id: str, monkeypatch, tmp_path, _commands_enabled
 ) -> None:
     target = tmp_path / "approved.txt"
     model = _ScriptedModel(
@@ -168,7 +187,7 @@ def test_a_write_command_pauses_and_only_runs_after_approval(
     assert cards, "a state-changing command has to stop for approval"
     assert cards[0]["type"] == "approval_required"
     assert cards[0]["category"] == "local_shell"
-    assert not target.exists(), "the command ran before the user approved it"
+    assert not _commands_enabled, "the sandbox was invoked before approval"
 
     asyncio.run(
         graph.ainvoke(
@@ -177,8 +196,8 @@ def test_a_write_command_pauses_and_only_runs_after_approval(
         )
     )
 
-    assert target.exists(), "an approved command has to actually run"
-    assert target.read_text().strip() == "yes"
+    assert [run[0] for run in _commands_enabled] == [f"echo yes > {target}"]
+    assert not target.exists(), "the test must not execute a host shell command"
     assert "user_approved" in _decisions(user_id)
 
 
@@ -204,7 +223,7 @@ def test_a_denied_command_never_runs(user_id: str, monkeypatch, tmp_path) -> Non
 
 
 def test_ask_first_time_remembers_the_approval_for_the_session(
-    user_id: str, monkeypatch, tmp_path
+    user_id: str, monkeypatch, tmp_path, _commands_enabled
 ) -> None:
     with SessionLocal() as db:
         db.add(
@@ -231,7 +250,7 @@ def test_ask_first_time_remembers_the_approval_for_the_session(
     asyncio.run(graph.ainvoke(_state(user_id, conversation_id), config=config))
     snap = asyncio.run(graph.aget_state(config))
     assert snap.interrupts, "the first call at ask_first_time has to ask"
-    assert not first.exists()
+    assert not _commands_enabled
 
     asyncio.run(
         graph.ainvoke(
@@ -239,13 +258,15 @@ def test_ask_first_time_remembers_the_approval_for_the_session(
             config=config,
         )
     )
-    assert first.exists()
+    assert [run[0] for run in _commands_enabled] == [f"echo one > {first}"]
 
     # The next turn's call runs unattended: the session remembers the approval.
     asyncio.run(graph.ainvoke(_state(user_id, conversation_id), config=config))
     snap2 = asyncio.run(graph.aget_state(config))
     assert not snap2.interrupts, "ask_first_time asked a second time in one session"
-    assert second.exists()
+    assert [run[0] for run in _commands_enabled] == [
+        f"echo one > {first}", f"echo two > {second}"
+    ]
     with SessionLocal() as db:
         row = db.get(PerToolOverride, (user_id, "run_shell_command", "local_shell"))
         assert row is not None and row.approved_this_session is True
@@ -330,7 +351,7 @@ def test_never_allow_blocks_at_the_gate_without_a_card(
 
 
 def test_ask_first_time_approval_does_not_leak_to_another_user(
-    user_id: str, monkeypatch, tmp_path
+    user_id: str, monkeypatch, tmp_path, _commands_enabled
 ) -> None:
     """Session approvals are scoped to the user who granted them."""
     with SessionLocal() as db:
@@ -370,7 +391,7 @@ def test_ask_first_time_approval_does_not_leak_to_another_user(
             config=config,
         )
     )
-    assert first.exists()
+    assert [run[0] for run in _commands_enabled] == [f"echo one > {first}"]
     with SessionLocal() as db:
         row = db.get(PerToolOverride, (user_id, "run_shell_command", "local_shell"))
         assert row is not None and row.approved_this_session is True
@@ -402,7 +423,7 @@ def test_ask_first_time_approval_does_not_leak_to_another_user(
 
     other_snap = asyncio.run(other_graph.aget_state(other_config))
     assert other_snap.interrupts, "one user's approval leaked to another user"
-    assert not other_target.exists()
+    assert len(_commands_enabled) == 1, "the other user's unapproved tool must not run"
 
 
 def test_autonomy_settings_round_trip_reports_what_was_saved(user_id: str) -> None:

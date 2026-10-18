@@ -9,31 +9,32 @@ credential leaks.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
+from app.db import session as db_session
 from app.db.models import ToolTrace
-from app.db.session import SessionLocal
+from app.services.autonomy import redact_sensitive_value
 
 logger = logging.getLogger(__name__)
 
-_SECRET_KEY = re.compile(
-    r"key|token|secret|password|authorization|credential", re.IGNORECASE
-)
 _MAX_VALUE_CHARS = 200
 
 
+def _truncate_value(value: Any) -> Any:
+    if isinstance(value, str):
+        if len(value) > _MAX_VALUE_CHARS:
+            return value[:_MAX_VALUE_CHARS] + f"... [{len(value)} chars total]"
+        return value
+    if isinstance(value, dict):
+        return {str(key): _truncate_value(child) for key, child in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_truncate_value(child) for child in value]
+    return value
+
+
 def redact_args(args: dict[str, Any]) -> dict[str, Any]:
-    """A copy of ``args`` safe to persist: secret-shaped keys masked, long strings cut."""
-    redacted: dict[str, Any] = {}
-    for key, value in args.items():
-        if _SECRET_KEY.search(str(key)):
-            redacted[key] = "[redacted]"
-        elif isinstance(value, str) and len(value) > _MAX_VALUE_CHARS:
-            redacted[key] = value[:_MAX_VALUE_CHARS] + f"... [{len(value)} chars total]"
-        else:
-            redacted[key] = value
-    return redacted
+    """A copy of args safe to persist, including nested and free-text secrets."""
+    return _truncate_value(redact_sensitive_value(args))
 
 
 class TraceRecorder:
@@ -82,7 +83,7 @@ class TraceRecorder:
         if not self._rows:
             return 0
         try:
-            with SessionLocal() as db:
+            with db_session.SessionLocal() as db:
                 for row in self._rows:
                     db.add(ToolTrace(**row))
                 db.commit()

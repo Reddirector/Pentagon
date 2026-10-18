@@ -20,7 +20,7 @@ from app.config import settings
 # A plain file name: no separators, no leading dot, bounded length. Because
 # there is no path separator, ".." can appear only inside a name and never
 # escapes the turn's folder.
-_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$")
 _MEDIA_TYPE = re.compile(r"^[a-z0-9][a-z0-9.+-]*/[A-Za-z0-9][A-Za-z0-9.+-]*$")
 # Generous for a text artifact, still small enough that one call cannot fill
 # the disk or the client's download.
@@ -84,8 +84,17 @@ TOOL_SPEC = ToolSpec(
 
 
 async def run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    name = args.get("name")
-    if not isinstance(name, str) or not _NAME.match(name):
+    raw_name = args.get("name")
+    if not isinstance(raw_name, str) or not raw_name.strip():
+        return ToolResult.failure(
+            "INVALID_ARGS",
+            "name must be a plain file name like 'report.md' (letters,"
+            " digits, dot, dash, underscore; max 80 chars).",
+            hint="No directories or slashes: pass only the file name.",
+        )
+    # Sanitize whitespace into underscores so human filenames with spaces succeed
+    name = re.sub(r"\s+", "_", raw_name.strip())
+    if not _NAME.match(name):
         return ToolResult.failure(
             "INVALID_ARGS",
             "name must be a plain file name like 'report.md' (letters,"

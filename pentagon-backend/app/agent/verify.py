@@ -33,10 +33,21 @@ _CITATION = re.compile(r"\[(\d{1,3})\]")
 _MENTION = re.compile(r"(?:https?://[^\s)\]>]+|[a-z0-9-]+\.[a-z]{2,}(?:/[^\s)\]>]*)?)", re.I)
 _TLD_OK = re.compile(r"^[a-z]{2,24}$", re.I)
 
+_FILE_EXTENSIONS = {
+    "pdf", "docx", "xlsx", "pptx", "csv", "md", "txt", "html", "htm",
+    "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "tiff", "ico",
+    "json", "yaml", "yml", "xml", "zip", "tar", "gz", "rar", "7z",
+    "py", "js", "ts", "jsx", "tsx", "c", "cpp", "h", "rs", "go", "java",
+}
+
 _REPAIR_INSTRUCTIONS = (
-    "Rewrite the answer so it cites ONLY the numbered sources provided and "
-    "removes or clearly hedges every claim the sources do not support. Keep "
-    "the user's language and length. Output only the rewritten answer."
+    "Rewrite the answer so it cites ONLY the numbered sources provided [1], [2], etc., "
+    "and fixes unsupported claims. CRITICAL FORMATTING RULES:\n"
+    "- PRESERVE all markdown tables, bullet points, and section headers intact.\n"
+    "- PRESERVE all callout blocks (e.g. > [!NOTE], > [!WARNING], > [!TIP]).\n"
+    "- PRESERVE all embedded images (![Caption](url)) and generated file references.\n"
+    "- Maintain an authoritative, concise, executive tone without conversational filler, apologies, or hedging preambles.\n"
+    "- Output ONLY the rewritten markdown answer."
 )
 
 
@@ -56,6 +67,9 @@ class Verification:
             "sources": self.sources,
             "citations": self.citations,
         }
+
+
+_IMAGE_MARKDOWN = re.compile(r"!\[[^\]]*\]\((?:[^)]+)\)")
 
 
 def _walk_urls(data: Any) -> list[tuple[str, str]]:
@@ -101,8 +115,11 @@ def _host(url: str) -> str:
 
 def _mentions(answers_text: str) -> set[str]:
     """Hosts (and bare TLD-checked tokens) the answer leans on."""
+    # Embedded image links (real web images, local generated previews) are visual assets,
+    # not claims or source citations; strip them before checking ungathered host mentions.
+    cleaned_text = _IMAGE_MARKDOWN.sub("", answers_text)
     hosts: set[str] = set()
-    for match in _MENTION.finditer(answers_text):
+    for match in _MENTION.finditer(cleaned_text):
         token = match.group(0).rstrip(".,;:")
         if token.startswith(("http://", "https://")):
             host = _host(token)
@@ -111,6 +128,8 @@ def _mentions(answers_text: str) -> set[str]:
                 continue
         hostpart = token.split("/", 1)[0].lower()
         suffix = hostpart.rsplit(".", 1)[-1]
+        if suffix in _FILE_EXTENSIONS:
+            continue
         if _TLD_OK.match(suffix) and "." in hostpart:
             hosts.add(hostpart)
     return hosts
@@ -119,6 +138,7 @@ def _mentions(answers_text: str) -> set[str]:
 def verify_answer(answer: str, sources: list[dict[str, str]]) -> Verification:
     """Deterministic grounding checks; never raises, never rewrites."""
     known_hosts = {host for host in (_host(row["url"]) for row in sources) if host}
+    known_hosts.update({"localhost", "127.0.0.1"})
     citations = sorted({int(n) for n in _CITATION.findall(answer)})
     problems: list[str] = []
 

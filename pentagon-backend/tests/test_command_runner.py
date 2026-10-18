@@ -16,7 +16,8 @@ import asyncio
 
 import pytest
 
-from app.services import command_runner
+from app.config import settings
+from app.services import command_runner, sandbox_runner
 from app.services.command_runner import CommandRegistry, PendingRequest, classify
 
 
@@ -230,6 +231,23 @@ def _fresh_runner() -> CommandRegistry:
     return registry
 
 
+def _mock_shell(monkeypatch, tmp_path, outcome=None):
+    """Exercise approval dispatch without running commands on the host."""
+    captured = []
+    monkeypatch.setattr(settings, "command_tool_enabled", True)
+    monkeypatch.setattr(settings, "command_working_directory", str(tmp_path))
+    monkeypatch.setattr(sandbox_runner, "sandbox_available", lambda: True)
+
+    async def run_shell(command, *, workspace, timeout_s):
+        captured.append((command, workspace, timeout_s))
+        return outcome or sandbox_runner.SandboxOutcome(
+            0, "", "", False, 1.0, False, False, False
+        )
+
+    monkeypatch.setattr(sandbox_runner, "run_shell", run_shell)
+    return captured
+
+
 def test_a_read_only_command_still_asks_when_auto_approve_is_off() -> None:
     """`auto_approve=False` is the 'always ask' path and must not be bypassed."""
 
@@ -271,10 +289,25 @@ def test_timeout_denies_rather_than_runs(tmp_path) -> None:
     assert not target.exists(), "a command nobody approved was executed anyway"
 
 
-def test_an_approved_write_command_really_runs(tmp_path) -> None:
-    """The approve path executes. It is not a stub that always denies."""
+def test_credential_shaped_command_is_blocked_before_approval_or_execution():
+    secret = "nvapi-abcdefghijklmnopqrstuvwxyz"
+    registry = _fresh_runner()
+    result = asyncio.run(
+        command_runner.run_command(
+            f"echo {secret}",
+            conversation_id="c1",
+            user_id="u1",
+        )
+    )
+    payload = result.as_payload()
+    assert result.exit_code is None
+    assert secret not in str(payload)
+    assert not registry.pending_for("c1", "u1")
 
-    target = tmp_path / "approved.txt"
+
+def test_approved_write_command_reaches_only_the_isolated_runner(monkeypatch, tmp_path) -> None:
+    """Approval dispatches to Docker with the configured workspace."""
+    captured = _mock_shell(monkeypatch, tmp_path)
 
     async def scenario() -> str:
         registry = _fresh_runner()
@@ -289,7 +322,7 @@ def test_an_approved_write_command_really_runs(tmp_path) -> None:
 
         approver = asyncio.ensure_future(approve_when_it_arrives())
         result = await command_runner.run_command(
-            f"echo approved > {target}",
+            f"echo approved > {tmp_path / 'approved.txt'}",
             conversation_id="c1",
             user_id="u1",
         )
@@ -297,8 +330,9 @@ def test_an_approved_write_command_really_runs(tmp_path) -> None:
         return result.as_text()
 
     text = asyncio.run(scenario())
-    assert target.exists(), "the approved command did not run"
-    assert target.read_text().strip() == "approved"
+    assert len(captured) == 1
+    assert captured[0][0] == f"echo approved > {tmp_path / 'approved.txt'}"
+    assert captured[0][1] == tmp_path.resolve()
     assert "did not approve" not in text
 
 
@@ -332,14 +366,15 @@ def test_a_denied_command_does_not_run(tmp_path) -> None:
     assert not target.exists(), "a denied command was executed anyway"
 
 
-def test_a_read_only_command_runs_without_a_prompt(tmp_path) -> None:
-    """The allowlist path needs no approval and produces real output.
-
-    Nothing resolves the request, so a command that went down the approval path
-    would come back denied. A read-only one must not.
-    """
+def test_a_read_only_command_reaches_the_isolated_runner_without_a_prompt(monkeypatch, tmp_path) -> None:
+    """The read-only path skips approval and still uses the sandbox boundary."""
     probe = tmp_path / "probe.txt"
     probe.write_text("readable\n")
+    captured = _mock_shell(
+        monkeypatch,
+        tmp_path,
+        sandbox_runner.SandboxOutcome(0, "readable\n", "", False, 1.0, False, False, False),
+    )
 
     async def scenario() -> str:
         _fresh_runner()
@@ -356,11 +391,17 @@ def test_a_read_only_command_runs_without_a_prompt(tmp_path) -> None:
     text = asyncio.run(scenario())
     assert "readable" in text, f"the read-only command did not run: {text!r}"
     assert "did not approve" not in text
+    assert len(captured) == 1 and captured[0][1] == tmp_path.resolve()
     assert not command_runner.REGISTRY.pending_for("c1", "u1"), "an allowlisted command asked anyway"
 
 
-def test_timeout_kills_a_hung_command() -> None:
-    """A command that never exits is killed, and the timeout is reported."""
+def test_timeout_from_the_isolated_runner_is_reported(monkeypatch, tmp_path) -> None:
+    """The runner's container timeout reaches the command result."""
+    _mock_shell(
+        monkeypatch,
+        tmp_path,
+        sandbox_runner.SandboxOutcome(137, "", "", True, 300.0, False, False, False),
+    )
 
     async def scenario() -> bool:
         _fresh_runner()
@@ -435,30 +476,16 @@ def test_pending_lists_only_your_own_unresolved_requests() -> None:
     assert [row["request_id"] for row in pending] == ["r0"]
 
 
-def test_server_secrets_are_stripped_from_the_command_environment(
-    monkeypatch,
-) -> None:
-    """A command that dumps the environment must not carry Pentagon's own keys.
-
-    Even an approved command inherits the process environment, so a future
-    allowlist change that let ``env`` through would exfiltrate the NVIDIA key or
-    the database URL unless they are removed first. Ordinary variables still
-    pass through, so the stripping is not a blanket wipe.
-    """
+def test_host_secrets_are_not_added_to_the_container_environment(monkeypatch, tmp_path) -> None:
+    """Docker receives no host env flags; the image owns its environment."""
     monkeypatch.setenv("NVIDIA_SERVER_API_KEY", "nvapi-should-never-appear")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///should-never-appear.db")
     monkeypatch.setenv("PENTAGON_HARMLESS_PROBE", "visible-to-the-command")
-
-    async def scenario() -> str:
-        _fresh_runner()
-        result = await command_runner._execute("env", auto_approved=True)
-        return result.stdout
-
-    output = asyncio.run(scenario())
-
-    assert "nvapi-should-never-appear" not in output
-    assert "should-never-appear.db" not in output
-    assert "visible-to-the-command" in output, "ordinary variables were stripped too"
+    argv = sandbox_runner.build_shell_argv("env", name="pentagon-shell-env-test", workspace=tmp_path)
+    assert not any(arg in {"--env", "-e", "--env-file"} for arg in argv)
+    assert "nvapi-should-never-appear" not in argv
+    assert "should-never-appear.db" not in argv
+    assert "visible-to-the-command" not in argv
 
 
 def test_output_is_capped_and_keeps_the_tail() -> None:

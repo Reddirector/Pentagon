@@ -7,8 +7,8 @@ import {
   PanelLeftOpen,
   Pencil,
   Search,
-  Settings2,
   Trash2,
+  Workflow,
   X,
 } from 'lucide-react'
 import { LogomarkBadge } from './Logomark'
@@ -23,6 +23,7 @@ import {
   subscribePreferences,
 } from '../lib/preferences'
 import type { Conversation } from '../types'
+import { AccountMenu } from './AccountMenu'
 
 type Group = { title: string; conversations: Conversation[] }
 
@@ -53,8 +54,10 @@ export function Sidebar({
   onDelete,
   onOpenPalette,
   onOpenSettings,
+  onOpenWorkflows,
   open = false,
   onClose,
+  userId = '',
 }: {
   conversations: Conversation[]
   activeId: string | null
@@ -65,7 +68,9 @@ export function Sidebar({
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
   onOpenPalette?: () => void
-  onOpenSettings?: () => void
+  onOpenSettings?: (tab?: 'Account' | 'Permissions' | 'Advanced') => void
+  onOpenWorkflows?: () => void
+  userId?: string
   /** Drawer state. Only meaningful below the md breakpoint, where the sidebar
       becomes an overlay instead of a column. */
   open?: boolean
@@ -293,10 +298,19 @@ export function Sidebar({
         type="button"
         onClick={onNewThread}
         aria-label="New thread"
-        title="New thread"
-        className="grid size-9 place-items-center rounded-xl border border-white/[0.09] bg-white/[0.035] text-zinc-200 transition hover:border-emerald-300/30 hover:bg-emerald-300/[0.07] hover:text-white"
+        title="New thread (⌘N)"
+        className="grid size-9 place-items-center rounded-xl border border-emerald-400/25 bg-emerald-400/[0.08] text-emerald-300 transition hover:border-emerald-300/40 hover:bg-emerald-400/[0.16] hover:text-white hover:shadow-[0_2px_10px_rgba(16,185,129,0.2)]"
       >
-        <MessageSquarePlus size={15} className="text-emerald-300" />
+        <MessageSquarePlus size={16} />
+      </button>
+      <button
+        type="button"
+        onClick={onOpenWorkflows}
+        aria-label="Workflows Studio"
+        title="Workflows Studio"
+        className="grid size-9 place-items-center rounded-xl border border-sky-400/25 bg-sky-400/[0.08] text-sky-300 transition hover:border-sky-300/40 hover:bg-sky-400/[0.16] hover:text-white hover:shadow-[0_2px_10px_rgba(56,189,248,0.2)]"
+      >
+        <Workflow size={16} />
       </button>
       <button
         type="button"
@@ -313,12 +327,39 @@ export function Sidebar({
     </div>
   ) : (
     <>
-  <div className="mb-5 flex items-center gap-1.5">
-    <button onClick={onNewThread} className="flex h-10 flex-1 items-center gap-2.5 rounded-xl border border-white/[0.09] bg-white/[0.035] px-3 text-left text-body font-medium text-zinc-200 transition-[background-color,border-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-emerald-300/30 hover:bg-emerald-300/[0.07] hover:text-white active:translate-y-0 active:scale-[.99]">
-      <MessageSquarePlus size={15} className="text-emerald-300" />New Thread
+  <div className="mb-3 flex items-center gap-1.5">
+    <button
+      onClick={onNewThread}
+      className="group flex h-10 flex-1 items-center justify-between rounded-xl border border-emerald-400/20 bg-emerald-400/[0.08] px-3 text-left text-body font-medium text-emerald-200 transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-out hover:-translate-y-px hover:border-emerald-300/40 hover:bg-emerald-400/[0.14] hover:text-white hover:shadow-[0_4px_16px_rgba(16,185,129,0.12)] active:translate-y-0 active:scale-[.99]"
+    >
+      <div className="flex items-center gap-2.5">
+        <MessageSquarePlus size={15} className="text-emerald-400 transition-transform group-hover:scale-110" />
+        <span>New Thread</span>
+      </div>
+      <span className="font-mono text-[10px] text-emerald-300/50">⌘N</span>
     </button>
-    <button type="button" onClick={onOpenPalette} className="grid h-10 w-9 shrink-0 place-items-center rounded-xl border border-white/[0.07] text-caption text-zinc-600 transition hover:border-emerald-300/25 hover:text-zinc-300" title="Open command palette" aria-label="Open command palette">⌘K</button>
+    <button
+      type="button"
+      onClick={onOpenPalette}
+      className="grid h-10 w-9 shrink-0 place-items-center rounded-xl border border-white/[0.07] text-caption text-zinc-500 transition hover:border-emerald-300/25 hover:text-zinc-200"
+      title="Open command palette (⌘K)"
+      aria-label="Open command palette"
+    >
+      ⌘K
+    </button>
   </div>
+
+  <button
+    type="button"
+    onClick={onOpenWorkflows}
+    className="mb-4 flex w-full items-center justify-between rounded-xl border border-sky-400/25 bg-sky-400/[0.06] px-3 py-2 text-left text-small font-medium text-sky-200 transition duration-200 hover:border-sky-400/40 hover:bg-sky-400/[0.12] hover:text-white"
+  >
+    <div className="flex items-center gap-2.5">
+      <Workflow size={15} className="text-sky-400" />
+      <span>Workflows Studio</span>
+    </div>
+    <span className="rounded-md bg-sky-400/15 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-sky-300">DAG</span>
+  </button>
 
   <div className="relative mb-6">
     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
@@ -429,11 +470,12 @@ export function Sidebar({
     </nav>
   )}
 
-  <div className={`mt-4 border-t border-white/[0.06] pt-3 ${collapsed ? 'flex justify-center' : ''}`}>
-    <button type="button" onClick={onOpenSettings} title="Settings" className={`flex items-center rounded-lg text-zinc-400 transition hover:bg-white/[0.045] ${collapsed ? 'size-9 justify-center' : 'min-h-9 w-full gap-2.5 px-2 py-2 text-left'}`}>
-      <Settings2 size={14} className={`shrink-0 text-zinc-500 ${collapsed ? '' : ''}`} />
-      {collapsed ? <span className="sr-only">Settings</span> : <span className="text-micro">Settings</span>}
-    </button>
+  <div className={`mt-auto border-t border-white/[0.07] pt-3 ${collapsed ? 'flex justify-center' : ''}`}>
+    <AccountMenu
+      userId={userId || (typeof window !== 'undefined' ? localStorage.getItem('pentagon.userId') || 'local-user' : 'local-user')}
+      collapsed={collapsed}
+      onOpenSettings={onOpenSettings ?? (() => {})}
+    />
   </div>
   </aside>
 }

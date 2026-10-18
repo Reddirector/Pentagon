@@ -21,6 +21,7 @@ persistence lives in the ``autonomy_settings`` / ``per_tool_overrides`` /
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
@@ -230,11 +231,70 @@ def _safe_str(value: Any, max_len: int = 60) -> str:
         return "true" if value else "false"
     if isinstance(value, (int, float)):
         return str(value)
-    text = str(value)
+    if isinstance(value, (dict, list, tuple, set)):
+        return "<structured data>"
+    text = re.sub(r"[\x00-\x1f\x7f]", " ", str(value))
+    text = redact_sensitive_text(text)
     # Collapse obvious long noise.
     if len(text) > max_len:
         text = text[:max_len - 3] + "..."
     return text
+
+
+_SECRET_ASSIGNMENT = re.compile(
+    r"(?i)(\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|"
+    r"password|secret|authorization|credential)\b\s*[:=]\s*)"
+    r"(?:bearer\s+)?(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\s,;&]+)"
+)
+_BEARER_SECRET = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}")
+_KNOWN_SECRET_SHAPE = re.compile(
+    r"(?i)\b(?:nvapi-[A-Za-z0-9_-]{16,}|sb_secret_[A-Za-z0-9_-]{12,}|"
+    r"sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{16,}|"
+    r"gh[pousr]_[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{30,}|"
+    r"AKIA[0-9A-Z]{16}|"
+    r"eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b"
+)
+_DATABASE_URL_SECRET = re.compile(
+    r"(?i)\b(postgres(?:ql)?://[^:/\s]+:)[^@\s]+(@)"
+)
+
+
+def _redact_text(value: str) -> str:
+    """Remove common credential forms even when they appear in free text."""
+    value = _SECRET_ASSIGNMENT.sub(r"\1<redacted>", value)
+    value = _BEARER_SECRET.sub("Bearer <redacted>", value)
+    value = _KNOWN_SECRET_SHAPE.sub("<redacted>", value)
+    return _DATABASE_URL_SECRET.sub(r"\1<redacted>\2", value)
+
+
+def redact_sensitive_text(value: str) -> str:
+    """Public wrapper for redacting credential-shaped text before persistence."""
+    return _redact_text(value)
+
+
+def contains_sensitive_text(value: str) -> bool:
+    """Whether text contains a credential form the redactor recognizes."""
+    return redact_sensitive_text(value) != value
+
+
+def redact_sensitive_value(value: Any, *, key: str = "") -> Any:
+    """Redact credential-shaped values recursively for traces and approval UI."""
+    normalized_key = re.sub(r"[^a-z0-9]", "", key.lower())
+    if normalized_key in {
+        "key", "apikey", "token", "accesstoken", "refreshtoken", "password",
+        "secret", "auth", "authorization", "credential", "credentials",
+    }:
+        return "[redacted]"
+    if isinstance(value, str):
+        return redact_sensitive_text(value)
+    if isinstance(value, dict):
+        return {
+            str(child_key): redact_sensitive_value(child, key=str(child_key))
+            for child_key, child in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [redact_sensitive_value(child) for child in value]
+    return value
 
 
 def tier_to_category(tier: str) -> RiskCategory:
@@ -269,7 +329,12 @@ def arguments_summary(
     """
     parts: list[str] = []
     for key, value in args.items():
-        if key in {"api_key", "key", "token", "password", "secret", "auth"}:
+        normalized_key = re.sub(r"[^a-z0-9]", "", str(key).lower())
+        if normalized_key in {
+            "apikey", "key", "token", "accesstoken", "refreshtoken",
+            "password", "secret", "auth", "authorization", "credential",
+            "credentials",
+        }:
             parts.append(f"{key}=<redacted>")
         else:
             parts.append(f"{key}={_safe_str(value)}")

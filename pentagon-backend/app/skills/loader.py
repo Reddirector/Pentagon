@@ -97,6 +97,7 @@ class Skill:
     risk_category: str
     requires_tools: tuple[str, ...]
     source: str  # "public" | "user"
+    owner_id: str | None
     path: Path
 
     def as_dict(self) -> dict[str, object]:
@@ -108,6 +109,7 @@ class Skill:
             "risk_category": self.risk_category,
             "requires_tools": list(self.requires_tools),
             "source": self.source,
+            "owner_id": self.owner_id,
         }
 
 
@@ -146,6 +148,7 @@ def build_manifest(
     triggers: list[str],
     risk_category: str,
     requires_tools: list[str],
+    owner_id: str | None = None,
 ) -> str:
     """Frontmatter for a new skill file — one place that knows the field order."""
     meta: dict[str, Any] = {
@@ -156,6 +159,8 @@ def build_manifest(
     }
     if requires_tools:
         meta["requires_tools"] = [t.strip() for t in requires_tools if t.strip()]
+    if owner_id is not None:
+        meta["owner_id"] = owner_id
     return yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, width=100)
 
 
@@ -177,6 +182,8 @@ def _normalize(
         if str(item).strip()
     )
     raw_risk = str(meta.get("risk_category") or "read").strip()
+    if raw_risk in ("read_only_info", "readonly", "read-only", "info", "informational"):
+        raw_risk = "read"
     if raw_risk not in RISK_CATEGORIES:
         # Not guessable: an unclassified skill is one whose risk nobody can
         # see, so it is refused rather than assumed safe.
@@ -189,6 +196,12 @@ def _normalize(
         for item in (meta.get("requires_tools") or [])
         if str(item).strip()
     )
+    owner_id = meta.get("owner_id") if source == "user" else None
+    if owner_id is not None:
+        if not isinstance(owner_id, str) or not owner_id.strip() or len(owner_id) > 128:
+            raise SkillFormatError(f"{path}: owner_id must be a non-empty string up to 128 characters")
+        if any(ord(char) < 32 or ord(char) == 127 for char in owner_id):
+            raise SkillFormatError(f"{path}: owner_id contains a control character")
     return Skill(
         skill_id=skill_id,
         name=name,
@@ -197,6 +210,7 @@ def _normalize(
         risk_category=raw_risk,
         requires_tools=requires_tools,
         source=source,
+        owner_id=owner_id,
         path=path,
     )
 

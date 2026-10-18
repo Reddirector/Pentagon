@@ -177,6 +177,8 @@ def test_search_documents_reports_an_empty_collection_gently(_docs_collection, m
 def test_read_document_pages_in_order(_docs_collection):
     result = _run(read_document_run, {"filename": "contract.pdf", "offset": 0, "limit": 2})
     assert result.ok is True
+    assert result.data["total_chunks"] == 2
+    assert result.data["has_more"] is False
     assert [chunk["position"] for chunk in result.data["chunks"]] == [0, 1]
     assert all(chunk["filename"] == "contract.pdf" for chunk in result.data["chunks"])
 
@@ -185,3 +187,14 @@ def test_read_document_offset_beyond_the_end_is_a_clean_miss(_docs_collection):
     result = asyncio.run(read_document_run({"filename": "contract.pdf", "offset": 9, "limit": 2}, _ctx()))
     assert result.ok is False
     assert result.error.code == "NOT_FOUND"
+
+
+def test_read_document_supports_page_markers(_docs_collection):
+    _docs_collection["documents"].append("--- Page 2 ---\nContent of page two.")
+    _docs_collection["metadatas"].append({"filename": "contract.pdf", "document_id": "d1"})
+    result = _run(read_document_run, {"filename": "contract.pdf", "page": 2, "limit": 1})
+    assert result.ok is True
+    assert result.data["total_chunks"] == 3
+    assert len(result.data["chunks"]) == 1
+    assert "--- Page 2 ---" in result.data["chunks"][0]["content"]
+

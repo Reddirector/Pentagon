@@ -19,8 +19,8 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 
 from app.agent.llm import call_model
+from app.db import session as db_session
 from app.db.models import ModelCapabilities
-from app.db.session import SessionLocal
 from app.tools.get_current_time import TOOL_SPEC as _TIME_SPEC
 
 _TIME_SCHEMA = {
@@ -104,7 +104,11 @@ def _run_async(coro):
 
 
 def _cache(model_id: str, result: ProbeResult) -> None:
-    with SessionLocal() as db:
+    # Resolved through the session module at call time: a module-level
+    # ``from ... import SessionLocal`` would freeze today's engine binding,
+    # and a caller that re-pointed the session module at a different database
+    # (tests do exactly that) would silently read and write the wrong file.
+    with db_session.SessionLocal() as db:
         row = db.get(ModelCapabilities, model_id)
         if row is None:
             row = ModelCapabilities(model_id=model_id)
@@ -120,7 +124,7 @@ def _cache(model_id: str, result: ProbeResult) -> None:
 
 def cached_capabilities(model_id: str) -> ProbeResult | None:
     """The stored probe result for this model, if it has ever been probed."""
-    with SessionLocal() as db:
+    with db_session.SessionLocal() as db:
         row = db.get(ModelCapabilities, model_id)
         if row is None:
             return None
@@ -141,3 +145,16 @@ def ensure_probed(model: Any, model_id: str, *, refresh: bool = False) -> ProbeR
         if cached is not None:
             return cached
     return probe_and_cache(model, model_id)
+
+
+async def ensure_probed_async(
+    model: Any, model_id: str, *, refresh: bool = False
+) -> ProbeResult:
+    """Async counterpart for the agent loop; never nests ``asyncio.run``."""
+    if not refresh:
+        cached = cached_capabilities(model_id)
+        if cached is not None:
+            return cached
+    result = await _probe_async(model)
+    _cache(model_id, result)
+    return result

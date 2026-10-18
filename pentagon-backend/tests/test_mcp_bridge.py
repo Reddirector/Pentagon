@@ -211,12 +211,12 @@ def test_full_round_trip_against_a_fake_server(tmp_path, monkeypatch):
             "mcp_lab_plain",
             "mcp_lab_sleepy",
         }
-        # tiers: annotations win, unknown stays approval-gated at write
+        # Read-only annotations cannot lower the configured write floor.
         tiers = {
             spec.name: spec.tier
             for spec, _ in mcp_bridge.registered_tools()
         }
-        assert tiers["mcp_lab_echo_text"] == "read"
+        assert tiers["mcp_lab_echo_text"] == "write"
         assert tiers["mcp_lab_wipe"] == "destructive"
         assert tiers["mcp_lab_plain"] == "write"
         # every bridged spec satisfies the registry's own validation
@@ -346,15 +346,33 @@ def test_a_broken_command_is_a_problem_not_an_explosion(monkeypatch):
 
 
 def test_derive_tier_maps_annotations_and_defaults():
-    assert mcp_bridge.derive_tier({"readOnlyHint": True}, "write") == "read"
+    assert mcp_bridge.derive_tier({"readOnlyHint": True}, "write") == "write"
+    assert mcp_bridge.derive_tier({"readOnlyHint": True}, "destructive") == "destructive"
     assert mcp_bridge.derive_tier({"destructiveHint": True}, "read") == "destructive"
     assert mcp_bridge.derive_tier({}, "write") == "write"
     assert mcp_bridge.derive_tier({}, "read") == "read"
-    # readOnlyHint is the only way down: false+non-destructive still gated.
+    # Remote annotations can never lower the configured security floor.
     assert (
         mcp_bridge.derive_tier({"readOnlyHint": False, "destructiveHint": False}, "write")
         == "write"
     )
+
+
+def test_mcp_child_environment_drops_unrelated_secrets():
+    env = mcp_bridge.child_environment(
+        {"GITHUB_TOKEN": "explicitly-configured"},
+        {
+            "PATH": "/usr/bin",
+            "HOME": "/tmp/mcp",
+            "DATABASE_URL": "must-not-inherit",
+            "NVIDIA_API_KEY": "must-not-inherit",
+        },
+    )
+    assert env == {
+        "PATH": "/usr/bin",
+        "HOME": "/tmp/mcp",
+        "GITHUB_TOKEN": "explicitly-configured",
+    }
 
 
 def test_safe_tool_name_is_registry_legal():

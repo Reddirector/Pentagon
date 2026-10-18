@@ -12,7 +12,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig
@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import Conversation, Message, User, utc_now
+from app.db.models import Conversation, GeneratedFile, Message, User, utc_now
 from app.db.session import SessionLocal, get_db
 from app.config import settings
 from app.schemas import (
@@ -33,7 +33,8 @@ from app.schemas import (
     SwitchConversationModelResponse,
 )
 from app.security.keys import resolve_api_key_or_http
-from app.services import command_runner, capability
+from app.services import command_runner
+from app.security.capability_auth import require_capability
 from app.services.permissions import normalize_level
 from app.services.chat_graph import (
     build_chat_graph,
@@ -41,7 +42,7 @@ from app.services.chat_graph import (
     public_sources,
 )
 from app.services.checkpointer import open_checkpointer
-from app.services.permission_gate import permission_gate
+from app.services.file_storage import get_storage
 from app.services.autonomy import (
     CATEGORY_DESCRIPTIONS,
     CATEGORY_LABELS,
@@ -55,29 +56,11 @@ from app.services.autonomy import (
 )
 
 
-async def require_capability(
-    x_pentagon_capability: str | None = Header(default=None),
-) -> None:
-    """Gate the authorising surface: knowing a user_id is not enough.
-
-    The same bar as /api/commands: approving a tool call, reading what is
-    waiting for a decision, or changing autonomy settings all need the app's
-    secret, not just a user id that leaks in config files and screenshots.
-    """
-    if not capability.verify(x_pentagon_capability):
-        raise HTTPException(
-            status_code=401,
-            detail=(
-                "This request needs the Pentagon capability token. It proves "
-                "the call came from the app rather than from someone who merely "
-                "knows a user id."
-            ),
-        )
 from app.services.conversation_context import build_model_history, summarize_for_model_switch
 from app.services.document_store import purge_conversation_collection
 from app.services.image_inputs import parse_chat_submission
 from app.services.nvidia_client import NvidiaApiError, list_models_for_user
-from app.services.rate_limiter import LANE_INTERACTIVE, RateLimitTimeout, rate_limiter
+from app.services.rate_limiter import RateLimitTimeout
 from app.services.speech import stream_speech
 
 
@@ -150,16 +133,6 @@ async def chat(
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     payload, image, video = await parse_chat_submission(request)
-    # Admission control: chat shares the NVIDIA request budget with background
-    # indexing, and this lane always outranks it (RAG §0 rule 3). A wait that
-    # outlasts the budget is an honest 429, never a hang.
-    try:
-        await rate_limiter.acquire(LANE_INTERACTIVE)
-    except RateLimitTimeout:
-        raise HTTPException(
-            status_code=429,
-            detail="The model is handling a lot of requests right now. Please try again shortly.",
-        ) from None
     message_content = payload.message.strip()
     if not message_content and image is not None:
         message_content = "Describe what's in this image."
@@ -423,25 +396,44 @@ def delete_conversation(
         # Scoped by owner, so another user's thread cannot be deleted by id.
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
-    # Messages cascade through the ORM relationship; documents cascade through
-    # the foreign key, since SQLite runs with PRAGMA foreign_keys=ON.
-    db.delete(conversation)
-    db.commit()
-    # Neither of those lives in the database. Uploaded images sit in a folder
-    # named after the conversation and the document text sits in a Chroma
-    # collection keyed by a hash of its id, so a deleted thread used to leave
-    # both behind -- on disk, indefinitely, after the UI promised they were
-    # gone. Purging happens after the commit, so a failure here leaves an
-    # orphan file rather than a thread row pointing at nothing.
-    _purge_conversation_uploads(conversation_id)
     try:
+        generated_files = list(
+            db.scalars(
+                select(GeneratedFile).where(
+                    GeneratedFile.conversation_id == conversation_id
+                )
+            ).all()
+        )
+        for generated_file in generated_files:
+            asyncio.run(get_storage().delete(generated_file.storage_key))
+        _purge_conversation_uploads(conversation_id)
         purge_conversation_collection(conversation_id)
+        _purge_conversation_checkpoint_state(conversation_id)
     except Exception as exc:
-        logger.warning(
-            "Vector cleanup failed for a deleted conversation (%s); the chunks remain on disk",
+        db.rollback()
+        logger.error(
+            "Conversation deletion cleanup failed conversation=%s error=%s",
+            conversation_id,
             type(exc).__name__,
         )
-    _purge_conversation_checkpoint_state(conversation_id)
+        raise HTTPException(
+            status_code=503,
+            detail="Conversation data could not be fully removed. Retry the deletion.",
+        ) from None
+
+    # Commit only after all external stores have been cleared. Each cleanup is
+    # idempotent, so a database failure can be retried while the SQL metadata
+    # still identifies any object that needs another delete attempt.
+    db.delete(conversation)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Conversation row deletion commit failed conversation=%s", conversation_id)
+        raise HTTPException(
+            status_code=503,
+            detail="Conversation data could not be fully removed. Retry the deletion.",
+        ) from None
     logger.info("conversation deleted conversation=%s", conversation_id)
     return Response(status_code=204)
 
@@ -457,16 +449,14 @@ def _purge_conversation_uploads(conversation_id: str) -> None:
     # conversation_id is a uuid4 hex string from the request path; anything
     # with a separator or parent reference is not one of ours to remove.
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", conversation_id):
-        logger.warning("Refusing to purge uploads for an unexpected id %r", conversation_id)
+        raise RuntimeError("conversation id is not safe for upload cleanup")
+    if not directory.exists() and not directory.is_symlink():
         return
-    try:
-        resolved = directory.resolve()
-        root = Path(settings.image_upload_directory).resolve()
-    except OSError:
-        return
+    resolved = directory.resolve()
+    root = Path(settings.image_upload_directory).resolve()
     if resolved != root / conversation_id or root not in resolved.parents:
-        return
-    shutil.rmtree(resolved, ignore_errors=True)
+        raise RuntimeError("conversation upload path escaped its root")
+    shutil.rmtree(resolved, ignore_errors=False)
 
 
 def _purge_conversation_checkpoint_state(conversation_id: str) -> None:
@@ -482,24 +472,23 @@ def _purge_conversation_checkpoint_state(conversation_id: str) -> None:
     interrupt payload lives), so a deleted conversation cannot be resumed from
     a stale interrupt snapshot.
 
-    Purging is best-effort: if the checkpointer is unavailable or misconfigured,
-    the delete still succeeds -- we just stop trying to clean up the leftover
-    state rather than surfacing it to the client.
+    The operation is idempotent. Errors propagate so the relational row stays
+    available and the user can retry deletion instead of receiving a false
+    success while an interrupt snapshot remains.
     """
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", conversation_id):
         logger.warning("Refusing to purge checkpoint state for an unexpected id %r", conversation_id)
         return
-    try:
-        async def _purge() -> None:
-            async with open_checkpointer() as saver:
-                await saver.adelete_thread(conversation_id)
+    async def _purge() -> None:
+        async with open_checkpointer() as saver:
+            # SQLite checkpointer DDL is normally initialized by first graph
+            # use. A conversation may be deleted before any chat has run, so
+            # create the empty checkpoint tables before the idempotent purge.
+            if settings.database_url.startswith("sqlite:"):
+                await saver.setup()
+            await saver.adelete_thread(conversation_id)
 
-        asyncio.run(_purge())
-    except Exception as exc:
-        logger.warning(
-            "Checkpoint cleanup failed for a deleted conversation (%s); the interrupt state may remain",
-            type(exc).__name__,
-        )
+    asyncio.run(_purge())
 
 
 @router.patch(
@@ -602,6 +591,45 @@ def get_conversation(
         # else's thread.
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
+    gen_files = list(
+        db.scalars(
+            select(GeneratedFile)
+            .where(
+                GeneratedFile.conversation_id == conversation_id,
+                GeneratedFile.user_id == user_id,
+            )
+            .order_by(GeneratedFile.created_at.asc())
+        )
+    )
+    serialized_files = [
+        {
+            "id": f.id,
+            "filename": f.filename,
+            "format": f.format,
+            "media_type": f.media_type,
+            "size": f.size_bytes,
+            "conversation_id": f.conversation_id,
+            "created_at": f.created_at.isoformat() if f.created_at else None,
+            "storage_path": f.storage_path,
+        }
+        for f in gen_files
+    ]
+    for msg in conversation.messages:
+        msg.generatedFiles = []
+
+    if gen_files and conversation.messages:
+        assistant_msgs = [m for m in conversation.messages if m.role == "assistant"]
+        if assistant_msgs:
+            for file_dict in serialized_files:
+                f_time = file_dict.get("created_at")
+                best_msg = assistant_msgs[-1]
+                if f_time:
+                    for m in assistant_msgs:
+                        if m.created_at and m.created_at.isoformat() >= f_time:
+                            best_msg = m
+                            break
+                best_msg.generatedFiles.append(file_dict)
+
     return {
         "id": conversation.id,
         "title": conversation.title,
@@ -609,6 +637,7 @@ def get_conversation(
         "active_model": conversation.active_model,
         "summary_at_switch": conversation.summary_at_switch,
         "messages": conversation.messages,
+        "generated_files": serialized_files,
     }
 
 
@@ -668,7 +697,11 @@ async def _persist_resumed_turn(
     values = final.values or {}
     answer = values.get("answer") or ""
     if not answer:
-        return
+        gen = values.get("generated_file")
+        if isinstance(gen, dict) and gen.get("filename"):
+            answer = f"I have generated your document **{gen.get('filename')}**. You can preview it in the chat below or download it."
+        else:
+            return
     with SessionLocal() as db:
         conversation = db.get(Conversation, conversation_id)
         if conversation is None:
@@ -850,7 +883,8 @@ async def _stream_turn(
             upstream_stalled = True
             break
         except Exception as exc:
-            status_code = _status_code(exc)
+            internal_rate_limit = isinstance(exc, RateLimitTimeout)
+            status_code = 429 if internal_rate_limit else _status_code(exc)
             # A 429 retry re-invokes the whole graph from the same input, so it
             # would replay every command the failed attempt already executed --
             # silently, at Trusted. ``command_runs`` in the final state is the
@@ -864,6 +898,7 @@ async def _stream_turn(
             already_executed = bool(final_state.get("command_runs"))
             if (
                 status_code == 429
+                and not internal_rate_limit
                 and not emitted_token
                 and not already_executed
                 and attempt < _MAX_RATE_LIMIT_RETRIES
@@ -876,7 +911,11 @@ async def _stream_turn(
                 await asyncio.sleep(min(2**attempt, 15))
                 continue
 
-            if status_code == 429:
+            if internal_rate_limit:
+                error_message = (
+                    "Pentagon's model request budget is busy. Try again shortly."
+                )
+            elif status_code == 429:
                 error_message = (
                     "NVIDIA is rate-limiting this request, and this turn already "
                     "ran commands, so it cannot be retried automatically -- the "
@@ -944,6 +983,16 @@ async def _stream_turn(
         )
         yield _sse("error", {"message": _STALL_MESSAGE})
         return
+
+    if not answer and final_state.get("generated_file"):
+        gen = final_state.get("generated_file")
+        if isinstance(gen, dict) and gen.get("filename"):
+            answer = (
+                f"I have compiled your document **{gen.get('filename')}** ({gen.get('format', '').upper()}). "
+                "You can preview it directly in the viewer below or download it."
+            )
+            emitted_token = True
+            yield _sse("token", {"content": answer})
 
     if answer and not emitted_token:
         # Some compatible endpoints return one complete message even when
@@ -1035,10 +1084,9 @@ async def _stream_turn(
     command_runs = final_state.get("command_runs", [])
     if command_runs:
         logger.info(
-            "conversation used %d command(s) conversation=%s commands=%s",
+            "conversation used %d command(s) conversation=%s",
             len(command_runs),
             conversation_id,
-            [run.get("command") for run in command_runs],
         )
     yield _sse(
         "metadata",
@@ -1066,6 +1114,13 @@ async def _stream_turn(
         # endpoint will resume the graph and re-enter this route's streaming.
         return
 
+    generated = final_state.get("generated_file")
+    if isinstance(generated, dict) and generated:
+        # The record, not the bytes: the client renders the card and fetches
+        # /api/files/{id}/preview or /download on demand.
+        yield _sse("generated_file", generated)
+        yield _sse("file", generated)
+
     yield _sse("done", {"conversation_id": conversation_id})
 
 
@@ -1075,6 +1130,8 @@ def _sse(event: str, payload: dict[str, Any]) -> str:
 
 
 def _status_code(error: Exception) -> int | None:
+    if isinstance(error, RateLimitTimeout):
+        return 429
     status_code = getattr(error, "status_code", None)
     if isinstance(status_code, int):
         return status_code
@@ -1177,11 +1234,23 @@ async def approve_approval(
         "configurable": {"thread_id": approval_id},
     }
 
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == approval_id,
+            Conversation.user_id == payload.user_id,
+        )
+    )
+    model = (conversation.active_model if conversation else "") or ""
+    try:
+        api_key = resolve_api_key_or_http(db, payload.user_id)
+    except Exception:
+        api_key = ""
+
     async with open_checkpointer() as saver:
         from app.services.chat_graph import build_chat_graph
 
         graph = build_chat_graph(
-            "", "", user_id=payload.user_id, checkpointer=saver
+            api_key, model, user_id=payload.user_id, checkpointer=saver
         )
         try:
             snap = await graph.aget_state(config)
@@ -1227,11 +1296,23 @@ async def deny_approval(
         "configurable": {"thread_id": approval_id},
     }
 
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == approval_id,
+            Conversation.user_id == payload.user_id,
+        )
+    )
+    model = (conversation.active_model if conversation else "") or ""
+    try:
+        api_key = resolve_api_key_or_http(db, payload.user_id)
+    except Exception:
+        api_key = ""
+
     async with open_checkpointer() as saver:
         from app.services.chat_graph import build_chat_graph
 
         graph = build_chat_graph(
-            "", "", user_id=payload.user_id, checkpointer=saver
+            api_key, model, user_id=payload.user_id, checkpointer=saver
         )
         try:
             snap = await graph.aget_state(config)
@@ -1425,9 +1506,6 @@ async def resume_chat(
         settings.command_tool_enabled
         and user is not None
         and user.command_tool_enabled
-    )
-    permission_level = normalize_level(
-        user.permission_level if user is not None else None
     )
 
     config: RunnableConfig = {

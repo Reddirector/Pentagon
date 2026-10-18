@@ -8,9 +8,7 @@ Everything runs on your machine: keys are encrypted at rest, documents are
 chunked and embedded locally or against your own key, and nothing is sent to a
 hosted service you did not choose.
 
-> This repository replaces an earlier Convex-backed prototype, preserved on the
-> `convex-prototype` tag. The backend is FastAPI + LangGraph; Convex is not used
-> anywhere. Supabase remains optional.
+> The backend is FastAPI + LangGraph; Supabase remains optional.
 
 ---
 

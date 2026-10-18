@@ -27,7 +27,7 @@ from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -42,9 +42,11 @@ from app.services.conversation_context import build_model_history
 from app.services.image_inputs import parse_chat_submission
 from app.services.nvidia_client import make_chat_model
 from app.services.permissions import normalize_level
-from app.services.rate_limiter import LANE_INTERACTIVE, RateLimitTimeout, rate_limiter
+from app.security.input_validation import reject_control_characters
+from app.services.rate_limiter import RateLimitTimeout
 
 logger = logging.getLogger(__name__)
+_RATE_LIMITED = object()
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -90,6 +92,10 @@ def _agent_registry() -> Any:
 
 
 def _register(session: _TurnSession) -> _TurnSession:
+    now = time.monotonic()
+    expired = [k for k, s in _SESSIONS.items() if now - s.started > _AGENT_MAX_SECONDS]
+    for k in expired:
+        _SESSIONS.pop(k, None)
     if len(_SESSIONS) >= _MAX_LIVE_SESSIONS:
         oldest = min(_SESSIONS.values(), key=lambda entry: entry.started)
         _SESSIONS.pop(oldest.turn_id, None)
@@ -120,6 +126,11 @@ class AnswerRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     turn_id: str = Field(min_length=1, max_length=64)
     answer: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("answer")
+    @classmethod
+    def check_answer_controls(cls, value: str) -> str:
+        return reject_control_characters(value)
 
 
 @router.post("/decisions", status_code=202)
@@ -187,16 +198,6 @@ async def agent_chat(request: Request, db: Session = Depends(get_db)) -> Streami
     message_content = payload.message.strip()
     if not message_content:
         raise HTTPException(status_code=422, detail="message is required.")
-
-    # Same admission control as /api/chat: interactive turns outrank index
-    # jobs for the shared request budget (RAG §0 rule 3).
-    try:
-        await rate_limiter.acquire(LANE_INTERACTIVE)
-    except RateLimitTimeout:
-        raise HTTPException(
-            status_code=429,
-            detail="The model is handling a lot of requests right now. Please try again shortly.",
-        ) from None
 
     api_key = resolve_api_key_or_http(db, payload.user_id)
 
@@ -307,13 +308,23 @@ async def _stream_agent(
                 _agent_registry(),
                 model,
                 turn,
-                budget=Budget(max_seconds=_AGENT_MAX_SECONDS),
+                budget=Budget(
+                    max_llm_calls=8,
+                    max_tool_calls=12,
+                    max_seconds=300.0,
+                ),
                 approval_gate=session.approval,
                 pause_gate=session.ask,
             ):
                 await queue.put(event)
         except asyncio.CancelledError:
             raise
+        except RateLimitTimeout:
+            logger.info(
+                "agent turn stopped: provider request budget is busy turn=%s",
+                turn.turn_id,
+            )
+            await queue.put(_RATE_LIMITED)
         except Exception:
             logger.exception("agent turn crashed turn=%s", turn.turn_id)
             await queue.put(RuntimeError("the agent turn failed"))
@@ -364,6 +375,12 @@ async def _stream_agent(
                 yield _SSE_KEEPALIVE
                 continue
             if item is finished:
+                break
+            if item is _RATE_LIMITED:
+                yield _sse(
+                    "error",
+                    {"message": "Pentagon's model request budget is busy. Try again shortly."},
+                )
                 break
             if isinstance(item, BaseException):
                 yield _sse(

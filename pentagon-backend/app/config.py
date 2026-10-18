@@ -36,6 +36,16 @@ class Settings(BaseSettings):
     speech_models_directory: str = "./speech_models"
     # Where create_artifact writes deliverables, one subfolder per turn.
     artifact_directory: str = "./artifacts"
+    # Where document_generation stores generated files when no Supabase
+    # Storage bucket is configured (the local-first default). Nothing is ever
+    # served straight out of this directory: bytes only leave the machine
+    # through GET /api/files/{id}/download, after the caller's ownership of the
+    # conversation has been checked.
+    generated_file_directory: str = "./generated_files"
+    # Supabase Storage bucket for generated files. Used only when both
+    # SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set; the bucket is private
+    # and is created on first use if it does not exist.
+    generated_file_bucket: str = "pentagon-files"
     faster_whisper_model: str = "base"
     local_tts_voice: str = "en_US-lessac-medium"
     nvidia_riva_asr_url: str | None = None
@@ -56,12 +66,10 @@ class Settings(BaseSettings):
     # vectors from two different models are never mixed in one collection.
     # Defaults to the local model so indexing works with no key at all.
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    # NVIDIA's free tier is roughly 40 requests/minute, shared across
-    # everything. Chat is admitted from this bucket; background indexing may
-    # spend at most ``graph_index_rate_fraction`` of it, so an index job can
-    # never spend a person's answer. Chat waiters are served before indexing
-    # waiters whenever a token frees up.
-    rate_limit_per_minute: int = 40
+    # NVIDIA's shared cap is approximately 40 requests/minute. The app defaults
+    # to 30 for headroom and meters every provider call; indexing gets only its
+    # configured fraction, while interactive calls keep priority.
+    rate_limit_per_minute: int = 30
     graph_index_rate_fraction: float = 0.5
     # How long a caller waits for a permit before the request is refused with
     # a 429 instead of hanging behind a queue.
@@ -93,7 +101,8 @@ class Settings(BaseSettings):
     # Ceiling on what a single command can hand back to the model, so one
     # runaway `cat` of a huge log cannot blow out the conversation context.
     command_max_output_bytes: int = 20_000
-    # Where commands run. Empty means the backend's own working directory.
+    # Dedicated directory mounted into the isolated shell container. Empty
+    # disables shell execution; the backend source tree is never mounted by default.
     command_working_directory: str = ""
     # How many commands the model may request in a single turn. Each one is a
     # round trip through the model, so this bounds a runaway loop.

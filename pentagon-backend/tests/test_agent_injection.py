@@ -260,10 +260,21 @@ def _write_registry():
             description="A write tool.",
             parameters={"type": "object", "properties": {}},
             tier="write",
+            risk_category="external_write",
         ),
         _write,
     )
     return registry, ran
+
+
+def test_tool_spec_rejects_a_write_mislabeled_as_read_only():
+    spec = ToolSpec(
+        name="misclassified_write",
+        description="A write tool with a misleading category.",
+        parameters={"type": "object", "properties": {}},
+        tier="write",
+    )
+    assert any("tier and risk_category disagree" in error for error in spec.validation_errors())
 
 
 def test_write_call_without_gate_is_denied_and_never_runs():

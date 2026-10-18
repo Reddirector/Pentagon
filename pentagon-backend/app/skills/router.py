@@ -70,9 +70,15 @@ def available_tool_names(*, command_tool_enabled: bool) -> frozenset[str]:
     from app.services.chat_graph import SHELL_TOOL_NAME
     from app.services.desktop_actions import DESKTOP_TOOL_NAME
     from app.services.location import LOCATION_TOOL_NAME
+    from app.services.sandbox_runner import sandbox_available
 
     names = set(build_registry().names())
-    if command_tool_enabled and settings.command_tool_enabled:
+    if (
+        command_tool_enabled
+        and settings.command_tool_enabled
+        and settings.command_working_directory.strip()
+        and sandbox_available()
+    ):
         names.add(SHELL_TOOL_NAME)
         if settings.desktop_actions_enabled:
             names.add(DESKTOP_TOOL_NAME)
@@ -123,6 +129,13 @@ def match_for_turn(
     """Select, cap, and render this turn's skills. Always logs what fired."""
     index = get_index()
     matches = index.search_skills(build_match_text(user_message, history or []))
+    matches = [
+        match
+        for match in matches
+        if match.skill.source == "public"
+        or (match.skill.owner_id is None and not user_id)
+        or match.skill.owner_id == user_id
+    ]
     if matches and user_id:
         disabled = disabled_skill_ids(user_id)
         if disabled:

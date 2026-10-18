@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from app.security.input_validation import reject_control_characters
+
 
 class ApiKeyRequest(BaseModel):
     api_key: SecretStr = Field(json_schema_extra={"writeOnly": True})
@@ -83,6 +85,11 @@ class ChatRequest(BaseModel):
     transcription_duration_ms: float | None = Field(default=None, ge=0)
     transcription_provider: str | None = Field(default=None, max_length=100)
 
+    @field_validator("message")
+    @classmethod
+    def check_message_controls(cls, value: str) -> str:
+        return reject_control_characters(value)
+
     @field_validator("user_id")
     @classmethod
     def trim_user_id(cls, value: str) -> str:
@@ -103,6 +110,11 @@ class ChatRequest(BaseModel):
 class SynthesizeSpeechRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20_000)
     voice: str | None = Field(default=None, max_length=100)
+
+    @field_validator("text")
+    @classmethod
+    def check_text_controls(cls, value: str) -> str:
+        return reject_control_characters(value)
 
 
 class MessageResponse(BaseModel):
@@ -145,6 +157,7 @@ class MessageResponse(BaseModel):
     # layout. The column stays for the deletion sweep in routes.chat, which
     # needs to know a message had an upload.
     created_at: datetime
+    generatedFiles: list[dict[str, Any]] | None = None
 
 
 class ConversationSummary(BaseModel):
@@ -160,9 +173,19 @@ class CreateConversationRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     title: str | None = Field(default=None, max_length=120)
 
+    @field_validator("title")
+    @classmethod
+    def check_title_controls(cls, value: str | None) -> str | None:
+        return reject_control_characters(value) if value is not None else value
+
 
 class RenameConversationRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
+
+    @field_validator("title")
+    @classmethod
+    def check_title_controls(cls, value: str) -> str:
+        return reject_control_characters(value)
 
 
 class DocumentResponse(BaseModel):
@@ -175,3 +198,5 @@ class DocumentResponse(BaseModel):
 class ConversationResponse(ConversationSummary):
     summary_at_switch: str | None = None
     messages: list[MessageResponse]
+    generated_files: list[dict[str, Any]] | None = None
+

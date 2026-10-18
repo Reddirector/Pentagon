@@ -13,5 +13,23 @@ export default defineConfig(({ mode }) => {
         '/api': { target: backendUrl, changeOrigin: true, timeout: 0, proxyTimeout: 0 },
       },
     },
+    build: {
+      chunkSizeWarningLimit: 600,
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            if (id.includes('node_modules/katex') || id.includes('rehype-katex') || id.includes('remark-math')) {
+              return 'katex'
+            }
+            if (id.includes('node_modules/react-markdown') || id.includes('remark-gfm')) {
+              return 'markdown'
+            }
+            if (id.includes('node_modules/@supabase')) {
+              return 'supabase'
+            }
+          },
+        },
+      },
+    },
   }
 })

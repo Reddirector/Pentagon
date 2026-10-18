@@ -194,3 +194,68 @@ def test_undecryptable_key_reports_a_clean_error_instead_of_crashing(monkeypatch
             db.query(Conversation).filter(Conversation.user_id == user_id).delete(synchronize_session=False)
             db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
             db.commit()
+
+
+def test_extract_text_supports_all_document_kinds():
+    from app.routes.documents import _extract_text
+    import openpyxl
+    from pptx import Presentation
+    from docx import Document as WordDocument
+
+    # 1. Plain text & code
+    txt_bytes = b"def test_fn():\n    return 42"
+    assert "def test_fn():" in _extract_text(txt_bytes, ".py")
+    assert "def test_fn():" in _extract_text(txt_bytes, ".txt")
+
+    # 2. JSON & YAML
+    json_bytes = b'{"status": "ok", "count": 100}'
+    assert '"status": "ok"' in _extract_text(json_bytes, ".json")
+
+    # 3. HTML
+    html_bytes = b"<html><head><title>Test</title></head><body><h1>Heading</h1><p>Paragraph content</p></body></html>"
+    extracted_html = _extract_text(html_bytes, ".html")
+    assert "Paragraph content" in extracted_html
+    assert "<h1>" not in extracted_html
+
+    # 4. CSV & TSV
+    csv_bytes = b"Name,Age,Role\nAlice,30,Engineer\nBob,25,Designer"
+    extracted_csv = _extract_text(csv_bytes, ".csv")
+    assert "Alice | 30 | Engineer" in extracted_csv
+
+    tsv_bytes = b"Name\tAge\tRole\nCarol\t28\tManager"
+    extracted_tsv = _extract_text(tsv_bytes, ".tsv")
+    assert "Carol | 28 | Manager" in extracted_tsv
+
+    # 5. Excel (.xlsx)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Q4 Data"
+    ws.append(["Metric", "Value"])
+    ws.append(["ARR", 1200000])
+    wb_buf = io.BytesIO()
+    wb.save(wb_buf)
+    extracted_xlsx = _extract_text(wb_buf.getvalue(), ".xlsx")
+    assert "Sheet: Q4 Data" in extracted_xlsx
+    assert "Metric | Value" in extracted_xlsx
+    assert "ARR | 1200000" in extracted_xlsx
+
+    # 6. PowerPoint (.pptx)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[0])
+    slide.shapes.title.text = "Strategic Roadmap"
+    prs_buf = io.BytesIO()
+    prs.save(prs_buf)
+    extracted_pptx = _extract_text(prs_buf.getvalue(), ".pptx")
+    assert "Slide 1" in extracted_pptx
+    assert "Strategic Roadmap" in extracted_pptx
+
+    # 7. Word (.docx)
+    doc = WordDocument()
+    doc.add_heading("Project Overview", level=1)
+    doc.add_paragraph("This is docx paragraph content.")
+    doc_buf = io.BytesIO()
+    doc.save(doc_buf)
+    extracted_docx = _extract_text(doc_buf.getvalue(), ".docx")
+    assert "Project Overview" in extracted_docx
+    assert "This is docx paragraph content." in extracted_docx
+

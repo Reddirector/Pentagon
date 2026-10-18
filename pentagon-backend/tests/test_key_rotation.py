@@ -19,6 +19,7 @@ from app.config import settings
 from app.db.models import ApiKey, Conversation, User
 from app.db.session import SessionLocal, initialize_database
 from app.main import app
+from app.services.nvidia_client import KeyValidationResult, clear_models_cache
 
 
 @pytest.fixture
@@ -90,3 +91,48 @@ def test_missing_key_still_reports_a_plain_404(monkeypatch):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "No API key is stored for this user."
+
+
+def test_replacing_the_nvidia_key_masks_it_and_refreshes_the_model_cache(monkeypatch):
+    """A rotated key is the next key used, with no raw-key response field."""
+    from app.services import nvidia_client
+
+    initialize_database()
+    user_id = f"key-replacement-{uuid4()}"
+    seen_keys: list[str] = []
+
+    async def valid_key(_raw_key: str) -> KeyValidationResult:
+        return KeyValidationResult(valid=True, model_count=1, sample_models=("model",))
+
+    async def fake_models(api_key: str):
+        seen_keys.append(api_key)
+        return [{"id": f"model-for-{api_key[-4:]}"}]
+
+    monkeypatch.setattr("app.routes.keys.validate_api_key", valid_key)
+    monkeypatch.setattr(nvidia_client, "_request_models", fake_models)
+    clear_models_cache(user_id)
+
+    with TestClient(app) as client:
+        first = client.post(
+            "/api/keys",
+            json={"user_id": user_id, "api_key": "nvapi-old-fake-key-1111"},
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["masked_key"] == "nvapi-...1111"
+        assert "nvapi-old-fake-key-1111" not in first.text
+        old_models = client.get(f"/api/models?user_id={user_id}")
+        assert old_models.status_code == 200
+        assert old_models.json()["models"][0]["id"] == "model-for-1111"
+
+        second = client.post(
+            "/api/keys",
+            json={"user_id": user_id, "api_key": "nvapi-new-fake-key-2222"},
+        )
+        assert second.status_code == 200, second.text
+        assert second.json()["masked_key"] == "nvapi-...2222"
+        assert "nvapi-new-fake-key-2222" not in second.text
+        new_models = client.get(f"/api/models?user_id={user_id}")
+        assert new_models.status_code == 200
+        assert new_models.json()["models"][0]["id"] == "model-for-2222"
+
+    assert seen_keys == ["nvapi-old-fake-key-1111", "nvapi-new-fake-key-2222"]

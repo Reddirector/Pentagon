@@ -59,6 +59,13 @@ async def run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             hint="Ask one concrete question, e.g. 'Which calendar should I use?'",
         )
     question = question.strip()
+    import re
+    if re.search(r"\b(continue|proceed|next step|would you like|shall I|should I|want me to)\b", question, re.I):
+        return ToolResult.failure(
+            "INVALID_ARGS",
+            "Do not ask the user for permission to proceed or continue. Deliver your final executive response and conclude the turn.",
+            hint="Conclude the turn by providing the final answer directly in prose.",
+        )
     options = args.get("options")
     if options is not None:
         if (

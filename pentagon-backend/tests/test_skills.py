@@ -10,6 +10,7 @@ what did not.
 from __future__ import annotations
 
 import logging
+import hashlib
 from uuid import uuid4
 
 import pytest
@@ -63,6 +64,7 @@ def write_skill(
     triggers: list[str] | None = None,
     risk_category: str = "read",
     requires_tools: list[str] | None = None,
+    owner_id: str | None = None,
     body: str = "Do the thing carefully, step by step. Check your work.",
     raw: str | None = None,
 ):
@@ -81,6 +83,8 @@ def write_skill(
     ]
     if requires_tools:
         lines.append(f"requires_tools: [{', '.join(requires_tools)}]")
+    if owner_id is not None:
+        lines.append(f"owner_id: {owner_id}")
     lines += ["---", "", body, ""]
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
@@ -99,6 +103,16 @@ def test_shipped_skills_are_real_and_well_formed() -> None:
         "code-generation",
         "data-analysis",
         "citation-and-sourcing",
+        "mcp-builder",
+        "skill-creator",
+        "webapp-testing",
+        "canvas-design",
+        "frontend-design",
+        "doc-coauthoring",
+        "docx",
+        "pdf",
+        "pptx",
+        "xlsx",
     }
     for skill in skills:
         assert 0 < len(skill.description) <= DESCRIPTION_MAX_CHARS, skill.skill_id
@@ -239,7 +253,7 @@ def test_turn_cap_is_three(root) -> None:
 
 
 def test_disabled_skill_is_excluded_from_matching(root, user_id) -> None:
-    write_skill(root, "alpha", triggers=["apples"], body="ALPHA BODY")
+    write_skill(root, "alpha", owner_id=user_id, triggers=["apples"], body="ALPHA BODY")
     assert match_for_turn(user_id=user_id, user_message="apples", history=()).fired == (
         "alpha",
     ), "sanity: it matches while enabled"
@@ -314,7 +328,7 @@ def test_known_tools_produce_no_note(root) -> None:
 # --- API --------------------------------------------------------------------
 def test_list_includes_public_and_user_skills(client: TestClient, user_id: str, root) -> None:
     write_skill(root, "theirs", source="public", triggers=["theirs"], description="Shipped skill.")
-    write_skill(root, "mine", source="user", triggers=["mine"], description="User skill.")
+    write_skill(root, "mine", source="user", owner_id=user_id, triggers=["mine"], description="User skill.")
     rows = {row["id"]: row for row in client.get(f"/api/skills?user_id={user_id}").json()}
     assert rows["theirs"]["source"] == "public"
     assert rows["mine"]["source"] == "user"
@@ -337,21 +351,23 @@ def test_create_skill_writes_a_valid_manifest(client: TestClient, user_id: str, 
     )
     assert response.status_code == 201, response.text
     created = response.json()
-    assert created["id"] == "my-fishing-notes"
+    expected_id = f"u{hashlib.sha256(user_id.encode()).hexdigest()[:12]}-my-fishing-notes"
+    assert created["id"] == expected_id
     assert created["enabled"] is True
     assert created["source"] == "user"
 
-    path = root / "user" / "my-fishing-notes" / "SKILL.md"
+    path = root / "user" / expected_id / "SKILL.md"
     assert path.is_file()
     meta, body = parse_frontmatter(path.read_text(encoding="utf-8"), str(path))
     assert meta["name"] == "My Fishing Notes"
     assert meta["triggers"] == ["fishing", "catch log"]
     assert meta["risk_category"] == "read"
     assert meta["requires_tools"] == ["recall"]
+    assert meta["owner_id"] == user_id
     assert "Record the lake" in body
     # And it matches right away — no restart, no re-scan call.
     result = match_for_turn(user_id=user_id, user_message="fishing log please", history=())
-    assert result.fired == ("my-fishing-notes",)
+    assert result.fired == (expected_id,)
 
 
 @pytest.mark.parametrize(
@@ -382,6 +398,32 @@ def test_create_skill_validation(
     assert list((root / "user").glob("*/SKILL.md")) == [], "a rejected skill writes nothing"
 
 
+@pytest.mark.parametrize(
+    "payload_overrides",
+    [
+        {"name": "bad\x00name"},
+        {"description": "bad\x85description"},
+        {"triggers": ["bad\x00trigger"]},
+        {"body": "safe first line\x00unsafe"},
+    ],
+)
+def test_create_skill_rejects_control_characters(
+    client: TestClient, user_id: str, root, payload_overrides
+) -> None:
+    payload = {
+        "user_id": user_id,
+        "name": "Valid name",
+        "description": "A perfectly reasonable description of the skill's job.",
+        "triggers": ["triggerword"],
+        "risk_category": "read",
+        "body": "A real instruction body.",
+    }
+    payload.update(payload_overrides)
+    response = client.post("/api/skills", json=payload)
+    assert response.status_code == 422
+    assert list((root / "user").glob("*/SKILL.md")) == []
+
+
 def test_duplicate_skill_name_conflicts(client: TestClient, user_id: str, root) -> None:
     payload = {
         "user_id": user_id,
@@ -400,7 +442,7 @@ def test_duplicate_skill_name_conflicts(client: TestClient, user_id: str, root) 
 def test_toggle_round_trip_and_public_delete_refusal(
     client: TestClient, user_id: str, root
 ) -> None:
-    write_skill(root, "mine", triggers=["mine"], description="Mine only.", body="B")
+    write_skill(root, "mine", owner_id=user_id, triggers=["mine"], description="Mine only.", body="B")
     write_skill(root, "theirs", source="public", triggers=["theirs"], body="B")
 
     disabled = client.patch(
@@ -439,12 +481,15 @@ def test_foreign_user_cannot_see_or_flip_a_toggle(
     with SessionLocal() as db:
         db.add(User(id=intruder))
         db.commit()
-    write_skill(root, "mine", triggers=["mine"], body="B")
+    write_skill(root, "mine", owner_id=user_id, triggers=["mine"], body="B")
     client.patch("/api/skills/mine", json={"user_id": user_id, "enabled": False})
 
-    # The skill list itself is per-user state: intruder sees their own (on).
+    # Private skill files are scoped to their declared owner.
     rows = {row["id"]: row for row in client.get(f"/api/skills?user_id={intruder}").json()}
-    assert rows["mine"]["enabled"] is True, "one user's toggle must not apply to another"
+    assert "mine" not in rows
+    assert client.patch(
+        "/api/skills/mine", json={"user_id": intruder, "enabled": False}
+    ).status_code == 404
     # And a toggle for an unknown user is refused.
     assert (
         client.patch(
@@ -452,3 +497,50 @@ def test_foreign_user_cannot_see_or_flip_a_toggle(
         ).status_code
         == 404
     )
+
+
+def test_user_skill_cannot_be_listed_or_deleted_by_another_user(
+    client: TestClient, user_id: str, root
+) -> None:
+    stranger = f"stranger-{uuid4()}"
+    with SessionLocal() as db:
+        db.add(User(id=stranger))
+        db.commit()
+    response = client.post(
+        "/api/skills",
+        json={
+            "user_id": user_id,
+            "name": "Private Notes",
+            "description": "Private notes for one app user only.",
+            "triggers": ["privatenotes"],
+            "body": "Keep this instruction with its owner.",
+        },
+    )
+    skill_id = response.json()["id"]
+
+    stranger_rows = client.get(f"/api/skills?user_id={stranger}").json()
+    assert skill_id not in {row["id"] for row in stranger_rows}
+    assert client.delete(f"/api/skills/{skill_id}?user_id={stranger}").status_code == 404
+    assert (root / "user" / skill_id / "SKILL.md").exists()
+
+
+def test_unowned_user_skill_is_not_shared_between_users(
+    client: TestClient, user_id: str, root
+) -> None:
+    """Legacy user-folder files without ownership metadata fail closed."""
+    write_skill(
+        root,
+        "legacy-unowned",
+        source="user",
+        owner_id=None,
+        triggers=["legacysharedtrigger"],
+        body="Do not expose this skill across users.",
+    )
+    rows = client.get(f"/api/skills?user_id={user_id}").json()
+    assert "legacy-unowned" not in {row["id"] for row in rows}
+    matched = match_for_turn(
+        user_id=user_id,
+        user_message="legacysharedtrigger",
+        history=(),
+    )
+    assert "legacy-unowned" not in matched.fired

@@ -125,10 +125,10 @@ def test_delete_conversation_purges_the_indexed_documents(
     assert purged == [conversation_id]
 
 
-def test_delete_conversation_succeeds_when_vector_cleanup_fails(
+def test_delete_conversation_keeps_metadata_when_vector_cleanup_fails(
     client: TestClient, monkeypatch
 ) -> None:
-    """A Chroma failure must not turn a successful delete into a 500."""
+    """A failed external purge must not be reported as a completed delete."""
     user_id, conversation_id = _seed_conversation_with_image()
 
     def explode(_conversation_id: str) -> None:
@@ -138,9 +138,9 @@ def test_delete_conversation_succeeds_when_vector_cleanup_fails(
 
     response = client.delete(f"/api/conversations/{conversation_id}?user_id={user_id}")
 
-    assert response.status_code == 204
+    assert response.status_code == 503
     with SessionLocal() as db:
-        assert db.get(Conversation, conversation_id) is None
+        assert db.get(Conversation, conversation_id) is not None
 
 
 def test_purge_conversation_collection_is_a_no_op_for_an_unknown_thread(

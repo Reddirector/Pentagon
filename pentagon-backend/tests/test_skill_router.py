@@ -56,7 +56,15 @@ def fake_model(monkeypatch):
     _PROMPTS.clear()
 
 
-def write_skill(root, skill_id: str, *, triggers: list[str], body: str, requires: list[str] | None = None):
+def write_skill(
+    root,
+    skill_id: str,
+    *,
+    triggers: list[str],
+    body: str,
+    requires: list[str] | None = None,
+    owner_id: str = "skill-user",
+):
     directory = root / "user" / skill_id
     directory.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -65,6 +73,7 @@ def write_skill(root, skill_id: str, *, triggers: list[str], body: str, requires
         f"description: A crafted skill about {'/'.join(triggers)} topics for matcher tests.",
         f"triggers: [{', '.join(triggers)}]",
         "risk_category: read",
+        f"owner_id: {owner_id}",
     ]
     if requires:
         lines.append(f"requires_tools: [{', '.join(requires)}]")
@@ -164,8 +173,8 @@ def test_disabled_skill_stops_firing_for_the_next_turn(root, monkeypatch) -> Non
     from cryptography.fernet import Fernet
     from pydantic import SecretStr
 
-    write_skill(root, "alpha", triggers=["penguinparty"], body="ALPHA BODY MARKER")
     user_id = f"skill-toggle-{uuid4()}"
+    write_skill(root, "alpha", triggers=["penguinparty"], body="ALPHA BODY MARKER", owner_id=user_id)
     # The route decrypts the stored key during the toggle's own request, so
     # the secret has to stay swapped for the whole test, not just the insert.
     monkeypatch.setattr(
@@ -214,8 +223,8 @@ def test_skill_body_never_reaches_stored_thread_history(root, monkeypatch) -> No
     from cryptography.fernet import Fernet
     from pydantic import SecretStr
 
-    write_skill(root, "alpha", triggers=["penguinparty"], body="ALPHA PERSIST MARKER")
     user_id = f"skill-persist-{uuid4()}"
+    write_skill(root, "alpha", triggers=["penguinparty"], body="ALPHA PERSIST MARKER", owner_id=user_id)
     monkeypatch.setattr(
         settings, "key_encryption_secret", SecretStr(Fernet.generate_key().decode())
     )

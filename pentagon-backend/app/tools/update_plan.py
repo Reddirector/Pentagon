@@ -67,7 +67,9 @@ async def run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
                 " step marked in_progress."
             ),
         )
-    shared = getattr(ctx, "shared", None)
-    if isinstance(shared, dict):
-        shared["plan"] = steps
-    return ToolResult.success({"plan": steps, "summary": plan_summary(steps)})
+    summary = plan_summary(steps)
+    all_done = all(s.get("status") == "done" for s in steps)
+    msg = f"Plan updated: {summary}."
+    if all_done:
+        msg += " All planned steps are complete. Present your comprehensive executive briefing in chat now with comparison/metric tables, callouts, and key takeaways. Do not call update_plan or other tools again."
+    return ToolResult.success({"plan": steps, "summary": summary, "message": msg})

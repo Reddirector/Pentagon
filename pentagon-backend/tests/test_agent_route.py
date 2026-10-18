@@ -258,6 +258,7 @@ def test_ask_user_is_announced_live_and_the_stream_keeps_pinging(monkeypatch):
 
 def test_a_decision_for_a_foreign_or_unknown_turn_is_a_404():
     session = agent._register(agent._TurnSession(turn_id="t-owned", user_id=USER))
+    session.approval.begin(["approved-call"])
 
     with pytest.raises(HTTPException) as unknown:
         asyncio.run(

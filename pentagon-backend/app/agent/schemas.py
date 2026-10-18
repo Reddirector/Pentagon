@@ -107,11 +107,18 @@ class ToolSpec:
             problems.append("parameters must be a JSON schema object with type=object")
         if self.tier not in _VALID_TIERS:
             problems.append(f"tier {self.tier!r} is not one of {sorted(_VALID_TIERS)}")
+        # The executor uses ``tier == read`` to decide whether an idempotent
+        # failure may be retried, while the agent loop uses risk_category to
+        # decide whether approval is required. A mismatch can therefore turn
+        # a write into an unattended call or make a read eligible for unsafe
+        # retries. Require both controls to agree at registration time.
+        if (self.tier == "read") != (self.risk_category == "read_only_info"):
+            problems.append(
+                "tier and risk_category disagree: read tools must use "
+                "read_only_info, and non-read tools must use a write-capable category"
+            )
         if self.timeout_s <= 0:
             problems.append("timeout_s must be positive")
-
-            if self.risk_category not in VALID_CATEGORIES:
-                problems.append(f"risk_category {self.risk_category!r} is not one of {sorted(VALID_CATEGORIES)} (tool {self.name!r} needs exactly one)")
         if self.risk_category not in VALID_CATEGORIES:
             problems.append(
                 f"risk_category {self.risk_category!r} is not one of "
@@ -182,29 +189,53 @@ class ApprovalGate:
     def __init__(self) -> None:
         self._future: asyncio.Future | None = None
         self._early: list[str] | None = None
+        self._pending_ids: frozenset[str] | None = None
+        self._answered = False
+        self._decision: list[str] | None = None
+        self._waiting = False
+
+    def begin(self, call_ids: list[str]) -> None:
+        """Open a specific approval batch before its SSE event is emitted."""
+        self._future = None
+        self._early = None
+        self._pending_ids = frozenset(call_ids)
+        self._answered = False
+        self._decision = None
+        self._waiting = False
 
     async def wait_for_decision(self, timeout: float) -> list[str] | None:
         # A route reacting to the approval_required event may answer before
         # the loop has resumed into this wait; accept that answer instead of
         # losing it to the race.
-        if self._early is not None:
-            ids, self._early = self._early, None
-            return ids
+        if self._answered:
+            return self._decision
         loop = asyncio.get_running_loop()
         self._future = loop.create_future()
+        self._waiting = True
         try:
-            return await asyncio.wait_for(self._future, timeout)
+            self._decision = await asyncio.wait_for(self._future, timeout)
+            self._answered = True
+            return self._decision
         except asyncio.TimeoutError:
+            self._answered = True
+            self._decision = None
             return None
+        finally:
+            self._waiting = False
+            self._future = None
 
     def provide(self, approved_ids: list[str]) -> bool:
-        if self._future is None:
-            self._early = list(approved_ids)
-            return True
-        if not self._future.done():
-            self._future.set_result(list(approved_ids))
-            return True
-        return False
+        requested = self._pending_ids
+        if requested is None or self._answered or not set(approved_ids).issubset(requested):
+            return False
+        decision = list(dict.fromkeys(approved_ids))
+        self._decision = decision
+        self._answered = True
+        if self._waiting and self._future is not None and not self._future.done():
+            self._future.set_result(decision)
+        else:
+            self._early = decision
+        return True
 
 
 class ResultMeta(BaseModel):
@@ -269,9 +300,9 @@ class Budget:
     answer call with tools disabled -- it never ends a turn silently.
     """
 
-    max_llm_calls: int = 8
-    max_tool_calls: int = 16
-    max_seconds: float = 120.0
+    max_llm_calls: int = 25
+    max_tool_calls: int = 50
+    max_seconds: float = 300.0
     llm_calls: int = 0
     tool_calls: int = 0
     started_at: float = field(default_factory=time.monotonic)

@@ -14,13 +14,15 @@ foreign id gets a 404, never a confirmation that the skill exists.
 from __future__ import annotations
 
 import re
+import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.db.models import SkillSetting, User
 from app.db.session import get_db
+from app.security.input_validation import reject_control_characters
 from app.skills.loader import (
     DESCRIPTION_MAX_CHARS,
     RISK_CATEGORIES,
@@ -52,10 +54,25 @@ class SkillCreate(BaseModel):
     requires_tools: list[str] = Field(default_factory=list, max_length=16)
     body: str = Field(min_length=1, max_length=_MAX_BODY_CHARS)
 
+    @field_validator("user_id", "name", "description", "body")
+    @classmethod
+    def check_text_controls(cls, value: str) -> str:
+        return reject_control_characters(value)
+
+    @field_validator("triggers", "requires_tools")
+    @classmethod
+    def check_list_item_controls(cls, values: list[str]) -> list[str]:
+        return [reject_control_characters(value) for value in values]
+
 
 class SkillToggle(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     enabled: bool
+
+    @field_validator("user_id")
+    @classmethod
+    def check_user_id_controls(cls, value: str) -> str:
+        return reject_control_characters(value)
 
 
 def _skill_payload(skill, *, enabled: bool) -> dict[str, object]:
@@ -72,6 +89,7 @@ def list_skills(
     return [
         _skill_payload(skill, enabled=skill.skill_id not in disabled)
         for skill in index.all()
+        if skill.source == "public" or skill.owner_id == user_id
     ]
 
 
@@ -81,7 +99,8 @@ def set_skill_enabled(
     payload: SkillToggle,
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    if get_index().get(skill_id) is None:
+    skill = get_index().get(skill_id)
+    if skill is None or (skill.source == "user" and skill.owner_id != payload.user_id):
         raise HTTPException(status_code=404, detail="Skill not found.")
     if db.get(User, payload.user_id) is None:
         raise HTTPException(status_code=404, detail="User not found.")
@@ -129,14 +148,16 @@ def create_skill(payload: SkillCreate, db: Session = Depends(get_db)) -> dict[st
     if not body:
         raise HTTPException(status_code=422, detail="The instruction body cannot be empty.")
 
-    skill_id = slugify(payload.name)
-    if not skill_id:
+    skill_slug = slugify(payload.name)
+    if not skill_slug:
         raise HTTPException(
             status_code=422,
             detail="The skill name must contain letters or digits to name a folder.",
         )
 
     index = get_index()
+    owner_prefix = hashlib.sha256(payload.user_id.encode("utf-8")).hexdigest()[:12]
+    skill_id = f"u{owner_prefix}-{skill_slug}"
     if index.get(skill_id) is not None:
         raise HTTPException(
             status_code=409,
@@ -153,6 +174,7 @@ def create_skill(payload: SkillCreate, db: Session = Depends(get_db)) -> dict[st
         triggers=triggers,
         risk_category=payload.risk_category,
         requires_tools=payload.requires_tools,
+        owner_id=payload.user_id,
     )
     skill_dir = index.root / "user" / skill_dir_name(skill_id)
     skill_dir.mkdir(parents=True, exist_ok=True)
@@ -202,6 +224,8 @@ def delete_skill(
         )
     if db.get(User, user_id) is None:
         raise HTTPException(status_code=404, detail="User not found.")
+    if skill.owner_id != user_id:
+        raise HTTPException(status_code=404, detail="Skill not found.")
     try:
         skill.path.unlink()
         skill.path.parent.rmdir()

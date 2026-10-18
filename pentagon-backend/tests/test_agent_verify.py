@@ -322,10 +322,10 @@ def test_an_unprobed_model_keeps_the_native_path():
 
 
 def test_probe_failure_falls_back_to_native(monkeypatch):
-    def _explode(model, model_id):
+    async def _explode(model, model_id):
         raise RuntimeError("probe endpoint down")
 
-    monkeypatch.setattr(capabilities, "ensure_probed", _explode)
+    monkeypatch.setattr(capabilities, "ensure_probed_async", _explode)
     registry = build_registry()
     model = MockLLM([ScriptedTurn(text="Still answering.")])
     events = asyncio.run(_collect(registry, model, _request(model_id="whatever")))

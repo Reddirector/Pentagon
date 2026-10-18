@@ -14,6 +14,9 @@ export interface Preferences {
   density: Density
   textSize: TextSize
   workspaceName: string
+  userName: string
+  userEmail: string
+  userAvatarColor: string
   defaultModel: string
   /** Pixels, or 0 to follow the responsive breakpoint widths. */
   sidebarWidth: number
@@ -46,12 +49,24 @@ export const SIDEBAR_DEFAULT_WIDTH = 270
 /** Fixed width of the collapsed icon rail. Not user-adjustable. */
 export const SIDEBAR_RAIL_WIDTH = 64
 
+export const AVATAR_THEMES: Record<string, { bg: string; text: string; ring: string; border: string }> = {
+  emerald: { bg: 'bg-emerald-500/20', text: 'text-emerald-300', ring: 'ring-emerald-400/40', border: 'border-emerald-500/30' },
+  violet: { bg: 'bg-violet-500/20', text: 'text-violet-300', ring: 'ring-violet-400/40', border: 'border-violet-500/30' },
+  sky: { bg: 'bg-sky-500/20', text: 'text-sky-300', ring: 'ring-sky-400/40', border: 'border-sky-500/30' },
+  amber: { bg: 'bg-amber-500/20', text: 'text-amber-300', ring: 'ring-amber-400/40', border: 'border-amber-500/30' },
+  rose: { bg: 'bg-rose-500/20', text: 'text-rose-300', ring: 'ring-rose-400/40', border: 'border-rose-500/30' },
+  indigo: { bg: 'bg-indigo-500/20', text: 'text-indigo-300', ring: 'ring-indigo-400/40', border: 'border-indigo-500/30' },
+}
+
 const DEFAULTS: Preferences = {
   appearance: 'pitch',
   contrast: 'standard',
   density: 'default',
   textSize: 'default',
   workspaceName: 'Personal workspace',
+  userName: 'Aditya',
+  userEmail: 'aditya@pentagon.ai',
+  userAvatarColor: 'emerald',
   defaultModel: '',
   sidebarWidth: 0,
   sidebarCollapsed: false,
@@ -91,6 +106,15 @@ function read(): Preferences {
       workspaceName: typeof parsed.workspaceName === 'string' && parsed.workspaceName.trim()
         ? parsed.workspaceName.trim().slice(0, 40)
         : DEFAULTS.workspaceName,
+      userName: typeof parsed.userName === 'string' && parsed.userName.trim()
+        ? parsed.userName.trim().slice(0, 40)
+        : DEFAULTS.userName,
+      userEmail: typeof parsed.userEmail === 'string' && parsed.userEmail.trim()
+        ? parsed.userEmail.trim().slice(0, 80)
+        : DEFAULTS.userEmail,
+      userAvatarColor: typeof parsed.userAvatarColor === 'string' && parsed.userAvatarColor.trim()
+        ? parsed.userAvatarColor.trim()
+        : DEFAULTS.userAvatarColor,
       defaultModel: typeof parsed.defaultModel === 'string' ? parsed.defaultModel : '',
       sidebarWidth: clampSidebarWidth(parsed.sidebarWidth),
       sidebarCollapsed: parsed.sidebarCollapsed === true,
@@ -126,12 +150,17 @@ function applyToDocument() {
 function commit(next: Partial<Preferences>) {
   const merged = { ...current, ...next }
   if (merged.workspaceName.trim()) merged.workspaceName = merged.workspaceName.trim().slice(0, 40)
+  if (merged.userName.trim()) merged.userName = merged.userName.trim().slice(0, 40)
+  if (merged.userEmail.trim()) merged.userEmail = merged.userEmail.trim().slice(0, 80)
   if (
     merged.appearance === current.appearance &&
     merged.contrast === current.contrast &&
     merged.density === current.density &&
     merged.textSize === current.textSize &&
     merged.workspaceName === current.workspaceName &&
+    merged.userName === current.userName &&
+    merged.userEmail === current.userEmail &&
+    merged.userAvatarColor === current.userAvatarColor &&
     merged.defaultModel === current.defaultModel &&
     merged.sidebarWidth === current.sidebarWidth &&
     merged.sidebarCollapsed === current.sidebarCollapsed
@@ -171,6 +200,18 @@ export function setTextSize(textSize: TextSize) {
 
 export function setWorkspaceName(workspaceName: string) {
   commit({ workspaceName })
+}
+
+export function setUserName(userName: string) {
+  commit({ userName })
+}
+
+export function setUserEmail(userEmail: string) {
+  commit({ userEmail })
+}
+
+export function setUserAvatarColor(userAvatarColor: string) {
+  commit({ userAvatarColor })
 }
 
 export function setDefaultModel(defaultModel: string) {

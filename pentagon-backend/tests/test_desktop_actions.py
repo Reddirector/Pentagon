@@ -687,6 +687,15 @@ class _ScriptedModel:
 
 def _bound_tool_names(monkeypatch, *, enabled, command_tool_enabled=True):
     model = _ScriptedModel([AIMessage(content="no tools here")])
+    from pathlib import Path
+
+    from app.config import settings
+    from app.services import sandbox_runner
+
+    # These tests exercise registration/dispatch. The actual container runner
+    # is covered separately and remains unavailable when Docker is absent.
+    monkeypatch.setattr(settings, "command_working_directory", str(Path(__file__).resolve().parent))
+    monkeypatch.setattr(sandbox_runner, "sandbox_available", lambda: True)
     monkeypatch.setattr(chat_graph, "make_chat_model", lambda *_a, **_k: model)
     monkeypatch.setattr(chat_graph, "has_documents", lambda _conversation_id: False)
     graph = chat_graph.build_chat_graph(
@@ -737,7 +746,8 @@ def test_desktop_tool_needs_the_user_command_flag_too(monkeypatch):
     bound = _bound_tool_names(
         monkeypatch, enabled=True, command_tool_enabled=False
     )
-    assert bound == []
+    assert "desktop_action" not in bound and "run_shell_command" not in bound
+    assert set(bound).issubset({"document_generation", "image_generation"})
 
 
 def test_desktop_tool_call_is_dispatched_not_dropped(monkeypatch):

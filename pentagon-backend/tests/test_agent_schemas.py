@@ -1,10 +1,11 @@
 """The result envelope and the budget: the shapes the whole agent layer shares."""
 
 import json
+import asyncio
 
 import pytest
 
-from app.agent.schemas import Budget, BudgetExceeded, ToolResult, ToolSpec
+from app.agent.schemas import ApprovalGate, Budget, BudgetExceeded, ToolResult, ToolSpec
 
 
 def test_success_envelope_has_the_documented_shape():
@@ -74,3 +75,19 @@ def test_spec_accepts_a_well_formed_tool():
         tier="read",
     )
     assert spec.validation_errors() == []
+
+
+def test_approval_gate_accepts_only_one_answer_for_the_open_batch():
+    gate = ApprovalGate()
+    gate.begin(["call-a", "call-b"])
+    assert gate.provide(["call-a"])
+    assert not gate.provide(["call-b"])
+    assert not gate.provide(["unrelated-call"])
+    assert asyncio.run(gate.wait_for_decision(timeout=0.01)) == ["call-a"]
+
+
+def test_approval_gate_rejects_a_late_answer_after_timeout():
+    gate = ApprovalGate()
+    gate.begin(["call-a"])
+    assert asyncio.run(gate.wait_for_decision(timeout=0.001)) is None
+    assert not gate.provide(["call-a"])

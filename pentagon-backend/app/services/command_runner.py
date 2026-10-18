@@ -36,11 +36,10 @@ adjacent guarantees this codebase makes:
 3. **No privilege escalation.** ``sudo``/``doas``/``su``/``setpriv`` etc. are
    refused entirely, so even an approved command cannot elevate.
 
-The rest is honest: an approved ``cat ~/.ssh/id_rsa`` can still leak a key to
-the model, an approved ``python3 -c ...`` can still run arbitrary code, and an
-approved network tool can still call home. If a real sandbox is required, this
-is the place to add an exec-python/cgroup/container boundary; until then the
-shell path stays as-is.
+Approved commands run in the same hardened Docker boundary as Python: no
+network, read-only container root, dropped capabilities, non-root uid, and one
+explicitly configured workspace mount. If Docker or the workspace is missing,
+the command is not run.
 """
 
 from __future__ import annotations
@@ -54,6 +53,8 @@ from pathlib import Path
 from typing import Any
 
 from app.config import settings
+from app.services import sandbox_runner
+from app.services.autonomy import contains_sensitive_text, redact_sensitive_text
 from app.services.permissions import (
     DEFAULT_PERMISSION_LEVEL,
     is_destructive_command,
@@ -247,7 +248,7 @@ class CommandResult:
 
     def as_payload(self) -> dict[str, Any]:
         return {
-            "command": self.command,
+            "command": redact_sensitive_text(self.command),
             "exit_code": self.exit_code,
             "stdout": self.stdout,
             "stderr": self.stderr,
@@ -362,7 +363,7 @@ class CommandRegistry:
             await asyncio.wait_for(request.event.wait(), timeout=timeout)
         except (TimeoutError, asyncio.TimeoutError):
             request.resolve(False)
-            logger.info("command request timed out and was denied: %s", request.command)
+            logger.info("command request timed out and was denied request=%s", request.request_id)
             return False
         finally:
             self.discard(request.request_id)
@@ -548,6 +549,26 @@ async def run_command(
     import time
     import uuid
 
+    if contains_sensitive_text(command):
+        return CommandResult(
+            command=redact_sensitive_text(command),
+            exit_code=None,
+            stdout="",
+            stderr="This command contains credential-shaped text, so it was not run.",
+            duration_ms=0.0,
+            auto_approved=False,
+        )
+
+    if not settings.command_tool_enabled or not sandbox_runner.sandbox_available():
+        return CommandResult(
+            command=command,
+            exit_code=None,
+            stdout="",
+            stderr="The isolated shell is unavailable; this command was not run.",
+            duration_ms=0.0,
+            auto_approved=False,
+        )
+
     if gate_decision:
         return await _execute(command, auto_approved=True)
 
@@ -570,7 +591,7 @@ async def run_command(
             created_at=time.time(),
         )
         REGISTRY.submit(pending)
-        logger.info("command awaiting approval: %s (%s)", command, explanation)
+        logger.info("command awaiting approval request=%s", pending.request_id)
         approved = await REGISTRY.wait(pending, settings.command_approval_timeout_seconds)
         if not approved:
             return CommandResult(
@@ -587,79 +608,51 @@ async def run_command(
 
 
 async def _execute(command: str, *, auto_approved: bool) -> CommandResult:
-    import os
     import time
 
     timeout = settings.command_timeout_seconds
     limit = settings.command_max_output_bytes
     started = time.perf_counter()
-
-    # Defense-in-depth: strip the server's own secrets from the environment the
-    # command inherits, even though the read-only classifier already blocks the
-    # obvious dump commands. A future allowlist change must not silently reopen
-    # an exfiltration path through `env`, `printenv`, or a substituted `$VAR`.
-    safe_env = {k: v for k, v in os.environ.items() if not _is_sensitive_env(k)}
-
-    # Normalize the working directory once, so a bad or relative
-    # ``command_working_directory`` cannot quietly point the command somewhere
-    # else. When a root is configured, the resolved cwd must be inside it.
-    cwd: str | None = None
-    root: Path | None = None
-    if settings.command_working_directory:
-        try:
-            root = Path(settings.command_working_directory).resolve()
-        except OSError:
-            root = None
-        if root is not None:
-            try:
-                cwd_path = root
-                cwd = str(cwd_path)
-            except OSError:
-                cwd = None
-
-    try:
-        process = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            env=safe_env,
-        )
-    except (OSError, ValueError) as exc:
+    if not settings.command_working_directory.strip():
         return CommandResult(
             command=command,
             exit_code=None,
             stdout="",
-            stderr=f"Could not start the command: {exc}",
+            stderr="No isolated shell workspace is configured; this command was not run.",
+            duration_ms=0.0,
+            auto_approved=auto_approved,
+        )
+    root = Path(settings.command_working_directory).expanduser().resolve()
+    try:
+        outcome = await sandbox_runner.run_shell(
+            command,
+            workspace=root,
+            timeout_s=timeout,
+        )
+    except sandbox_runner.SandboxUnavailable:
+        return CommandResult(
+            command=command,
+            exit_code=None,
+            stdout="",
+            stderr="The isolated shell could not start; this command was not run.",
             duration_ms=round((time.perf_counter() - started) * 1000, 2),
             auto_approved=auto_approved,
         )
-
-    try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-        timed_out = False
-    except (TimeoutError, asyncio.TimeoutError):
-        # Kill the whole process group: a shell that spawned children would
-        # otherwise leave them running after the timeout.
-        _terminate(process)
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
-        except (TimeoutError, asyncio.TimeoutError):
-            stdout, stderr = b"", b""
-        timed_out = True
-
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
-    out, out_truncated = _decode_and_cap(stdout, limit)
-    err, err_truncated = _decode_and_cap(stderr, limit)
+    out = outcome.stdout[:limit]
+    err = outcome.stderr[:limit]
+    if outcome.docker_error:
+        out = ""
+        err = "The isolated shell could not start; this command was not run."
     return CommandResult(
         command=command,
-        exit_code=process.returncode,
+        exit_code=outcome.exit_code,
         stdout=out,
-        stderr=err if timed_out else err,
-        duration_ms=duration_ms,
-        timed_out=timed_out,
+        stderr=err,
+        duration_ms=outcome.duration_ms or duration_ms,
+        timed_out=outcome.timed_out,
         auto_approved=auto_approved,
-        truncated=out_truncated or err_truncated,
+        truncated=outcome.stdout_truncated or outcome.stderr_truncated,
     )
 
 
@@ -735,5 +728,3 @@ SHELL_TOOL_SCHEMA = {
 # by command_runner.classify(), but the tool as opposed to the graph tool is
 # local_shell because it reaches the user's shell.
 SHELL_TOOL_SCHEMA["_risk_category"] = "local_shell"
-
-

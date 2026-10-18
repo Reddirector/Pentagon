@@ -21,14 +21,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.models import User
 from app.db.session import get_db
-from app.services import capability, command_runner
+from app.services import command_runner
+from app.security.capability_auth import require_capability
 from app.services.permissions import (
     MAX_PERMISSION_LEVEL,
     MIN_PERMISSION_LEVEL,
@@ -36,31 +37,11 @@ from app.services.permissions import (
     levels_as_list,
     normalize_level,
 )
+from app.services import sandbox_runner
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/commands", tags=["commands"])
-
-
-async def require_capability(
-    x_pentagon_capability: str | None = Header(default=None),
-) -> None:
-    """Every route on this router needs the app's secret, not just a user_id.
-
-    Knowing a ``user_id`` is not enough to approve a command, read what is
-    waiting for a decision, or supply a location on the user's behalf. The
-    token is issued by the desktop app at first run and kept in a file only the
-    user can read.
-    """
-    if not capability.verify(x_pentagon_capability):
-        raise HTTPException(
-            status_code=401,
-            detail=(
-                "This request needs the Pentagon capability token. It proves "
-                "the call came from the app rather than from someone who merely "
-                "knows a user id."
-            ),
-        )
 
 
 class CommandSettings(BaseModel):
@@ -131,7 +112,11 @@ def read_settings(
         # A stored True cannot override a server that has the tool switched off,
         # so `available` is the single thing the client needs to know.
         "enabled": bool(user is not None and user.command_tool_enabled),
-        "available": settings.command_tool_enabled,
+        "available": bool(
+            settings.command_tool_enabled
+            and sandbox_runner.sandbox_available()
+            and settings.command_working_directory.strip()
+        ),
         "approval_timeout_seconds": settings.command_approval_timeout_seconds,
         "desktop_available": settings.desktop_actions_enabled,
         "location_available": settings.location_enabled,
@@ -147,10 +132,14 @@ def update_settings(
     user_id: str = Query(min_length=1, max_length=128),
     db: Session = Depends(get_db),
 ) -> dict:
-    if not settings.command_tool_enabled:
+    if (
+        not settings.command_tool_enabled
+        or not sandbox_runner.sandbox_available()
+        or not settings.command_working_directory.strip()
+    ):
         raise HTTPException(
             status_code=403,
-            detail="The command tool is disabled on this server.",
+            detail="The command tool is disabled or its isolated workspace is unavailable.",
         )
     user = db.get(User, user_id)
     if user is None:

@@ -256,4 +256,5 @@ def test_image_and_retrieval_branches_merge_into_one_response(chat_setup, monkey
     assert metadata["sources_used"]["documents"][0]["filename"] == "reference.txt"
     prompt = chat_setup["fake_model"].messages[-1].content
     assert "The reference object is a red square." in prompt
-    assert "[Image description: A small red square is visible.]" in prompt
+    assert "Image description is untrusted source material" in prompt
+    assert "A small red square is visible." in prompt

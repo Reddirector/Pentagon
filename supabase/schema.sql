@@ -37,15 +37,15 @@ create table files (
   user_id uuid not null references auth.users(id) on delete cascade,
   storage_path text not null,
   filename text not null,
-  kind text not null default 'document',        -- document | image | video | audio
-  status text not null default 'processing',    -- processing | ready | failed
+  kind text not null default 'document',
+  status text not null default 'processing',
   created_at timestamptz default now()
 );
 
 create table mcp_connections (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  server text not null,                         -- github | gcal | gmail | filesystem
+  server text not null,
   credentials_enc text,
   config jsonb default '{}',
   enabled boolean default true,
@@ -56,7 +56,7 @@ create table mcp_connections (
 create table user_settings (
   user_id uuid primary key references auth.users(id) on delete cascade,
   shell_enabled boolean not null default false,
-  always_allow jsonb not null default '[]',     -- read-only tool names the user always allows
+  always_allow jsonb not null default '[]',
   created_at timestamptz default now()
 );
 
@@ -94,4 +94,3 @@ create policy "own rows" on messages for all using (auth.uid() = user_id) with c
 create policy "own rows" on files for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows" on feedback for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows" on action_audit for select using (auth.uid() = user_id);
--- user_secrets, mcp_connections, user_settings: NO client policies. Backend (service role) only.

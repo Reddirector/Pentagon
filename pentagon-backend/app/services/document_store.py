@@ -147,7 +147,8 @@ async def store_chunks(
         vectors = await embed_texts(chunks, provider, None, "passage")
 
     if collection is None:
-        collection = _client().get_or_create_collection(
+        collection = await asyncio.to_thread(
+            _client().get_or_create_collection,
             name=name,
             metadata={"hnsw:space": "cosine", "embedding_provider": provider},
             embedding_function=None,

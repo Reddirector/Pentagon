@@ -21,7 +21,7 @@ from typing import Any
 
 from app.db.models import IndexJob
 from app.rag2.jobs.queue import RUNNING, JobQueue, default_queue
-from app.services.rate_limiter import LANE_BACKGROUND, RateLimitTimeout, rate_limiter
+from app.services.rate_limiter import LANE_BACKGROUND, RateLimitTimeout, provider_lane
 
 logger = logging.getLogger(__name__)
 
@@ -108,21 +108,18 @@ async def run_once(queue: JobQueue | None = None) -> bool:
         queue.fail(job.id, f"No worker is registered for job kind {job.kind!r}.")
         return True
 
-    # Background lane: indexing waits its turn behind chat (RAG §0 rule 3).
-    # The job was already claimed, so a timeout re-queues it instead of
-    # freezing it in `running` forever.
+    context = JobContext(job=job, queue=queue)
     try:
-        await rate_limiter.acquire(LANE_BACKGROUND)
+        # Each actual NVIDIA request inside the job consumes a background
+        # permit; local-only work consumes none.
+        with provider_lane(LANE_BACKGROUND):
+            result = handler(context)
+            if inspect.isawaitable(result):
+                await result
     except RateLimitTimeout:
         queue.requeue(job.id)
         logger.info("Index job %s re-queued: the request budget is busy", job.kind)
         return False
-
-    context = JobContext(job=job, queue=queue)
-    try:
-        result = handler(context)
-        if inspect.isawaitable(result):
-            await result
     except Exception as exc:
         logger.warning("Index job %s failed (%s)", job.kind, type(exc).__name__)
         queue.fail(job.id, str(exc) or type(exc).__name__)

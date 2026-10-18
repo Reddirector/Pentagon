@@ -112,3 +112,49 @@ def test_failed_web_search_does_not_fail_chat(monkeypatch):
     assert result["answer"] == "mock response"
     assert result["execution_trace"]["web_search"]["status"] == "failed"
     assert result["execution_trace"]["generate_response"]["status"] == "ran"
+
+
+def test_every_user_query_triggers_web_search_by_default(monkeypatch):
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(chat_graph, "has_documents", lambda _conversation_id: False)
+
+    searched_queries = []
+
+    async def tracking_search(query: str):
+        searched_queries.append(query)
+        return [{"title": "Latest Trends", "url": "https://example.com/trends", "content": "Trends 2026 data."}]
+
+    monkeypatch.setattr(chat_graph, "search_web", tracking_search)
+    graph = chat_graph.build_chat_graph(
+        "unused-test-key", "test-model", user_id="test-user", use_web_search=None
+    )
+    result = asyncio.run(
+        graph.ainvoke(
+            _state("Can you please tell me about cutting-edge agentic workflows in pdf format?", None)
+        )
+    )
+
+    assert result["answer"] == "mock response"
+    assert result["execution_trace"]["web_search"]["status"] == "ran"
+    assert len(searched_queries) == 1
+    # Check that conversational fluff and pdf directive were stripped cleanly
+    assert searched_queries[0] == "cutting-edge agentic workflows"
+    assert len(result["web_results"]) == 1
+    assert "Trends 2026 data" in result["augmented_prompt"]
+
+
+def test_trivial_greeting_skips_web_search(monkeypatch):
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(chat_graph, "has_documents", lambda _conversation_id: False)
+
+    async def unexpected_search(_query):
+        raise AssertionError("web search should not run for bare greeting")
+
+    monkeypatch.setattr(chat_graph, "search_web", unexpected_search)
+    graph = chat_graph.build_chat_graph(
+        "unused-test-key", "test-model", user_id="test-user", use_web_search=None
+    )
+    result = asyncio.run(graph.ainvoke(_state("hello!", None)))
+
+    assert result["answer"] == "mock response"
+    assert result["execution_trace"]["web_search"]["status"] == "skipped"

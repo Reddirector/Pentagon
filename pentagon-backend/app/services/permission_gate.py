@@ -21,18 +21,19 @@ import asyncio
 import logging
 from typing import Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.types import Command, interrupt
+from langgraph.types import interrupt
 from sqlalchemy import select
 
 from app.db.session import SessionLocal
 from app.db.models import ActionAuditLog, new_id, utc_now
 from app.services.autonomy import (
-    VALID_CATEGORIES,
     arguments_summary,
-    is_ask_level,
+    contains_sensitive_text,
     is_auto_level,
+    redact_sensitive_text,
+    redact_sensitive_value,
     resolve_level,
 )
 from app.services.command_runner import SHELL_TOOL_NAME, classify
@@ -50,6 +51,12 @@ GRAPH_TOOL_CATEGORY: dict[str, str] = {
     SHELL_TOOL_NAME: "local_shell",
     DESKTOP_TOOL_NAME: "local_shell",
     LOCATION_TOOL_NAME: "read_only_info",
+    # Also a graph-native call: the chat graph binds this tool from the same
+    # dict the shell tool uses, so the gate maps it here rather than falling
+    # back to read_only_info -- which would auto-approve every file write and
+    # silently bypass the category the tool declares.
+    "document_generation": "local_filesystem_write",
+    "image_generation": "local_filesystem_write",
 }
 
 
@@ -63,6 +70,8 @@ def _category_for(tool_name: str, tool_args: dict[str, Any]) -> str:
         # stop for approval even though the Balanced ladder never asked for
         # one.
         command = tool_args.get("command")
+        if isinstance(command, str) and contains_sensitive_text(command):
+            return "local_shell"
         if isinstance(command, str) and command.strip():
             read_only, _reason = classify(command)
             if read_only:
@@ -99,7 +108,7 @@ def _tool_label(tool_name: str, category: str, args: dict[str, Any]) -> str:
     """Plain-language label for an approval card / audit row."""
     if tool_name == SHELL_TOOL_NAME:
         cmd = args.get("command") or ""
-        return f"run `{cmd}`" if cmd else "run a shell command"
+        return redact_sensitive_text(f"run `{cmd}`") if cmd else "run a shell command"
     if tool_name == DESKTOP_TOOL_NAME:
         action = args.get("action") or ""
         target = args.get("target") or ""
@@ -246,7 +255,7 @@ async def permission_gate(state: dict[str, Any], config: RunnableConfig) -> dict
                 "level": level,
                 "label": _tool_label(tool_name, category, args),
                 "summary": summary,
-                "args": args,
+                "args": redact_sensitive_value(args),
                 "pending_calls": [
                     {
                         "tool_call_id": c.get("id") or "",
@@ -327,9 +336,9 @@ async def permission_gate(state: dict[str, Any], config: RunnableConfig) -> dict
         )
 
         if decision == "approved":
-            # Mark approved_this_session for ask_first_time so later calls
-            # to the same tool this session auto-approve.
-            if ask_card["level"] == "ask_first_time":
+            # Mark approved_this_session for ask_first_time or if explicitly remembered
+            # so later calls to the same tool this session auto-approve.
+            if ask_card["level"] == "ask_first_time" or approved_this_session:
                 await asyncio.to_thread(
                     _mark_approved_this_session,
                     user_id,

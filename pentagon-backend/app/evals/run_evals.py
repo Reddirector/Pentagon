@@ -138,15 +138,23 @@ def _script_for(task: dict[str, Any]) -> list[Any]:
     return turns
 
 
-async def _collect_turn(registry, model, request, budget, gate):
+async def _collect_turn(registry, model, request, budget, gate, approve_call_ids=()):
     from app.agent.loop import run_turn
 
-    return [
-        event
-        async for event in run_turn(
-            registry, model, request, budget=budget, approval_gate=gate
-        )
-    ]
+    events = []
+    async for event in run_turn(
+        registry, model, request, budget=budget, approval_gate=gate
+    ):
+        events.append(event)
+        if event.name == "approval_required" and gate is not None:
+            requested = {
+                str(call.get("id"))
+                for call in event.payload.get("calls", [])
+                if isinstance(call, dict) and call.get("id") is not None
+            }
+            approved = [call_id for call_id in approve_call_ids if call_id in requested]
+            gate.provide(approved)
+    return events
 
 
 def _final_text(events: list[Any]) -> str:
@@ -329,9 +337,10 @@ def _run_mock(task: dict[str, Any], task_id: str) -> dict[str, Any]:
         max_seconds=float(spec.get("max_seconds", 120.0)),
     )
     gate = None
+    approve_call_ids: tuple[str, ...] = ()
     if task.get("approve"):
         gate = ApprovalGate()
-        gate.provide([str(call_id) for call_id in task["approve"]])
+        approve_call_ids = tuple(str(call_id) for call_id in task["approve"])
 
     search_results = task.get("search_results", DEFAULT_SEARCH_RESULTS)
     search_error = bool(task.get("search_error"))
@@ -346,7 +355,16 @@ def _run_mock(task: dict[str, Any], task_id: str) -> dict[str, Any]:
     clear_cache()
     try:
         with patch("app.tools.web_search.search_web", _fake_search):
-            events = asyncio.run(_collect_turn(registry, model, request, budget, gate))
+            events = asyncio.run(
+                _collect_turn(
+                    registry,
+                    model,
+                    request,
+                    budget,
+                    gate,
+                    approve_call_ids=approve_call_ids,
+                )
+            )
     except Exception as exc:
         want = dict(task.get("expect") or {}).get("raises")
         if want and str(want) in repr(exc):
@@ -398,7 +416,7 @@ def _run_live(task: dict[str, Any], task_id: str) -> dict[str, Any]:
             "reason": "no NVIDIA key is configured; --live needs one",
         }
 
-    model_id = app_settings.default_chat_model or "meta/llama-3.3-70b-instruct"
+    model_id = app_settings.default_chat_model or "meta/llama-3.2-11b-vision-instruct"
     model = make_chat_model(key, model_id)
     request = TurnRequest(
         user_id=EVAL_USER,
@@ -559,7 +577,24 @@ def run_injection_suite(path: Path = INJECTION_SUITE) -> list[dict[str, Any]]:
     return [run_injection_case(case) for case in load_injection_suite(path)]
 
 
+def _ensure_harness_database() -> None:
+    """Migrate the database before any task touches it.
+
+    A bare ``python -m app.evals.run_evals`` runs outside pytest, so nothing has
+    pointed the engine at a migrated database: the file is created empty by the
+    first ``SessionLocal()`` use and every task dies with ``no such table:
+    users``. ``initialize_database()`` is idempotent and the exact call the
+    application (``app/main.py`` lifespan) and ``tests/conftest.py`` both
+    make, so the harness shares one setup path with the rest of the code
+    instead of carrying a second migration recipe.
+    """
+    from app.db.session import initialize_database
+
+    initialize_database()
+
+
 def main(argv: list[str] | None = None) -> int:
+    _ensure_harness_database()
     parser = argparse.ArgumentParser(description="Run the Pentagon eval suite")
     parser.add_argument("--filter", default="", help="only run tasks whose id contains this")
     parser.add_argument(

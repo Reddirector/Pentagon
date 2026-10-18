@@ -30,6 +30,8 @@ def _spec(name: str, **overrides) -> ToolSpec:
         "parameters": {"type": "object", "properties": {}},
     }
     fields.update(overrides)
+    if fields.get("tier", "read") != "read" and "risk_category" not in fields:
+        fields["risk_category"] = "external_write"
     return ToolSpec(**fields)
 
 

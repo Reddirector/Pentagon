@@ -148,6 +148,39 @@ def build_run_argv(code: str, *, name: str, image: str = IMAGE_TAG) -> list[str]
     ]
 
 
+def build_shell_argv(
+    command: str,
+    *,
+    name: str,
+    workspace: str | Path,
+    image: str = IMAGE_TAG,
+) -> list[str]:
+    """Run a shell in a hardened container with one explicit workspace mount."""
+    root = Path(workspace).expanduser().resolve()
+    if not root.is_dir():
+        raise SandboxUnavailable("the configured shell workspace is not a directory")
+    source = str(root)
+    if "," in source or "\n" in source or "\r" in source:
+        raise SandboxUnavailable("the configured shell workspace path is unsupported")
+    return [
+        "docker", "run", "--rm", "--name", name,
+        "--network", "none",
+        "--read-only",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--pids-limit", "64",
+        "--memory", "256m",
+        "--memory-swap", "256m",
+        "--cpus", "1.0",
+        "--tmpfs", "/tmp:rw,size=32m,mode=1777",
+        "--user", "10001:10001",
+        "--mount", f"type=bind,source={source},target=/workspace",
+        "--workdir", "/workspace",
+        image,
+        "/bin/sh", "-lc", command,
+    ]
+
+
 def ensure_image() -> None:
     """Build sandbox/Dockerfile.python if its image is not already present.
 
@@ -268,6 +301,79 @@ async def run_python(code: str, *, timeout_s: float) -> SandboxOutcome:
     exit_code = proc.returncode
     # docker run exits 125 for its own failures; a program that exits 125
     # would have to also look like a docker error in stderr to be mistaken.
+    docker_error = exit_code == 125 and (
+        stderr.startswith("docker:") or "Error response from daemon" in stderr
+    )
+    return SandboxOutcome(
+        exit_code=exit_code,
+        stdout=stdout,
+        stderr=stderr,
+        timed_out=timed_out,
+        duration_ms=round((time.monotonic() - started) * 1000, 1),
+        stdout_truncated=stdout_truncated,
+        stderr_truncated=stderr_truncated,
+        docker_error=docker_error,
+    )
+
+
+async def run_shell(
+    command: str,
+    *,
+    workspace: str | Path,
+    timeout_s: float,
+) -> SandboxOutcome:
+    """Run an approved shell command without exposing the backend host."""
+    if not sandbox_available():
+        raise SandboxUnavailable("docker is not available on this server")
+    await asyncio.to_thread(ensure_image)
+    name = f"pentagon-shell-{uuid.uuid4().hex[:12]}"
+    argv = build_shell_argv(command, name=name, workspace=workspace)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise SandboxUnavailable(f"could not start the shell container ({exc.__class__.__name__})") from None
+
+    stdout_task = asyncio.ensure_future(proc.stdout.read())
+    stderr_task = asyncio.ensure_future(proc.stderr.read())
+    readers = asyncio.ensure_future(asyncio.gather(stdout_task, stderr_task))
+    started = time.monotonic()
+    timed_out = False
+    try:
+        try:
+            await asyncio.wait_for(asyncio.shield(readers), timeout_s)
+        except asyncio.TimeoutError:
+            timed_out = True
+            await _kill_container(name)
+            try:
+                await asyncio.wait_for(asyncio.shield(readers), _REAP_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                pass
+        except asyncio.CancelledError:
+            _kill_later(name)
+            readers.cancel()
+            try:
+                proc.terminate()
+            except ProcessLookupError:
+                pass
+            raise
+        try:
+            await asyncio.wait_for(asyncio.shield(proc.wait()), _REAP_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            pass
+    finally:
+        if not readers.done():
+            readers.cancel()
+
+    stdout_raw = _first_bytes(stdout_task)
+    stderr_raw = _first_bytes(stderr_task)
+    stdout, stdout_truncated = _clip(stdout_raw)
+    stderr, stderr_truncated = _clip(stderr_raw)
+    exit_code = proc.returncode
     docker_error = exit_code == 125 and (
         stderr.startswith("docker:") or "Error response from daemon" in stderr
     )

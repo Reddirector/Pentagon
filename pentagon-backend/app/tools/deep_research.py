@@ -16,7 +16,7 @@ from typing import Any
 from app.agent import research
 from app.agent.schemas import ToolContext, ToolResult, ToolSpec
 from app.config import settings
-from app.db.session import SessionLocal
+from app.db import session as db_session
 from app.security.keys import NoKeyAvailableError, resolve_api_key
 
 TOOL_SPEC = ToolSpec(
@@ -84,7 +84,7 @@ async def run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             hint="Narrow it to the one thing you need researched.",
         )
     try:
-        with SessionLocal() as db:
+        with db_session.SessionLocal() as db:
             api_key = resolve_api_key(db, ctx.user_id)
     except NoKeyAvailableError:
         return ToolResult.failure(

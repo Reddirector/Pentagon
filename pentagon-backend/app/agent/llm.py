@@ -39,18 +39,48 @@ class ModelReply:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
-def assemble_tool_calls(chunks: list[AIMessageChunk]) -> list[dict[str, Any]]:
-    """Stitch tool calls out of streamed ``tool_call_chunks``.
+def assemble_tool_calls(chunks: list[Any]) -> list[dict[str, Any]]:
+    """Stitch tool calls out of streamed tool_call_chunks or full message tool_calls."""
+    if not chunks:
+        return []
 
-    Deltas are grouped by ``index``; the first fragment carries id and name,
-    the rest are argument-string fragments. Arguments are parsed only after
-    every fragment has arrived -- a half-JSON argument is never executed. If
-    the concatenation is not valid JSON, the raw string is passed on and the
-    validation layer turns it into a corrective INVALID_ARGS message.
-    """
+    # If any chunk is a full non-streaming message (not an AIMessageChunk) with complete tool_calls:
+    for chunk in chunks:
+        if not isinstance(chunk, AIMessageChunk) and getattr(chunk, "tool_calls", None):
+            return [
+                {
+                    "name": call["name"],
+                    "args": call.get("args") if isinstance(call.get("args"), dict) else {},
+                    "id": call.get("id") or f"call_{i}",
+                }
+                for i, call in enumerate(chunk.tool_calls)
+                if isinstance(call, dict) and call.get("name")
+            ]
+
+    # Combine streaming chunks using LangChain's native chunk addition
+    try:
+        combined = chunks[0]
+        for c in chunks[1:]:
+            combined = combined + c
+        if getattr(combined, "tool_calls", None):
+            calls = [
+                {
+                    "name": call["name"],
+                    "args": call.get("args") if isinstance(call.get("args"), dict) else {},
+                    "id": call.get("id") or f"call_{i}",
+                }
+                for i, call in enumerate(combined.tool_calls)
+                if isinstance(call, dict) and call.get("name")
+            ]
+            if calls:
+                return calls
+    except Exception:
+        pass
+
     by_index: dict[int, dict[str, Any]] = {}
     for chunk in chunks:
-        for delta in chunk.tool_call_chunks:
+        chunks_list = getattr(chunk, "tool_call_chunks", None) or []
+        for delta in chunks_list:
             index = delta.get("index")
             if index is None:
                 index = len(by_index)

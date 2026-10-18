@@ -64,3 +64,8 @@ Ask before choosing an unusual format; default to Markdown when unsure.
 - Don't invent figures. If a number is not given by the user or a cited
   source, write `[needs source]` and say so.
 - Don't restate the prompt as the introduction; start with the document.
+
+## Collaborative Co-Authoring vs Autonomous Drafting
+
+- Use autonomous document writing when the user requests a complete document, report, proposal, or deliverable.
+- When the user explicitly requests to collaborate, co-write, conduct a document interview, or iteratively draft with reader testing, defer to the structured `doc-coauthoring` workflow.

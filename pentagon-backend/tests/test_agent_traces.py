@@ -32,6 +32,20 @@ def test_redact_args_truncates_long_values():
     assert "[900 chars total]" in redacted["code"]
 
 
+def test_redact_args_scrubs_nested_and_free_text_credentials():
+    secret = "nvapi-abcdefghijklmnopqrstuvwxyz123456"
+    password = "db-password-not-for-logs"
+    redacted = redact_args(
+        {
+            "command": f"connect postgresql://user:{password}@db.example/postgres",
+            "nested": {"query": f"include {secret}"},
+        }
+    )
+    serialized = str(redacted)
+    assert secret not in serialized
+    assert password not in serialized
+
+
 def test_recorder_writes_rows_owned_by_the_user():
     user_id = f"trace-{uuid4()}"
     with SessionLocal() as db:

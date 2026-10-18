@@ -40,7 +40,7 @@ _QUESTION_CHARS = 1_500
 # Used when no default model is configured (Settings.default_chat_model).
 # Overridable per deployment; service modules pin their model ids the same
 # way (see vision.VISION_MODEL_ID).
-RESEARCH_MODEL_ID = "meta/llama-3.3-70b-instruct"
+RESEARCH_MODEL_ID = "meta/llama-3.2-11b-vision-instruct"
 
 _QUERY_INSTRUCTIONS = (
     "You plan web searches. Reply with ONLY a JSON array of 2 to 4 short"

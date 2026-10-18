@@ -91,6 +91,24 @@ def test_probe_result_is_cached_and_reused():
     assert row is not None and row.native_tools is True
 
 
+def test_async_probe_works_inside_the_agent_event_loop():
+    import asyncio
+
+    from app.agent.capabilities import ensure_probed_async
+
+    model = _time_call_model()
+
+    async def scenario():
+        first = await ensure_probed_async(model, "mock/async-model")
+        second = await ensure_probed_async(model, "mock/async-model")
+        return first, second
+
+    first, second = asyncio.run(scenario())
+    assert first == second
+    assert first.badge == "Strong"
+    assert model.calls == 2, "a cached async probe must not call the model again"
+
+
 def test_badge_levels():
     assert ProbeResult(native_tools=True, parallel_tools=True).badge == "Strong"
     assert ProbeResult(native_tools=True, parallel_tools=False).badge == "Basic"

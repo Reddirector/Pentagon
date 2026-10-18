@@ -23,27 +23,49 @@ class PlanError(ValueError):
 
 def normalize_plan(raw: Any) -> list[dict[str, str]]:
     """A validated ``[{text, status}]`` list, or PlanError explaining why not."""
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        parsed = None
+        if stripped.startswith("[") or stripped.startswith("{"):
+            try:
+                import json
+                parsed = json.loads(stripped)
+            except Exception:
+                try:
+                    import ast
+                    parsed = ast.literal_eval(stripped)
+                except Exception:
+                    pass
+        if isinstance(parsed, list):
+            raw = parsed
+        elif isinstance(parsed, dict):
+            raw = parsed.get("steps") or parsed.get("plan") or parsed.get("tasks") or parsed.get("checklist") or list(parsed.values())
+
+    if isinstance(raw, dict):
+        raw = raw.get("steps") or raw.get("plan") or raw.get("tasks") or raw.get("checklist") or list(raw.values())
+
     if not isinstance(raw, list) or not raw:
         raise PlanError("steps must be a non-empty list of {text, status} objects.")
     if len(raw) > _MAX_STEPS:
-        raise PlanError(
-            f"a plan has at most {_MAX_STEPS} steps; {len(raw)} were given."
-        )
+        raw = raw[:_MAX_STEPS]
+
     steps: list[dict[str, str]] = []
     for index, entry in enumerate(raw):
-        if not isinstance(entry, dict):
-            raise PlanError(f"step {index + 1} must be an object with text and status.")
-        text = entry.get("text")
-        status = entry.get("status") or "pending"
-        if not isinstance(text, str) or not text.strip():
-            raise PlanError(f"step {index + 1} has no text.")
+        if isinstance(entry, str):
+            entry = {"text": entry, "status": "in_progress" if index == 0 else "pending"}
+        elif not isinstance(entry, dict):
+            entry = {"text": str(entry), "status": "pending"}
+
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            text = f"Step {index + 1}"
         if len(text) > _MAX_STEP_CHARS:
-            raise PlanError(f"step {index + 1} text is over {_MAX_STEP_CHARS} characters.")
+            text = text[:_MAX_STEP_CHARS]
+
+        status = entry.get("status")
         if status not in _STATUSES:
-            raise PlanError(
-                f"step {index + 1} status {status!r} is not one of: {', '.join(_STATUSES)}."
-            )
-        steps.append({"text": text.strip(), "status": status})
+            status = "pending"
+        steps.append({"text": text, "status": status})
 
     in_progress = [step for step in steps if step["status"] == "in_progress"]
     for extra in in_progress[1:]:
