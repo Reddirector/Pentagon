@@ -1250,9 +1250,17 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
       .join('') || 'U'
   const user = message.role === 'user'
   return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
-    {!user && <div className="mt-0.5 grid size-7 shrink-0 place-items-center"><Logomark size={20} /></div>}
+    {!user && (
+      <div className="mt-0.5 grid size-7 shrink-0 place-items-center">
+        <Logomark size={20} className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.35)]" />
+      </div>
+    )}
     <div className={`min-w-0 ${user ? 'max-w-[78%]' : 'w-full max-w-[calc(100%-40px)]'}`}>
-      <div className={`mb-2 flex items-center gap-2 text-micro ${user ? 'justify-end pr-1 text-zinc-500' : 'text-zinc-500'}`}><span className="font-medium text-zinc-300">{user ? currentUserName : 'Pentagon'}</span></div>
+      {user ? (
+        <div className="mb-2 flex items-center justify-end pr-1 text-micro text-zinc-500">
+          <span className="font-medium text-zinc-300">{currentUserName}</span>
+        </div>
+      ) : null}
       {user ? <div className="rounded-2xl rounded-tr-md border border-white/[0.07] bg-[#171717] px-4 py-3 text-body-lg leading-6 text-zinc-100">
         <div className="whitespace-pre-wrap break-words">{message.content}</div>
         {message.attachmentName && <div className="mt-2 flex items-center gap-1.5 text-caption text-zinc-500"><Paperclip size={11} />{message.attachmentName}</div>}
