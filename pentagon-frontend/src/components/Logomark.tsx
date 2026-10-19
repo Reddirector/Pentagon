@@ -74,29 +74,30 @@ export function Logomark({
         />
       </g>
 
+      {/* Outer Circle: Remains completely STILL at all times */}
+      <circle
+        cx="255"
+        cy="79"
+        r="54"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeOpacity={loading ? 0.38 : 0.24}
+        className="logo-outer-circle"
+      />
+
       {/* 3. Celestial Crown (Star, Halo Orbit, Moon, Sparkles) */}
-      <g className={animated ? 'logo-crown' : ''}>
+      <g className={animated && !loading ? 'logo-crown' : ''}>
         {/* Soft aura glow centered on compass star (255, 79) */}
         <circle cx="255" cy="79" r="56" fill="url(#pentagon-star-glow)" />
 
-        {/* Outer Circle: Remains completely STILL */}
-        <circle
-          cx="255"
-          cy="79"
-          r="54"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          strokeOpacity={0.24}
-          className="logo-outer-circle"
-        />
-
         {/* Inner Circle: Rotates from left to right (clockwise) */}
-        {/* Fast on loading animation (~1.2s), slow otherwise (~22s) */}
+        {/* Fast on loading animation (~1.1s), slow otherwise (~22s) */}
         <g
-          className={`logo-inner-circle ${animated ? 'logo-orbit' : ''} ${
-            loading ? 'logo-loading-fast' : 'logo-orbit-slow'
+          className={`logo-inner-circle ${
+            loading ? 'logo-loading-fast text-emerald-400' : animated ? 'logo-orbit-slow' : ''
           }`}
+          style={{ transformOrigin: '255px 79px', transformBox: 'view-box' }}
         >
           <circle
             cx="255"
@@ -104,15 +105,15 @@ export function Logomark({
             r="46.5"
             fill="none"
             stroke="currentColor"
-            strokeWidth="1.4"
-            strokeOpacity={0.65}
-            strokeDasharray="26 8 12 6"
+            strokeWidth={loading ? 1.8 : 1.4}
+            strokeOpacity={loading ? 0.95 : 0.65}
+            strokeDasharray={loading ? '28 8 14 6' : '26 8 12 6'}
           />
           <path
             d={LOGO_ORBIT_PATH}
             fill="currentColor"
             fillRule="evenodd"
-            opacity={0.6}
+            opacity={loading ? 0.95 : 0.6}
           />
         </g>
 

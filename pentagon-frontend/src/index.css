@@ -413,14 +413,24 @@ textarea { field-sizing: content; }
 
 .logo-orbit-slow {
   transform-origin: 255px 79px;
+  transform-box: view-box;
   animation: logo-inner-rotate 22s linear infinite;
   will-change: transform;
 }
 
 .logo-loading-fast {
   transform-origin: 255px 79px;
-  animation: logo-inner-rotate 1.2s linear infinite !important;
+  transform-box: view-box;
+  animation: logo-inner-rotate 1.1s linear infinite !important;
   will-change: transform;
+}
+
+.logo-loading {
+  filter: drop-shadow(0 0 10px rgba(52, 211, 153, 0.45));
+}
+
+.logo-loading .logo-star {
+  filter: drop-shadow(0 0 8px rgba(52, 211, 153, 0.6));
 }
 
 .animate-spin-slow {
@@ -428,7 +438,7 @@ textarea { field-sizing: content; }
 }
 
 .animate-spin-fast {
-  animation: logo-inner-rotate 1.2s linear infinite;
+  animation: logo-inner-rotate 1.1s linear infinite;
 }
 
 .logo-animated:hover .logo-crown {

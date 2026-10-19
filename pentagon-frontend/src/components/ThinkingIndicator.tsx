@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Logomark } from './Logomark'
 
 function formatElapsed(seconds: number) {
   if (seconds < 60) return `${seconds}s`
@@ -26,12 +27,10 @@ export function ThinkingIndicator({ model, label = 'Thinking' }: { model: string
 
   return (
     <div className="flex items-center gap-2.5 py-1 text-small text-zinc-500" aria-live="polite">
-      <span className="flex shrink-0 gap-1" aria-hidden="true">
-        <i className="size-1 animate-pulse rounded-full bg-emerald-300/80" />
-        <i className="size-1 animate-pulse rounded-full bg-emerald-300/55 [animation-delay:100ms]" />
-        <i className="size-1 animate-pulse rounded-full bg-emerald-300/30 [animation-delay:200ms]" />
+      <span className="flex shrink-0 items-center justify-center" aria-hidden="true">
+        <Logomark size={17} loading={true} className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.45)]" />
       </span>
-      <span>{label}</span>
+      <span className="text-zinc-400 font-medium">{label}</span>
       <span className="tabular-nums text-zinc-600">{formatElapsed(elapsed)}</span>
       {slow ? (
         <span className="truncate text-zinc-600">
