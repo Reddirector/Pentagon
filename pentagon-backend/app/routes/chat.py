@@ -384,6 +384,77 @@ def rename_conversation(
     return conversation
 
 
+@router.post(
+    "/conversations/{conversation_id}/generate-title",
+    response_model=ConversationSummary,
+)
+async def generate_title_endpoint(
+    conversation_id: str,
+    payload: dict[str, Any],
+    user_id: str = Query(min_length=1, max_length=128),
+    db: Session = Depends(get_db),
+) -> Conversation:
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user_id,
+        )
+    )
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    message = str(payload.get("message") or "").strip()
+    generated_title = ""
+    try:
+        api_key = resolve_api_key_or_http(db, user_id)
+        if api_key and message:
+            from app.services.nvidia_client import _new_async_client
+            async with _new_async_client(10.0) as client:
+                res = await client.post(
+                    f"{settings.nvidia_base_url.rstrip('/')}/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": "meta/llama-3.1-8b-instruct",
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are an expert conversation title generator. Analyze the user's message and produce ONLY a concise, descriptive title (3 to 6 words, maximum 40 characters) that summarizes the core topic or task. Do NOT include quotation marks, formatting, prefixes like 'Title:', or trailing punctuation. Return strictly the title text.",
+                            },
+                            {
+                                "role": "user",
+                                "content": message[:500],
+                            },
+                        ],
+                        "temperature": 0.2,
+                        "max_tokens": 30,
+                        "stream": False,
+                    },
+                )
+                if res.status_code == 200:
+                    raw = res.json()["choices"][0]["message"]["content"].strip()
+                    generated_title = raw.strip("\"'#* \n").removeprefix("Title:").strip()[:45]
+    except Exception:
+        pass
+
+    if not generated_title:
+        import re
+        clean = re.sub(
+            r'^(?:please\s+)?(?:can\s+you\s+)?(?:could\s+you\s+)?(?:help\s+me\s+)?(?:write|create|make|build|generate|design|explain|tell\s+me\s+about|analyze|summarize)\s+(?:a|an|the\s+)?',
+            '',
+            message,
+            flags=re.IGNORECASE,
+        ).strip()
+        words = clean.split('\n')[0].strip().split()[:6]
+        formatted = " ".join(words)[:42] or "New thread"
+        generated_title = formatted.title()
+
+    conversation.title = generated_title
+    conversation.updated_at = utc_now()
+    db.commit()
+    db.refresh(conversation)
+    return conversation
+
+
 @router.delete("/conversations/{conversation_id}", status_code=204)
 def delete_conversation(
     conversation_id: str,

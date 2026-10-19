@@ -99,7 +99,7 @@ export function useChatStream(options: UseChatStreamOptions) {
   async function sendMessage(event?: FormEvent) {
     event?.preventDefault()
     const typed = draft.trim()
-    if (streaming || transcribing || uploading || !options.hasActiveThread || !selectedModel || (!typed && !media)) return
+    if (streaming || transcribing || uploading || !selectedModel || (!typed && !media)) return
     const question = typed || (media && isVideo(media) ? 'Describe what happens in this video with timestamps.' : 'Describe what is in this image.')
     const pendingDocs = [...queuedDocuments]
     const mediaForMessage = media

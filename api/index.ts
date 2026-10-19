@@ -296,6 +296,22 @@ async function extractTextFromUpload(file: File, fallbackText?: string): Promise
 }
 
 
+function smartFormatTitle(message: string): string {
+  if (!message) return 'New thread'
+  let clean = message
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(
+      /^(please\s+)?(can\s+you\s+)?(could\s+you\s+)?(help\s+me\s+)?(write|create|make|build|generate|design|explain|tell\s+me\s+about|analyze|summarize)\s+(a|an|the\s+)?/i,
+      '',
+    )
+    .trim()
+  if (!clean) clean = message.trim()
+  const singleLine = clean.split('\n')[0].replace(/\s+/g, ' ').trim()
+  const words = singleLine.split(' ').slice(0, 6).join(' ')
+  const title = words.length > 42 ? words.slice(0, 40) + '…' : words
+  return title.charAt(0).toUpperCase() + title.slice(1) || 'New thread'
+}
+
 function corsHeaders(extra: Record<string, string> = {}) {
   return {
     'Access-Control-Allow-Origin': '*',
@@ -1334,7 +1350,7 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
       let title = 'New thread'
       try {
         const body = (await req.json()) as { title?: string; message?: string }
-        title = body.title || body.message?.slice(0, 40) || title
+        title = body.title || smartFormatTitle(body.message || '') || title
       } catch {
         // empty
       }
@@ -1366,6 +1382,86 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
         updated_at: new Date().toISOString(),
         active_model: 'meta/llama-3.3-70b-instruct',
         messages: [],
+      })
+    }
+
+    if (
+      (path === '/api/conversations/generate-title' ||
+        (path.startsWith('/api/conversations/') && path.endsWith('/generate-title'))) &&
+      method === 'POST'
+    ) {
+      const parts = path.split('/')
+      const id = parts[3] && parts[3] !== 'generate-title' ? parts[3] : crypto.randomUUID()
+      let message = ''
+      let reqModel = 'meta/llama-3.1-8b-instruct'
+      try {
+        const body = (await req.json()) as { message?: string; model?: string }
+        if (body.message) message = body.message.trim()
+        if (body.model) reqModel = body.model.trim()
+      } catch {
+        // empty
+      }
+
+      const apiKey = extractKey(req)
+      let generatedTitle = ''
+
+      if (apiKey && message) {
+        try {
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 9000)
+          const titleModel = 'meta/llama-3.1-8b-instruct'
+          const resp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: titleModel,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'You are an expert conversation title generator. Analyze the user\'s first message and output ONLY a concise, descriptive title (3 to 6 words, maximum 40 characters) that summarizes the core topic or task. Do NOT include quotation marks, formatting, prefixes like "Title:", or trailing punctuation. Return strictly the title text.',
+                },
+                {
+                  role: 'user',
+                  content: message.slice(0, 500),
+                },
+              ],
+              temperature: 0.2,
+              max_tokens: 30,
+              stream: false,
+            }),
+            signal: controller.signal,
+          })
+          clearTimeout(timer)
+          if (resp.ok) {
+            const data = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> }
+            const rawTitle = data.choices?.[0]?.message?.content?.trim() || ''
+            if (rawTitle) {
+              generatedTitle = rawTitle
+                .replace(/^["'`#*\s]+|["'`#*\s]+$/g, '')
+                .replace(/^title:\s*/i, '')
+                .trim()
+              if (generatedTitle.length > 45) {
+                generatedTitle = generatedTitle.slice(0, 42) + '…'
+              }
+            }
+          }
+        } catch {
+          // fall back to smart format
+        }
+      }
+
+      if (!generatedTitle) {
+        generatedTitle = smartFormatTitle(message)
+      }
+
+      return jsonResponse({
+        id,
+        title: generatedTitle,
+        updated_at: new Date().toISOString(),
       })
     }
 

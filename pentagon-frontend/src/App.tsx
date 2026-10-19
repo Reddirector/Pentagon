@@ -85,8 +85,19 @@ const DASHBOARD_ACTIONS = [
 ]
 
 function titleFor(message: string) {
-  const normalized = message.trim().replace(/\s+/g, ' ')
-  return normalized.length > 54 ? `${normalized.slice(0, 51)}…` : normalized || 'New thread'
+  if (!message) return 'New thread'
+  let clean = message
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(
+      /^(please\s+)?(can\s+you\s+)?(could\s+you\s+)?(help\s+me\s+)?(write|create|make|build|generate|design|explain|tell\s+me\s+about|analyze|summarize)\s+(a|an|the\s+)?/i,
+      '',
+    )
+    .trim()
+  if (!clean) clean = message.trim()
+  const singleLine = clean.split('\n')[0].replace(/\s+/g, ' ').trim()
+  const words = singleLine.split(' ').slice(0, 6).join(' ')
+  const formatted = words.length > 44 ? `${words.slice(0, 42)}…` : words
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1) || 'New thread'
 }
 
 function isDocument(file: File) {
@@ -242,7 +253,7 @@ function App() {
   const chat = useChatStream({
     userId,
     agentMode,
-    hasActiveThread: Boolean(active),
+    hasActiveThread: true,
     isDraftThread,
     selectedModel,
     streaming,
@@ -379,7 +390,13 @@ function App() {
           setSummaryActive(Boolean(detail.summary_at_switch))
           setSelectedModel(detail.active_model || preferredModel)
         } else {
-          setActive(null)
+          setActive({
+            id: `draft-${crypto.randomUUID()}`,
+            title: 'New Thread',
+            updated_at: new Date().toISOString(),
+            active_model: null,
+            isDraft: true,
+          })
           setMessages([])
           setDocuments([])
           setSummaryActive(false)
@@ -590,7 +607,7 @@ function App() {
     }
   }
 
-  function startThread() {
+  const startThread = useCallback(() => {
     if (streaming) return
     followConversation.current = true
     // Abandon any thread still loading, so it cannot overwrite this new draft.
@@ -614,7 +631,13 @@ function App() {
     // A draft has no model of its own, so it falls back to the default chosen
     // in Settings rather than inheriting whatever the previous thread used.
     setSelectedModel(chooseDefaultModel(models, getPreferences().defaultModel, defaultModel))
-  }
+  }, [streaming, models, defaultModel])
+
+  const ensureDraftThread = useCallback(() => {
+    if (!active) {
+      startThread()
+    }
+  }, [active, startThread])
 
   async function openThread(id: string) {
     if (streaming || switching) return
@@ -657,17 +680,46 @@ function App() {
   }
   loadThreadRef.current = loadThread
 
+  async function generateAiTitleForThread(threadId: string, firstMessage: string, modelName?: string) {
+    try {
+      const res = await apiRequest<{ title: string; id: string }>(
+        `/api/conversations/${encodeURIComponent(threadId)}/generate-title`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: userId,
+            message: firstMessage,
+            model: modelName,
+          }),
+        },
+      )
+      if (res && res.title) {
+        const cleanTitle = res.title.trim()
+        setActive((current) => (current && current.id === threadId ? { ...current, title: cleanTitle } : current))
+        setThreads((items) => items.map((t) => (t.id === threadId ? { ...t, title: cleanTitle } : t)))
+      }
+    } catch {
+      // Fallback title remains
+    }
+  }
+
   async function createRemoteThread(firstMessage: string): Promise<ConversationDetail> {
     if (active && !isDraftThread) return active as ConversationDetail
+    const fallbackTitle = titleFor(firstMessage)
     const created = await apiRequest<Conversation>('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, title: titleFor(firstMessage) }),
+      body: JSON.stringify({ user_id: userId, title: fallbackTitle, message: firstMessage }),
     })
     const remote = { ...created, summary_at_switch: null, messages: [] } as ConversationDetail
     setActive(remote)
     setSummaryActive(false)
     setThreads((items) => [remote, ...items])
+
+    // Asynchronously have the model analyze the first message and name the thread accordingly
+    void generateAiTitleForThread(remote.id, firstMessage, selectedModel)
+
     return remote
   }
 
@@ -1021,26 +1073,6 @@ function App() {
                   </span>
                 </div>
 
-                {!active && (
-                  <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                    <button
-                      onClick={startThread}
-                      className="flex items-center gap-2 rounded-full bg-emerald-400 px-5 py-2.5 text-small font-semibold text-black transition hover:bg-emerald-300 hover:shadow-[0_4px_20px_rgba(16,185,129,0.3)]"
-                    >
-                      <Plus size={15} />
-                      <span>Start a new thread</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setKeyNeeded(true)}
-                      className="flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.04] px-4 py-2.5 text-small text-zinc-300 transition hover:border-emerald-500/30 hover:bg-white/[0.08] hover:text-white"
-                    >
-                      <Key size={13} className="text-emerald-400" />
-                      <span>NVIDIA Key</span>
-                    </button>
-                  </div>
-                )}
-
                 {/* Quick Action Cards Grid */}
                 <div className="mt-8 grid w-full max-w-2xl grid-cols-2 gap-3 max-sm:grid-cols-1">
                   {DASHBOARD_ACTIONS.map((card) => {
@@ -1050,7 +1082,7 @@ function App() {
                         key={card.title}
                         type="button"
                         onClick={() => {
-                          if (!active) startThread()
+                          ensureDraftThread()
                           setDraft(card.prompt)
                         }}
                         className="group flex flex-col items-start rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-emerald-400/30 hover:bg-emerald-400/[0.04] hover:shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
@@ -1101,23 +1133,43 @@ function App() {
           className={`relative mx-auto w-full max-w-[980px] 2xl:max-w-[1140px] px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 sm:px-7 sm:pb-5 ${dragging ? 'after:pointer-events-none after:absolute after:inset-x-7 after:top-0 after:bottom-5 after:rounded-2xl after:border after:border-dashed after:border-emerald-300/60 after:bg-emerald-300/[0.04] after:content-["Drop_files_to_attach"] after:grid after:place-items-center after:text-body after:text-emerald-100' : ''}`}
           onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false) }}
-          onDrop={(event) => { event.preventDefault(); setDragging(false); void acceptFiles(Array.from(event.dataTransfer.files)) }}
+          onDrop={(event) => { event.preventDefault(); setDragging(false); ensureDraftThread(); void acceptFiles(Array.from(event.dataTransfer.files)) }}
         >
           {/* Fade the last message into the composer instead of hard-cutting it. */}
           <div aria-hidden="true" className="pointer-events-none -mt-12 h-12 bg-gradient-to-t from-[#000000] via-[#000000]/70 to-transparent" />
           {media && <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-micro text-zinc-300"><span className="text-emerald-200">{isVideo(media) ? <Video size={13} /> : <ImageIcon size={13} />}</span><span className="min-w-0 flex-1 truncate">{media.name}</span><span className="text-zinc-600">{isVideo(media) ? 'Video' : 'Image'}</span><button onClick={() => setMedia(null)} aria-label="Remove attachment" className="text-zinc-500 hover:text-white"><X size={13} /></button></div>}
           {queuedDocuments.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{queuedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className="panel-enter inline-flex max-w-full items-center gap-1.5 rounded-lg border border-sky-300/10 bg-sky-300/[0.045] px-2 py-1.5 text-caption text-sky-100/80"><FileText size={11} /><span className="max-w-[180px] truncate">{file.name}</span><span className="text-sky-100/40">queued</span><button onClick={() => setQueuedDocuments((items) => items.filter((_, current) => current !== index))} aria-label={`Remove ${file.name}`}><X size={11} /></button></span>)}</div>}
           <form onSubmit={(event) => void chat.handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#0f0f0f] p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition-[border-color,box-shadow] duration-200 ease-out focus-within:border-emerald-300/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,.045),0_20px_90px_rgba(0,0,0,.28)]">
-            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={chat.handleComposerKey} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} rows={2} disabled={!active || streaming || transcribing} placeholder={active ? 'Message Pentagon…' : 'Start a new thread to begin'} className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-body-lg leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed" aria-label="Write a message" />
+            <textarea
+              value={draft}
+              onChange={(event) => {
+                ensureDraftThread()
+                setDraft(event.target.value)
+              }}
+              onKeyDown={chat.handleComposerKey}
+              onFocus={() => {
+                setComposerFocused(true)
+                ensureDraftThread()
+              }}
+              onClick={() => {
+                ensureDraftThread()
+              }}
+              onBlur={() => setComposerFocused(false)}
+              rows={2}
+              disabled={streaming || transcribing}
+              placeholder="Message Pentagon…"
+              className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-body-lg leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed"
+              aria-label="Write a message"
+            />
             <div className="flex items-center justify-between gap-2 px-1 pb-0.5">
               <div className="flex flex-wrap items-center gap-1.5">
-                <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log" multiple hidden onChange={(event) => void chat.handleAttachmentChange(event)} />
-                <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, document, or spreadsheet"><Paperclip size={14} /><span className="max-sm:hidden">Attach</span></button>
-                <button type="button" onClick={() => void chat.toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
+                <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log" multiple hidden onChange={(event) => { ensureDraftThread(); void chat.handleAttachmentChange(event) }} />
+                <button type="button" onClick={() => { ensureDraftThread(); fileInput.current?.click() }} disabled={streaming || uploading} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, document, or spreadsheet"><Paperclip size={14} /><span className="max-sm:hidden">Attach</span></button>
+                <button type="button" onClick={() => { ensureDraftThread(); void chat.toggleRecording() }} disabled={streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
               </div>
               {streaming
                 ? <button type="button" onClick={chat.stopStreaming} className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-zinc-200 transition-[background-color,transform] duration-200 ease-out hover:bg-white/[0.1] active:scale-95" aria-label="Stop generating" title="Stop generating"><Square size={13} fill="currentColor" /></button>
-                : <button type="submit" disabled={!active || !selectedModel || transcribing || (!draft.trim() && !media)} className="grid size-8 shrink-0 place-items-center rounded-xl bg-emerald-300 text-[#000000] transition-[background-color,box-shadow,transform] duration-200 ease-out hover:-translate-y-px hover:bg-emerald-200 hover:shadow-[0_6px_18px_rgba(255,255,255,.12)] active:translate-y-0 active:scale-95 disabled:translate-y-0 disabled:scale-100 disabled:bg-white/[0.06] disabled:text-zinc-600 disabled:shadow-none" aria-label="Send message" title="Send message">{transcribing ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.4} />}</button>}
+                : <button type="submit" disabled={!selectedModel || transcribing || (!draft.trim() && !media)} className="grid size-8 shrink-0 place-items-center rounded-xl bg-emerald-300 text-[#000000] transition-[background-color,box-shadow,transform] duration-200 ease-out hover:-translate-y-px hover:bg-emerald-200 hover:shadow-[0_6px_18px_rgba(255,255,255,.12)] active:translate-y-0 active:scale-95 disabled:translate-y-0 disabled:scale-100 disabled:bg-white/[0.06] disabled:text-zinc-600 disabled:shadow-none" aria-label="Send message" title="Send message">{transcribing ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.4} />}</button>}
               <span className="sr-only">{queuedDocuments.length ? `${queuedDocuments.length} documents queued` : uploading ? 'Uploading document' : ''}</span>
             </div>
           </form>
