@@ -1,22 +1,85 @@
 import { useState } from 'react'
-import { Check, ChevronDown, ChevronRight, Shield, AlertTriangle } from 'lucide-react'
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  FileEdit,
+  Globe,
+  Lock,
+  Shield,
+  ShieldAlert,
+  Terminal,
+  Trash2,
+} from 'lucide-react'
 import type { AutonomySettings } from '../types'
 
 /**
  * The permissions panel.
  *
- * Six rows, one per risk category, each a segmented control across the four
- * autonomy levels. Plain-language labels come from the backend's
- * /api/autonomy-settings response, not from this file.
+ * Six rows, one per risk category, each with a responsive 4-level segmented
+ * control across the autonomy levels.
  *
- * Above the rows: a preset switcher that fills all six at once. Below: a
- * collapsible "Advanced: per-tool overrides" section listing registered tools
- * with their inherited category shown greyed out (v1 wires the list only;
- * true per-tool-level overrides beyond session-approval-memory are a stretch
- * goal not required for v1).
+ * Above the rows: a preset switcher that sets a baseline across all six.
+ * Below: a collapsible granular per-tool overrides section.
  */
 
 const LEVEL_KEYS = ['always_ask', 'ask_first_time', 'auto_approve', 'never_allow'] as const
+
+function getCategoryMeta(category: string) {
+  switch (category) {
+    case 'read_only_info':
+      return {
+        Icon: Eye,
+        badgeLabel: 'Read Only',
+        badgeClass: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400',
+        tagClass: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300',
+      }
+    case 'local_filesystem_write':
+      return {
+        Icon: FileEdit,
+        badgeLabel: 'Local Files',
+        badgeClass: 'border-blue-500/20 bg-blue-500/10 text-blue-400',
+        tagClass: 'border-blue-500/20 bg-blue-500/10 text-blue-300',
+      }
+    case 'local_shell':
+      return {
+        Icon: Terminal,
+        badgeLabel: 'Shell Commands',
+        badgeClass: 'border-amber-500/20 bg-amber-500/10 text-amber-400',
+        tagClass: 'border-amber-500/20 bg-amber-500/10 text-amber-300',
+      }
+    case 'external_write':
+      return {
+        Icon: Globe,
+        badgeLabel: 'External Services',
+        badgeClass: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-400',
+        tagClass: 'border-indigo-500/20 bg-indigo-500/10 text-indigo-300',
+      }
+    case 'external_destructive':
+      return {
+        Icon: Trash2,
+        badgeLabel: 'Destructive',
+        badgeClass: 'border-rose-500/20 bg-rose-500/10 text-rose-400',
+        tagClass: 'border-rose-500/20 bg-rose-500/10 text-rose-300',
+      }
+    case 'financial_or_irreversible':
+      return {
+        Icon: Lock,
+        badgeLabel: 'Irreversible',
+        badgeClass: 'border-purple-500/20 bg-purple-500/10 text-purple-400',
+        tagClass: 'border-purple-500/20 bg-purple-500/10 text-purple-300',
+      }
+    default:
+      return {
+        Icon: Shield,
+        badgeLabel: category.replace(/_/g, ' '),
+        badgeClass: 'border-white/[0.08] bg-white/[0.04] text-zinc-400',
+        tagClass: 'border-white/[0.08] bg-white/[0.04] text-zinc-300',
+      }
+  }
+}
 
 export function PermissionPanel({
   settings,
@@ -41,135 +104,197 @@ export function PermissionPanel({
   }
 
   return (
-    <div className="space-y-5">
-      {/* Headline */}
-      <div>
-        <h2 className="text-body font-medium text-zinc-100">Permissions</h2>
-        <p className="mt-1 text-small leading-5 text-zinc-500">
-          Pentagon sorts every tool call into one of six kinds of action, and you
-          choose how each kind behaves: always ask, ask once this session, run
-          automatically, or block outright.
-        </p>
-      </div>
-
+    <div className="space-y-4 sm:space-y-5">
       {/* Preset switcher */}
       {onPresetChange && settings.presets && (
         <fieldset className="space-y-2">
           <legend className="sr-only">Autonomy preset</legend>
-          <div className="flex items-center gap-3 rounded-xl border border-white/[0.09] bg-white/[0.02] px-3.5 py-2.5">
-            <Shield size={14} className="shrink-0 text-zinc-500" />
-            <span className="text-micro font-medium uppercase tracking-[.14em] text-zinc-500">Preset</span>
-            <div className="flex gap-1.5" role="radiogroup" aria-label="Autonomy preset">
-              {Object.values(settings.presets).map((preset) => {
-                const selected = settings.preset === preset.name
-                return (
-                  <button
-                    key={preset.name}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    disabled={busy}
-                    onClick={() => void onPresetChange(preset.name)}
-                    className={`rounded-lg border px-2.5 py-1.5 text-small transition ${
-                      selected
-                        ? 'border-emerald-300/30 bg-emerald-300/[0.06] text-zinc-100'
-                        : 'border-white/[0.08] bg-white/[0.02] text-zinc-500 hover:border-white/[0.14] hover:text-zinc-300'
-                    } ${busy ? 'cursor-not-allowed opacity-60' : ''}`}
-                  >
-                    {preset.name}
-                    {selected && <Check size={11} className="ml-1 text-emerald-300" />}
-                  </button>
-                )
-              })}
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 sm:p-4 transition hover:border-white/[0.12]">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
+                  <Shield size={16} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-small font-semibold text-zinc-100">Autonomy Preset</span>
+                    <span className="rounded-md border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-micro font-medium uppercase tracking-wider text-zinc-300">
+                      {settings.preset || 'Custom'}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-micro text-zinc-400">
+                    Apply a recommended baseline across all six risk categories
+                  </p>
+                </div>
+              </div>
+
+              {/* Segmented Preset Buttons */}
+              <div
+                role="radiogroup"
+                aria-label="Autonomy preset"
+                className="grid grid-cols-3 gap-1 rounded-xl border border-white/[0.08] bg-black/40 p-1 sm:w-auto"
+              >
+                {Object.values(settings.presets).map((preset) => {
+                  const selected = settings.preset === preset.name
+                  return (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      disabled={busy}
+                      onClick={() => void onPresetChange(preset.name)}
+                      title={preset.description}
+                      className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-caption font-medium transition ${
+                        selected
+                          ? 'border border-emerald-500/30 bg-emerald-500/20 text-emerald-200 shadow-sm'
+                          : 'border border-transparent text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
+                      } ${busy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                    >
+                      {selected && <Check size={11} className="text-emerald-400" />}
+                      <span>{preset.name}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </div>
         </fieldset>
       )}
 
       {/* Six category rows */}
-      <fieldset className="space-y-2">
+      <fieldset className="space-y-2.5">
         <legend className="sr-only">Risk-category autonomy</legend>
-        {settings.categories && Object.entries(settings.categories).map(([category, meta]) => {
-          const current = effectiveLevel(category)
-          return (
-            <div key={category} className={`rounded-xl border px-3.5 py-3 transition ${busy ? 'cursor-not-allowed opacity-60' : ''}`}
-              style={{ borderColor: current ? 'rgba(239,239,239,0.12)' : 'rgba(255,255,255,0.07)' }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="text-small font-medium text-zinc-100">{meta.label}</span>
-                  <span className="mt-1 block text-micro leading-5 text-zinc-500">{meta.description}</span>
-                </div>
-                <span className="shrink-0 rounded border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-micro text-zinc-500 uppercase tracking-wider">
-                  {category}
-                </span>
-              </div>
+        {settings.categories &&
+          Object.entries(settings.categories).map(([category, meta]) => {
+            const current = effectiveLevel(category)
+            const catMeta = getCategoryMeta(category)
+            const CatIcon = catMeta.Icon
 
-              <div className="mt-2.5 flex flex-wrap gap-1.5" role="radiogroup" aria-label={`${meta.label} autonomy level`}>
-                {LEVEL_KEYS.map((key) => {
-                  const lbl = settings.levels?.[key]?.label ?? key
-                  const sel = current === key
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      role="radio"
-                      aria-checked={sel}
-                      disabled={busy || !settings.available}
-                      onClick={() => { if (current !== key) void onChange(category, key) }}
-                      className={`rounded-lg border px-2.5 py-1.5 text-small transition ${
-                        sel
-                          ? 'border-emerald-300/30 bg-emerald-300/[0.06] text-zinc-100'
-                          : 'border-white/[0.08] bg-white/[0.02] text-zinc-500 hover:border-white/[0.14] hover:text-zinc-300'
-                      } ${busy || !settings.available ? 'cursor-not-allowed opacity-60' : ''}`}
+            return (
+              <div
+                key={category}
+                className={`rounded-xl border border-white/[0.08] bg-white/[0.015] p-3.5 sm:p-4 transition hover:border-white/[0.12] hover:bg-white/[0.025] ${
+                  busy ? 'cursor-not-allowed opacity-60' : ''
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div
+                      className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border ${catMeta.badgeClass}`}
                     >
-                      {lbl}
-                      {sel && <Check size={11} className="ml-1 text-emerald-300" />}
-                    </button>
-                  )
-                })}
+                      <CatIcon size={15} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-body-sm font-semibold text-zinc-100">{meta.label}</span>
+                        <span
+                          className={`rounded border px-1.5 py-0.5 text-micro font-medium uppercase tracking-wider ${catMeta.tagClass}`}
+                        >
+                          {catMeta.badgeLabel}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-small leading-relaxed text-zinc-400">{meta.description}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4-column Segmented Level Grid */}
+                <div
+                  className="mt-3.5 grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2"
+                  role="radiogroup"
+                  aria-label={`${meta.label} autonomy level`}
+                >
+                  {LEVEL_KEYS.map((key) => {
+                    const lbl = settings.levels?.[key]?.label ?? key
+                    const sel = current === key
+                    const isBlock = key === 'never_allow'
+
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        role="radio"
+                        aria-checked={sel}
+                        disabled={busy || !settings.available}
+                        onClick={() => {
+                          if (current !== key) void onChange(category, key)
+                        }}
+                        title={settings.levels?.[key]?.description ?? lbl}
+                        className={`flex h-8 sm:h-9 items-center justify-center gap-1.5 rounded-lg border px-2 text-caption font-medium transition ${
+                          sel
+                            ? isBlock
+                              ? 'border-rose-500/40 bg-rose-500/10 text-rose-200 shadow-[0_0_12px_rgba(244,63,94,0.15)]'
+                              : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                            : 'border-white/[0.07] bg-white/[0.02] text-zinc-400 hover:border-white/[0.14] hover:bg-white/[0.05] hover:text-zinc-200'
+                        } ${busy || !settings.available ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                      >
+                        {sel && (
+                          <Check
+                            size={11}
+                            className={isBlock ? 'text-rose-400 shrink-0' : 'text-emerald-400 shrink-0'}
+                          />
+                        )}
+                        <span className="truncate">{lbl}</span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })}
       </fieldset>
 
       {!settings.available && (
-        <p className="flex items-start gap-2 rounded-xl border border-amber-300/20 bg-amber-300/[0.04] px-3.5 py-3 text-small leading-5 text-amber-100/80">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-300" />
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-3.5 text-small leading-relaxed text-amber-200/90">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-400" />
           <span>
-            The permission system is switched off on this server, so there is
-            nothing for the model to be permitted to do yet.
+            The permission system is switched off on this server, so tools currently operate under server defaults.
           </span>
-        </p>
+        </div>
       )}
 
-      {/* Advanced: per-tool overrides (collapsible, empty-state friendly) */}
+      {/* Advanced: per-tool overrides */}
       {settings.tools && settings.tools.length > 0 && (
-        <div className="rounded-xl border border-white/[0.07]">
+        <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.015]">
           <button
             type="button"
-            className="flex w-full items-center gap-2.5 rounded-t-xl border-b border-white/[0.07] bg-white/[0.02] px-3.5 py-3 text-small font-medium text-zinc-300 transition hover:bg-white/[0.03]"
+            className={`flex w-full items-center justify-between gap-2.5 bg-white/[0.02] px-4 py-3 text-small font-medium text-zinc-300 transition hover:bg-white/[0.04] ${
+              overridesOpen ? 'border-b border-white/[0.07]' : ''
+            }`}
             onClick={() => setOverridesOpen((v) => !v)}
             aria-expanded={overridesOpen}
           >
-            {overridesOpen ? <ChevronDown size={14} className="shrink-0 text-zinc-500" /> : <ChevronRight size={14} className="shrink-0 text-zinc-500" />}
-            Advanced: per-tool overrides
-            <span className="ml-auto rounded-full bg-white/[0.06] px-1.5 py-0.5 text-caption text-zinc-500">{settings.tools.length}</span>
+            <div className="flex items-center gap-2">
+              {overridesOpen ? (
+                <ChevronDown size={14} className="text-zinc-400" />
+              ) : (
+                <ChevronRight size={14} className="text-zinc-400" />
+              )}
+              <span>Advanced: Per-Tool Overrides</span>
+            </div>
+            <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-caption font-medium text-zinc-400">
+              {settings.tools.length} {settings.tools.length === 1 ? 'tool' : 'tools'}
+            </span>
           </button>
           {overridesOpen && (
-            <div className="border-x border-b border-white/[0.07] px-3.5 py-3">
+            <div className="p-3.5 space-y-2">
               {settings.tools.length === 0 ? (
-                <p className="text-small text-zinc-500">Nothing here yet.</p>
+                <p className="text-small text-zinc-500">No registered tools found.</p>
               ) : (
                 <ul className="space-y-1.5">
                   {settings.tools.map((tool) => {
-                    const inherited = tool.category ? settings.categories?.[tool.category]?.label ?? tool.category : null
+                    const inherited = tool.category
+                      ? settings.categories?.[tool.category]?.label ?? tool.category
+                      : null
                     return (
-                      <li key={tool.name} className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                      <li
+                        key={tool.name}
+                        className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                      >
                         <span className="min-w-0 flex-1">
-                          <span className="text-small text-zinc-200">{tool.name}</span>
-                          <span className="ml-2 rounded border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-micro text-zinc-500">
+                          <span className="text-small font-medium text-zinc-200">{tool.name}</span>
+                          <span className="ml-2 rounded border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-micro text-zinc-400">
                             {inherited ?? 'unknown'}
                           </span>
                         </span>
@@ -180,11 +305,11 @@ export function PermissionPanel({
                             aria-checked={!!tool.overrideEnabled}
                             disabled={busy}
                             onClick={() => void onOverrideToggle(tool.name, !tool.overrideEnabled)}
-                            className={`shrink-0 rounded-lg border px-2.5 py-1 text-caption transition ${
+                            className={`shrink-0 rounded-lg border px-2.5 py-1 text-caption font-medium transition ${
                               tool.overrideEnabled
-                                ? 'border-emerald-300/30 bg-emerald-300/[0.06] text-emerald-200'
-                                : 'border-white/[0.08] bg-white/[0.02] text-zinc-500 hover:border-white/[0.14] hover:text-zinc-300'
-                            } ${busy ? 'cursor-not-allowed opacity-60' : ''}`}
+                                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                                : 'border-white/[0.08] bg-white/[0.02] text-zinc-400 hover:border-white/[0.14] hover:text-zinc-200'
+                            } ${busy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
                           >
                             {tool.overrideEnabled ? 'Override on' : 'Inherit'}
                           </button>
@@ -193,16 +318,19 @@ export function PermissionPanel({
                     )
                   })}
                 </ul>
-              )}             </div>
+              )}
+            </div>
           )}
         </div>
       )}
 
-      <p className="text-caption leading-5 text-zinc-600">
-        Whatever you pick, actions that escalate — running a privileged command
-        or deleting something you cannot get back — keep stopping for you.
-        Permissions reduce interruptions; they never make the irreversible safe.
-      </p>
+      {/* Safety Guarantee Footer */}
+      <div className="flex items-start gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5 text-caption leading-relaxed text-zinc-400">
+        <ShieldAlert size={16} className="mt-0.5 shrink-0 text-emerald-400" />
+        <p>
+          <strong className="font-medium text-zinc-200">Safety Guarantee:</strong> High-risk operations—such as executing arbitrary commands, deleting non-recoverable assets, or financial transactions—always pause for explicit user confirmation before running, regardless of your chosen autonomy level.
+        </p>
+      </div>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 /**
- * The Permissions top tab: the default-model picker and the autonomy panel.
- * Both handlers wrap the dialog's own API calls exactly as before; the
- * component is pure composition, so no state moved into it.
+ * The Permissions top tab: tool autonomy policies and default-model picker.
+ * Both handlers wrap the dialog's API calls; the component provides
+ * consistent Section framing, uniform margins, and clean spacing.
  */
 import { useSyncExternalStore, useState } from 'react'
 import {
@@ -10,7 +10,7 @@ import {
   subscribePreferences,
 } from '../../lib/preferences'
 import type { AutonomySettings, ModelInfo } from '../../types'
-import { Search } from 'lucide-react'
+import { LoaderCircle, Search } from 'lucide-react'
 import { PermissionPanel } from '../PermissionPanel'
 import { applyAutonomyPreset, putAutonomySetting } from '../../api'
 import { Section, selectClass } from './shared'
@@ -40,8 +40,7 @@ export function PermissionsTab({
       await putAutonomySetting(userId, category, level)
       await onAutonomySettingChange(category, level)
     } catch {
-      // Best-effort: the parent re-fetches settings on change, so a failed
-      // write does not leave the panel stale.
+      // Best-effort: the parent re-fetches settings on change.
     } finally {
       setBusy(false)
     }
@@ -74,10 +73,29 @@ export function PermissionsTab({
   return (
     <>
       <Section
-        title="Default model"
+        title="Tool Permissions & Autonomy"
+        hint="Govern how autonomously AI tools execute tasks without asking for confirmation."
+      >
+        {autonomySettings ? (
+          <PermissionPanel
+            settings={autonomySettings}
+            busy={busy}
+            onChange={(category, level) => void handleCategoryChange(category, level)}
+            onPresetChange={onAutonomyPresetChange ? (preset) => void handlePresetChange(preset) : undefined}
+          />
+        ) : (
+          <div className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-5 text-zinc-400">
+            <LoaderCircle size={18} className="animate-spin text-emerald-400" />
+            <span className="text-small">Loading permission policies…</span>
+          </div>
+        )}
+      </Section>
+
+      <Section
+        title="Default Reasoning Model"
         hint="Used for new threads. An existing thread keeps the model it was started with."
       >
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           <div className="relative">
             <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input
@@ -85,7 +103,7 @@ export function PermissionsTab({
               value={modelSearch}
               onChange={(e) => setModelSearch(e.target.value)}
               placeholder="Search default models..."
-              className="h-8 w-full rounded-lg border border-white/[0.08] bg-white/[0.02] pl-8 pr-3 text-caption text-zinc-200 placeholder:text-zinc-600 focus:border-emerald-500/40 focus:outline-none"
+              className="h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.02] pl-8 pr-3 text-caption text-zinc-200 placeholder:text-zinc-600 focus:border-emerald-500/40 focus:outline-none"
             />
           </div>
 
@@ -104,22 +122,13 @@ export function PermissionsTab({
               </option>
             ))}
           </select>
-          <p className="text-small leading-[1.6] text-zinc-600">
+
+          <p className="text-small leading-[1.6] text-zinc-500">
             {filteredModels.length} of {models.length} model{models.length === 1 ? '' : 's'} available on this server. Reasoning models can take
             a couple of minutes before the first token.
           </p>
         </div>
       </Section>
-      {autonomySettings ? (
-        <PermissionPanel
-          settings={autonomySettings}
-          busy={busy}
-          onChange={(category, level) => void handleCategoryChange(category, level)}
-          onPresetChange={onAutonomyPresetChange ? (preset) => void handlePresetChange(preset) : undefined}
-        />
-      ) : (
-        <p className="text-small text-zinc-500">Loading permissions…</p>
-      )}
     </>
   )
 }
