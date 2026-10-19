@@ -47,8 +47,30 @@ interface StoredDocument {
   created_at: string
 }
 
+import {
+  buildPdfDocument,
+  buildHtmlDocument,
+  buildDocxDocument,
+  buildCsvDocument,
+} from './documentGenerator'
+
+interface GeneratedFileEntry {
+  id: string
+  filename: string
+  format: string
+  media_type: string
+  size: number
+  conversation_id: string
+  created_at: string
+  storage_path: string
+  data: Uint8Array
+  preview_text?: string
+  pdf_pages?: string[]
+}
+
 // In-memory document storage per conversation (persisted per edge worker instance)
 const globalDocumentsMap = new Map<string, StoredDocument[]>()
+const globalGeneratedFilesMap = new Map<string, GeneratedFileEntry>()
 
 function splitIntoChunks(text: string, chunkSize = 750, overlap = 120): StoredChunk[] {
   const clean = text.replace(/\r\n/g, '\n').trim()
@@ -411,6 +433,44 @@ export default async function handler(req: Request): Promise<Response> {
       })
     }
 
+    // 3.5. File download: GET /api/files/:id/download
+    if (path.startsWith('/api/files/') && path.endsWith('/download') && method === 'GET') {
+      const parts = path.split('/')
+      const fileId = decodeURIComponent(parts[3] || '')
+      const file = globalGeneratedFilesMap.get(fileId)
+      if (!file) {
+        return jsonResponse({ detail: 'File not found' }, 404)
+      }
+      return new Response(file.data as any, {
+        status: 200,
+        headers: corsHeaders({
+          'Content-Type': file.media_type,
+          'Content-Disposition': `attachment; filename="${file.filename}"`,
+          'Content-Length': String(file.data.length),
+        }),
+      })
+    }
+
+    // 3.6. File preview: GET /api/files/:id/preview
+    if (path.startsWith('/api/files/') && path.endsWith('/preview') && method === 'GET') {
+      const parts = path.split('/')
+      const fileId = decodeURIComponent(parts[3] || '')
+      const file = globalGeneratedFilesMap.get(fileId)
+      if (!file) {
+        return jsonResponse({ detail: 'File not found' }, 404)
+      }
+      return jsonResponse({
+        id: file.id,
+        filename: file.filename,
+        format: file.format,
+        media_type: file.media_type,
+        size: file.size,
+        text: file.preview_text || '',
+        pdf_pages: file.pdf_pages || [],
+        page_count: file.pdf_pages?.length || 1,
+      })
+    }
+
     // 4. Chat streaming: POST /api/chat or POST /api/agent/chat
     if ((path === '/api/chat' || path === '/api/agent/chat') && method === 'POST') {
       let prompt = ''
@@ -651,7 +711,14 @@ CRITICAL GROUNDING RULES:
 3. Geolocation & Spatial Grounding: You are aware of the user's real-time physical location and GPS coordinates provided above. When asked "Where am I?", "What city/country am I in?", local weather questions, or queries about nearby places/recommendations, ground your answer in their active location (${effectiveLocation ? [effectiveLocation.city, effectiveLocation.region, effectiveLocation.country].filter(Boolean).join(', ') || 'their coordinates' : 'their detected region'}). If high-accuracy GPS is present, treat it as their exact real-time position.
 4. Client Context Grounding: You have awareness of the user's client environment (device OS, platform, screen, locale). Use this context naturally when answering platform-specific questions (e.g. keyboard shortcuts, OS commands, UI styling).
 5. Document Knowledge & RAG Grounding: When retrieved document excerpts are provided below, synthesize them thoroughly. Cite the source document name and relevant facts from the excerpts. Always answer questions about uploaded files directly and factually based on the retrieved passages.
-6. Formatting & Style: Keep your responses concise, intelligent, articulate, and well-structured using clean GitHub Markdown, bullet points, and code blocks where helpful.`
+6. Formatting & Style: Keep your responses concise, intelligent, articulate, and well-structured using clean GitHub Markdown, bullet points, and code blocks where helpful.
+7. Document & Deliverable Generation: You have FULL, FIRST-CLASS DOCUMENT & PDF GENERATION CAPABILITY built into your engine. You CAN and MUST generate real downloadable PDF documents, Word documents (.docx), Excel spreadsheets (.xlsx), interactive HTML documents (.html), and CSVs whenever requested.
+- NEVER state, suggest, or imply that you "cannot create or attach a PDF file directly" or that you "cannot generate files". Always generate the requested deliverable with confidence!
+- When asked for a PDF, document, report, or file, write out the complete, rich document (with # Headings, ## Subheadings, | Markdown Tables |, stat metrics, and bullet points). If a multi-page document is requested (such as a 2-page report), structure it cleanly with '---' between pages.
+- Format the deliverable enclosed in:
+\`\`\`deliverable:pdf:Document_Title
+[Complete multi-page document content with tables, sections, and '---' page dividers]
+\`\`\``
 
       // 4. Assemble Messages with System Message, Multi-turn History, and Current Prompt
       const messagesPayload: Array<{ role: string; content: unknown }> = [
@@ -785,6 +852,7 @@ CRITICAL GROUNDING RULES:
 
             const nvidiaReader = nvidiaResponse.body.getReader()
             let buffer = ''
+            let accumulatedText = ''
 
             while (true) {
               const { done, value } = await nvidiaReader.read()
@@ -805,6 +873,7 @@ CRITICAL GROUNDING RULES:
                     const chunk = JSON.parse(dataStr) as { choices?: Array<{ delta?: { content?: string } }> }
                     const content = chunk.choices?.[0]?.delta?.content
                     if (content) {
+                      accumulatedText += content
                       controller.enqueue(encoder.encode(`event: token\ndata: ${JSON.stringify({ content })}\n\n`))
                     }
                   } catch {
@@ -812,6 +881,102 @@ CRITICAL GROUNDING RULES:
                   }
                 }
               }
+            }
+
+            // Check for requested deliverables (PDF, HTML, DOCX, CSV)
+            let deliverableFormat = ''
+            let deliverableTitle = ''
+            let deliverableContent = ''
+
+            const deliverableMatch = accumulatedText.match(/```deliverable:([a-z0-9_-]+):([^\n\r]+)\s*([\s\S]*?)```/i)
+            if (deliverableMatch) {
+              deliverableFormat = deliverableMatch[1].toLowerCase()
+              deliverableTitle = deliverableMatch[2].trim().replace(/\s+/g, '_')
+              deliverableContent = deliverableMatch[3].trim()
+            } else if (
+              /(\bpdf\b|\breport\b|\bdocument\b|\bword\b|\bdocx\b|\bexcel\b|\bspreadsheet\b|\bcsv\b|\bpptx\b|\bhtml\b|\bdownload\b)/i.test(
+                prompt
+              ) &&
+              accumulatedText.length > 80
+            ) {
+              deliverableFormat = /(\bcsv\b|\bexcel\b|\bspreadsheet\b)/i.test(prompt)
+                ? 'csv'
+                : /(\bhtml\b|\bwebsite\b)/i.test(prompt)
+                ? 'html'
+                : /(\bword\b|\bdocx\b)/i.test(prompt)
+                ? 'docx'
+                : 'pdf'
+              const titleMatch = accumulatedText.match(/^#+\s*(.+)$/m)
+              deliverableTitle = (titleMatch ? titleMatch[1].trim() : prompt.slice(0, 32).trim()).replace(
+                /[^a-zA-Z0-9_-]/g,
+                '_'
+              )
+              deliverableContent = accumulatedText
+            }
+
+            if (deliverableContent) {
+              let fileData: Uint8Array
+              let mediaType = 'application/pdf'
+              let ext = deliverableFormat
+              let pdfPages: string[] = []
+
+              if (deliverableFormat === 'pdf') {
+                const built = buildPdfDocument(deliverableTitle.replace(/_/g, ' '), deliverableContent)
+                fileData = built.data
+                mediaType = 'application/pdf'
+                ext = 'pdf'
+                pdfPages = built.pagesText
+              } else if (deliverableFormat === 'html') {
+                fileData = buildHtmlDocument(deliverableTitle.replace(/_/g, ' '), deliverableContent)
+                mediaType = 'text/html'
+                ext = 'html'
+              } else if (deliverableFormat === 'docx') {
+                fileData = buildDocxDocument(deliverableTitle.replace(/_/g, ' '), deliverableContent)
+                mediaType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                ext = 'docx'
+              } else {
+                fileData = buildCsvDocument(deliverableContent)
+                mediaType = 'text/csv'
+                ext = 'csv'
+              }
+
+              const fileId = crypto.randomUUID()
+              const cleanTitle = (deliverableTitle || 'Document').replace(/[^a-zA-Z0-9_\-.]/g, '_')
+              const filename = `${cleanTitle}.${ext}`
+              const fileRecord: GeneratedFileEntry = {
+                id: fileId,
+                filename,
+                format: ext,
+                media_type: mediaType,
+                size: fileData.length,
+                conversation_id: conversationId,
+                created_at: new Date().toISOString(),
+                storage_path: `/api/files/${fileId}/download`,
+                data: fileData,
+                preview_text: deliverableContent,
+                pdf_pages: pdfPages,
+              }
+              globalGeneratedFilesMap.set(fileId, fileRecord)
+
+              controller.enqueue(
+                encoder.encode(
+                  `event: status\ndata: ${JSON.stringify({ message: `Generated deliverable: ${filename}` })}\n\n`
+                )
+              )
+              controller.enqueue(
+                encoder.encode(
+                  `event: file\ndata: ${JSON.stringify({
+                    id: fileRecord.id,
+                    filename: fileRecord.filename,
+                    format: fileRecord.format,
+                    media_type: fileRecord.media_type,
+                    size: fileRecord.size,
+                    conversation_id: fileRecord.conversation_id,
+                    created_at: fileRecord.created_at,
+                    storage_path: fileRecord.storage_path,
+                  })}\n\n`
+                )
+              )
             }
 
             // Successfully finished
