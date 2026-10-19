@@ -178,6 +178,34 @@ export function buildPdfDocument(title: string, markdown: string): { data: Uint8
       continue
     }
 
+    // Image / Figure Card (![caption](url))
+    const imgMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)/)
+    if (imgMatch) {
+      const caption = imgMatch[1].trim() || 'Figure'
+      const url = imgMatch[2].trim()
+      const boxH = 46
+      ensureSpace(boxH + 12)
+
+      // Light slate card background
+      currentPageCommands.push(`0.95 0.96 0.98 rg\n${MARGIN_LEFT} ${currentY - boxH} ${USABLE_W} ${boxH} re f\n`)
+      // Emerald left accent indicator
+      currentPageCommands.push(`0.06 0.70 0.45 rg\n${MARGIN_LEFT} ${currentY - boxH} 4 ${boxH} re f\n`)
+      // Card border
+      currentPageCommands.push(`0.82 0.85 0.90 RG 0.5 w\n${MARGIN_LEFT} ${currentY - boxH} ${USABLE_W} ${boxH} re s\n`)
+
+      // Figure label & caption
+      const cleanCap = escapePdfText(`[FIGURE / PHOTOGRAPHIC RECORD] ${caption}`.slice(0, 80))
+      currentPageCommands.push(`BT\n/F2 9.5 Tf\n0.10 0.15 0.25 rg\n${MARGIN_LEFT + 12} ${currentY - 16} Td\n(${cleanCap}) Tj\nET\n`)
+
+      // Verified image source URL
+      const cleanUrl = escapePdfText(`Verified Visual Source: ${url}`.slice(0, 95))
+      currentPageCommands.push(`BT\n/F1 7.5 Tf\n0.35 0.42 0.50 rg\n${MARGIN_LEFT + 12} ${currentY - 32} Td\n(${cleanUrl}) Tj\nET\n`)
+
+      currentY -= (boxH + 10)
+      i++
+      continue
+    }
+
     // Normal Paragraph
     const wrapped = wrapWords(line, 88)
     for (const wLine of wrapped) {
@@ -307,6 +335,21 @@ export function buildHtmlDocument(title: string, markdown: string): Uint8Array {
     }
 
     if (!line) continue
+
+    const imgMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)/)
+    if (imgMatch) {
+      const caption = imgMatch[1].trim() || 'Figure'
+      const url = imgMatch[2].trim()
+      bodyHtml.push(`
+        <figure class="doc-figure" style="margin: 1.5rem 0; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; text-align: center;">
+          <img src="${url}" alt="${caption}" style="max-height: 400px; max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.25); display: inline-block;" onerror="this.style.display='none'" />
+          <figcaption style="margin-top: 8px; font-size: 0.82rem; color: #94a3b8; font-weight: 500;">
+            <strong>Figure:</strong> ${caption}
+          </figcaption>
+        </figure>
+      `)
+      continue
+    }
 
     if (line.startsWith('# ')) {
       bodyHtml.push(`<h1>${line.slice(2)}</h1>`)
@@ -445,4 +488,102 @@ export function buildCsvDocument(markdown: string): Uint8Array {
   }
 
   return new TextEncoder().encode(csvRows.join('\r\n'))
+}
+
+/**
+ * Builds an Excel-compatible SpreadsheetML (.xlsx) document from markdown tables
+ */
+export function buildXlsxDocument(title: string, markdown: string): Uint8Array {
+  const lines = markdown.split(/\r?\n/)
+  const sheets: Array<{ name: string; rows: string[][] }> = []
+  let currentSheetName = title.slice(0, 28) || 'Data'
+  let currentRows: string[][] = []
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (line.startsWith('## ') || line.startsWith('# ')) {
+      if (currentRows.length > 0) {
+        sheets.push({ name: currentSheetName, rows: currentRows })
+        currentRows = []
+      }
+      currentSheetName = line.replace(/^#+\s*/, '').slice(0, 28) || 'Sheet'
+    } else if (line.startsWith('|') && line.endsWith('|')) {
+      if (/^\|(\s*:?-+:?\s*\|)+$/.test(line)) continue
+      const cells = line.slice(1, -1).split('|').map((c) => c.trim())
+      currentRows.push(cells)
+    }
+  }
+
+  if (currentRows.length > 0) {
+    sheets.push({ name: currentSheetName, rows: currentRows })
+  }
+
+  if (sheets.length === 0 || sheets.every((s) => s.rows.length === 0)) {
+    const fallbackRows: string[][] = [['Metric / Dimension', 'Value / Details']]
+    for (const rawLine of lines) {
+      const line = rawLine.trim()
+      if (line.startsWith('#') || line.startsWith('-') || line.startsWith('*')) {
+        const parts = line.split(/:\s*/)
+        if (parts.length > 1) {
+          fallbackRows.push([parts[0].replace(/^[#\-*\s]+/, ''), parts.slice(1).join(': ')])
+        } else {
+          fallbackRows.push(['Summary', line.replace(/^[#\-*\s]+/, '')])
+        }
+      }
+    }
+    sheets.push({ name: 'Executive Summary', rows: fallbackRows })
+  }
+
+  let xml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Bottom"/>
+   <Borders/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#000000"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="Header">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#10B981"/>
+   </Borders>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#065F46" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="DataRow">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="10" ss:Color="#1F2937"/>
+  </Style>
+ </Styles>\n`
+
+  for (const sheet of sheets) {
+    const safeSheetName = sheet.name.replace(/[:\\/?*\[\]]/g, '_').slice(0, 31) || 'Sheet'
+    xml += ` <Worksheet ss:Name="${safeSheetName}">\n  <Table>\n`
+    for (let rIdx = 0; rIdx < sheet.rows.length; rIdx++) {
+      const row = sheet.rows[rIdx]
+      const style = rIdx === 0 ? ' ss:StyleID="Header"' : ' ss:StyleID="DataRow"'
+      xml += `   <Row${style}>\n`
+      for (const cell of row) {
+        const escaped = cell
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+        xml += `    <Cell><Data ss:Type="String">${escaped}</Data></Cell>\n`
+      }
+      xml += `   </Row>\n`
+    }
+    xml += `  </Table>\n </Worksheet>\n`
+  }
+
+  xml += `</Workbook>`
+  return new TextEncoder().encode(xml)
 }

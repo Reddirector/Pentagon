@@ -168,6 +168,34 @@ export function buildClientPdfBlobUrl(title: string, markdown: string): { blobUr
       continue
     }
 
+    // Image / Figure Card (![caption](url))
+    const imgMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)/)
+    if (imgMatch) {
+      const caption = imgMatch[1].trim() || 'Figure'
+      const url = imgMatch[2].trim()
+      const boxH = 46
+      ensureSpace(boxH + 12)
+
+      // Light slate card background
+      currentPageCommands.push(`0.95 0.96 0.98 rg\n${MARGIN_LEFT} ${currentY - boxH} ${USABLE_W} ${boxH} re f\n`)
+      // Emerald left accent indicator
+      currentPageCommands.push(`0.06 0.70 0.45 rg\n${MARGIN_LEFT} ${currentY - boxH} 4 ${boxH} re f\n`)
+      // Card border
+      currentPageCommands.push(`0.82 0.85 0.90 RG 0.5 w\n${MARGIN_LEFT} ${currentY - boxH} ${USABLE_W} ${boxH} re s\n`)
+
+      // Figure label & caption
+      const cleanCap = escapePdfText(`[FIGURE / PHOTOGRAPHIC RECORD] ${caption}`.slice(0, 80))
+      currentPageCommands.push(`BT\n/F2 9.5 Tf\n0.10 0.15 0.25 rg\n${MARGIN_LEFT + 12} ${currentY - 16} Td\n(${cleanCap}) Tj\nET\n`)
+
+      // Verified image source URL
+      const cleanUrl = escapePdfText(`Verified Visual Source: ${url}`.slice(0, 95))
+      currentPageCommands.push(`BT\n/F1 7.5 Tf\n0.35 0.42 0.50 rg\n${MARGIN_LEFT + 12} ${currentY - 32} Td\n(${cleanUrl}) Tj\nET\n`)
+
+      currentY -= (boxH + 10)
+      i++
+      continue
+    }
+
     // Paragraph
     const wrapped = wrapWords(line, 88)
     for (const wLine of wrapped) {

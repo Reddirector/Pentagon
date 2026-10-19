@@ -95,6 +95,7 @@ import {
   buildHtmlDocument,
   buildDocxDocument,
   buildCsvDocument,
+  buildXlsxDocument,
 } from './documentGenerator'
 
 interface GeneratedFileEntry {
@@ -816,15 +817,37 @@ CRITICAL GROUNDING RULES:
 3. Geolocation & Spatial Grounding: You are aware of the user's real-time physical location and GPS coordinates provided above. When asked "Where am I?", "What city/country am I in?", local weather questions, or queries about nearby places/recommendations, ground your answer in their active location (${effectiveLocation ? [effectiveLocation.city, effectiveLocation.region, effectiveLocation.country].filter(Boolean).join(', ') || 'their coordinates' : 'their detected region'}). If high-accuracy GPS is present, treat it as their exact real-time position.
 4. Client Context Grounding: You have awareness of the user's client environment (device OS, platform, screen, locale). Use this context naturally when answering platform-specific questions (e.g. keyboard shortcuts, OS commands, UI styling).
 5. Document Knowledge & RAG Grounding: When retrieved document excerpts are provided below, synthesize them thoroughly. Cite the source document name and relevant facts from the excerpts. Always answer questions about uploaded files directly and factually based on the retrieved passages.
-6. Formatting & Style: Keep your responses concise, intelligent, articulate, and well-structured using clean GitHub Markdown, bullet points, and code blocks where helpful.
-7. Document & Deliverable Generation (Claude Artifacts & ChatGPT Canvas Style):
-You have first-class capability to generate downloadable executive reports, multi-page PDFs, Word documents (.docx), Excel spreadsheets (.xlsx), and interactive HTML deliverables.
-- When asked for a PDF, document, or report, provide an extensive, executive-level document formatted directly in standard Markdown (# Headings, ## Sections, | Markdown Tables |, bullet points, and key metrics).
-- Multi-page reports: If the user asks for a 2-page (or multi-page) report, structure each page thoroughly with comprehensive content, tables, and statistics, separating distinct pages cleanly with a single '---' horizontal line.
-- Images & Figures: When asked to include pictures or photos, include relevant Wikimedia Commons or Wikipedia image markdown links (e.g. ![Narendra Modi](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/PM_Modi_2023.jpg/440px-PM_Modi_2023.jpg)).
-- Deliverable Tagging: Wrap the document content inside:
+6. Formatting & Style: Keep your conversational responses intelligent, articulate, well-structured, and helpful. For normal quick chat, be concise. However, for reports, documents, analysis, research, and deliverables, provide deep, exhaustive substance.
+7. Document & Deliverable Generation (Claude Artifacts & Canvas Style):
+You have first-class capability to generate downloadable executive reports, multi-page PDFs, Word documents (.docx), and Excel spreadsheets (.xlsx).
+
+CRITICAL DELIVERABLE RULES:
+A. Deep Substantive Depth (No Shallow Outlines):
+- When a document, PDF, or report is requested (especially multi-page, e.g. 2-page executive report), write exhaustive, professional, and dense multi-section content.
+- Include complete historical backgrounds, detailed policy breakdowns, domestic welfare indicators, international relations impact, statistical tables, and comprehensive executive summaries.
+- For multi-page documents (e.g. 2-page report), write at least 600-800 substantive words per page. Separate pages cleanly using a single '---' horizontal divider.
+
+B. Visual Intelligence & Image Protocol:
+Every time a PDF or document is generated:
+1. Visual Assessment: Think and evaluate whether photographic, structural, or statistical visual imagery is required or requested for this document (e.g. official portrait, leadership photo, national emblem, economic trend chart, technical diagram).
+2. Online Image Discovery: Identify authentic, high-resolution public images from verified repositories (such as verified Wikimedia Commons or Wikipedia official portrait URLs).
+   - E.g. For Prime Minister Narendra Modi:
+     ![Prime Minister Narendra Modi - Official Portrait](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/PM_Modi_2023.jpg/800px-PM_Modi_2023.jpg)
+   - E.g. For world leaders, scientists, historical figures, or landmarks, use exact verified Wikimedia Commons image URLs.
+3. Model Generation Fallback: If an exact online photo is unavailable, synthesize rich visual data representations (such as detailed multi-dimensional statistical comparison matrices, structured ASCII/Unicode KPI panels, or ASCII trend charts).
+4. Contextual Evaluation & Fitness Gate:
+   - Evaluate whether the image or visual is accurate, authentic, high-resolution, and contextually appropriate.
+   - If SATISFIED: Insert the image cleanly at the top of the relevant section: ![Caption](URL).
+   - If NOT SATISFIED: Switch approach immediately—fill the space with an extensive structured data table, key milestone timeline, or rich analytical narrative to ensure zero vacant space.
+
+C. Statistical Tables & Automatic Excel Deliverables:
+- Always include rich markdown tables for key metrics (e.g. GDP growth, infrastructure statistics, welfare coverage, budget allocations).
+- The Pentagon platform automatically compiles these tables into an accompanying Excel Spreadsheet (.xlsx) deliverable alongside the PDF!
+
+D. Deliverable Formatting:
+Wrap the complete document inside:
 \`\`\`deliverable:pdf:Document_Title
-[The complete markdown document with tables, headers, and '---' page dividers]
+[The complete markdown document with headers, figures, tables, and '---' page dividers]
 \`\`\`
 NEVER state or apologize that you "cannot create or attach a PDF file directly". Always provide the requested document and deliverable with confidence!`
 
@@ -1078,9 +1101,11 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
             }
 
             if (deliverableContent) {
+              const filesToEmit: GeneratedFileEntry[] = []
+
               let fileData: Uint8Array
               let mediaType = 'application/pdf'
-              let ext = deliverableFormat
+              let ext = deliverableFormat || 'pdf'
               let pdfPages: string[] = []
 
               if (deliverableFormat === 'pdf') {
@@ -1097,54 +1122,84 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
                 fileData = buildDocxDocument(deliverableTitle.replace(/_/g, ' '), deliverableContent)
                 mediaType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
                 ext = 'docx'
+              } else if (deliverableFormat === 'xlsx') {
+                fileData = buildXlsxDocument(deliverableTitle.replace(/_/g, ' '), deliverableContent)
+                mediaType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                ext = 'xlsx'
               } else {
                 fileData = buildCsvDocument(deliverableContent)
                 mediaType = 'text/csv'
                 ext = 'csv'
               }
 
-              const fileId = crypto.randomUUID()
+              const primaryId = crypto.randomUUID()
               const cleanTitle = (deliverableTitle || 'Document').replace(/[^a-zA-Z0-9_\-.]/g, '_')
-              const filename = `${cleanTitle}.${ext}`
-              const dataBase64 = uint8ArrayToBase64(fileData)
-              const fileRecord: GeneratedFileEntry = {
-                id: fileId,
-                filename,
+              const primaryFilename = `${cleanTitle}.${ext}`
+              const primaryBase64 = uint8ArrayToBase64(fileData)
+
+              filesToEmit.push({
+                id: primaryId,
+                filename: primaryFilename,
                 format: ext,
                 media_type: mediaType,
                 size: fileData.length,
                 conversation_id: conversationId,
                 created_at: new Date().toISOString(),
-                storage_path: `/api/files/${fileId}/download`,
+                storage_path: `/api/files/${primaryId}/download`,
                 data: fileData,
                 preview_text: deliverableContent,
                 pdf_pages: pdfPages,
-                data_base64: dataBase64,
-              }
-              globalGeneratedFilesMap.set(fileId, fileRecord)
+                data_base64: primaryBase64,
+              })
 
-              controller.enqueue(
-                encoder.encode(
-                  `event: status\ndata: ${JSON.stringify({ message: `Generated deliverable: ${filename}` })}\n\n`
+              // Companion Deliverable: If this was a PDF/DOC report AND contains tabular data or stats were requested, ALSO generate the companion Excel Spreadsheet!
+              const hasTable = deliverableContent.includes('|')
+              const wantsSpreadsheet = /(\bexcel\b|\bspreadsheet\b|\bcsv\b|\bstats\b|\btables?\b|\bdata\b|\bgrowth\b|\bgdp\b)/i.test(prompt)
+              if (ext !== 'xlsx' && ext !== 'csv' && (hasTable || wantsSpreadsheet)) {
+                const xlsxData = buildXlsxDocument(deliverableTitle.replace(/_/g, ' ') + ' Dataset', deliverableContent)
+                const xlsxId = crypto.randomUUID()
+                const xlsxFilename = `${cleanTitle}_Data.xlsx`
+                const xlsxBase64 = uint8ArrayToBase64(xlsxData)
+                filesToEmit.push({
+                  id: xlsxId,
+                  filename: xlsxFilename,
+                  format: 'xlsx',
+                  media_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                  size: xlsxData.length,
+                  conversation_id: conversationId,
+                  created_at: new Date().toISOString(),
+                  storage_path: `/api/files/${xlsxId}/download`,
+                  data: xlsxData,
+                  preview_text: deliverableContent,
+                  data_base64: xlsxBase64,
+                })
+              }
+
+              for (const fileRecord of filesToEmit) {
+                globalGeneratedFilesMap.set(fileRecord.id, fileRecord)
+                controller.enqueue(
+                  encoder.encode(
+                    `event: status\ndata: ${JSON.stringify({ message: `Generated deliverable: ${fileRecord.filename}` })}\n\n`
+                  )
                 )
-              )
-              controller.enqueue(
-                encoder.encode(
-                  `event: file\ndata: ${JSON.stringify({
-                    id: fileRecord.id,
-                    filename: fileRecord.filename,
-                    format: fileRecord.format,
-                    media_type: fileRecord.media_type,
-                    size: fileRecord.size,
-                    conversation_id: fileRecord.conversation_id,
-                    created_at: fileRecord.created_at,
-                    storage_path: fileRecord.storage_path,
-                    data_base64: dataBase64,
-                    preview_text: deliverableContent,
-                    pdf_pages: pdfPages,
-                  })}\n\n`
+                controller.enqueue(
+                  encoder.encode(
+                    `event: file\ndata: ${JSON.stringify({
+                      id: fileRecord.id,
+                      filename: fileRecord.filename,
+                      format: fileRecord.format,
+                      media_type: fileRecord.media_type,
+                      size: fileRecord.size,
+                      conversation_id: fileRecord.conversation_id,
+                      created_at: fileRecord.created_at,
+                      storage_path: fileRecord.storage_path,
+                      data_base64: fileRecord.data_base64,
+                      preview_text: fileRecord.preview_text,
+                      pdf_pages: fileRecord.pdf_pages,
+                    })}\n\n`
+                  )
                 )
-              )
+              }
             }
 
             // Successfully finished

@@ -1422,12 +1422,19 @@ function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; 
         setTimeout(() => URL.revokeObjectURL(url), 2000)
         return
       }
-      // 3. Instant client PDF build
+      // 3. Instant client PDF or Spreadsheet build
       const sourceText = file.preview_text || messageContent
       if (fmt === 'pdf' && sourceText) {
         const docTitle = file.filename.replace(/\.pdf$/i, '').replace(/_/g, ' ')
         const built = buildClientPdfBlobUrl(docTitle, sourceText)
         triggerBlobDownload(built.blobUrl, file.filename)
+        return
+      }
+      if ((fmt === 'xlsx' || fmt === 'csv') && sourceText) {
+        const blob = new Blob([sourceText], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        triggerBlobDownload(url, file.filename)
+        setTimeout(() => URL.revokeObjectURL(url), 2000)
         return
       }
       // 4. Fallback to API download
@@ -1489,7 +1496,7 @@ function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; 
         )}
 
         {fmt === 'xlsx' && (
-          <SpreadsheetPreview sheets={previewData.sheets} />
+          <SpreadsheetPreview sheets={previewData.sheets} csvRows={parseCsvToRows(previewData.text || '')} />
         )}
 
         {fmt === 'csv' && (
