@@ -12,11 +12,12 @@ export const config = {
 }
 
 const DEFAULT_MODELS = [
-  { id: 'meta/llama-3.2-3b-instruct', supports_vision: false, context_window: 131072 },
-  { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
   { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
+  { id: 'openai/gpt-oss-20b', supports_vision: false, context_window: 131072 },
+  { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
   { id: 'meta/llama-3.2-90b-vision-instruct', supports_vision: true, context_window: 131072 },
   { id: 'mistralai/mistral-large-2-instruct', supports_vision: false, context_window: 131072 },
+  { id: 'mistralai/mistral-7b-instruct-v0.3', supports_vision: false, context_window: 32768 },
   { id: 'deepseek-ai/deepseek-v4.1-flash', supports_vision: false, context_window: 65536 },
   { id: 'google/gemma-3-12b-it', supports_vision: false, context_window: 8192 },
   { id: 'google/gemma-4-31b-it', supports_vision: false, context_window: 8192 },
@@ -34,10 +35,41 @@ function normalizeModel(model: string): string {
   ) {
     return 'meta/llama-3.2-11b-vision-instruct'
   }
-  // If user has cached EOL Llama 3.1 8B, upgrade to active Llama 3.2 3B
-  if (trimmed === 'meta/llama-3.1-8b-instruct' || trimmed.includes('llama-3.1-8b')) {
-    return 'meta/llama-3.2-3b-instruct'
+
+  // If user has cached EOL models (Llama 3.1 8B or Llama 3.2 3B/1B), upgrade to active Llama 3.2 11B
+  if (
+    trimmed === 'meta/llama-3.1-8b-instruct' ||
+    trimmed.includes('llama-3.1-8b') ||
+    trimmed === 'meta/llama-3.2-3b-instruct' ||
+    trimmed.includes('llama-3.2-3b') ||
+    trimmed.includes('llama-3.2-1b')
+  ) {
+    return 'meta/llama-3.2-11b-vision-instruct'
   }
+
+  // Ensure mandatory NVIDIA NIM organization prefixes
+  if (trimmed === 'gpt-oss-20b' || trimmed === 'gpt-oss' || trimmed === 'openai-gpt-oss-20b') {
+    return 'openai/gpt-oss-20b'
+  }
+  if (trimmed === 'nemotron-70b' || trimmed === 'llama-3.1-nemotron-70b-instruct') {
+    return 'nvidia/llama-3.1-nemotron-70b-instruct'
+  }
+  if (trimmed === 'llama-3.2-11b-vision-instruct' || trimmed === 'llama-3.2-11b') {
+    return 'meta/llama-3.2-11b-vision-instruct'
+  }
+  if (trimmed === 'llama-3.2-90b-vision-instruct' || trimmed === 'llama-3.2-90b') {
+    return 'meta/llama-3.2-90b-vision-instruct'
+  }
+  if (trimmed === 'mistral-large-2-instruct' || trimmed === 'mistral-large') {
+    return 'mistralai/mistral-large-2-instruct'
+  }
+  if (trimmed === 'mistral-7b-instruct' || trimmed === 'mistral-7b') {
+    return 'mistralai/mistral-7b-instruct-v0.3'
+  }
+  if (trimmed === 'deepseek-v4.1-flash' || trimmed === 'deepseek-v4') {
+    return 'deepseek-ai/deepseek-v4.1-flash'
+  }
+
   return trimmed
 }
 
@@ -305,7 +337,16 @@ function parseNvidiaModels(raw: unknown) {
   const chatCandidates = data.data
     .filter((m) => {
       const id = (m.id || '').toLowerCase()
-      if (id.includes('embed') || id.includes('rerank') || id.includes('parakeet') || id.includes('whisper') || id.includes('bge-')) {
+      if (
+        id.includes('embed') ||
+        id.includes('rerank') ||
+        id.includes('parakeet') ||
+        id.includes('whisper') ||
+        id.includes('bge-') ||
+        id.includes('llama-3.1-8b') ||
+        id.includes('llama-3.2-3b') ||
+        id.includes('llama-3.2-1b')
+      ) {
         return false
       }
       return true
@@ -330,7 +371,7 @@ function parseNvidiaModels(raw: unknown) {
     })
 
   // Prioritize flagship models at the top
-  const priorityKeywords = ['nemotron-70b', 'llama-3.2-11b', 'deepseek-r1', 'llama-3.2-90b', 'mistral-large', 'qwen2.5-72b']
+  const priorityKeywords = ['gpt-oss-20b', 'llama-3.2-11b', 'nemotron-70b', 'mistral-large', 'llama-3.2-90b', 'mistral-7b', 'deepseek-v4']
   chatCandidates.sort((a, b) => {
     const aPri = priorityKeywords.findIndex((k) => a.id.toLowerCase().includes(k))
     const bPri = priorityKeywords.findIndex((k) => b.id.toLowerCase().includes(k))
@@ -341,7 +382,7 @@ function parseNvidiaModels(raw: unknown) {
   })
 
   const models = chatCandidates.length > 0 ? chatCandidates : DEFAULT_MODELS
-  const defaultModel = models.find((m) => m.id.includes('nemotron-70b'))?.id || models.find((m) => m.id.includes('llama-3.2-11b'))?.id || models[0].id
+  const defaultModel = models.find((m) => m.id.includes('llama-3.2-11b'))?.id || models.find((m) => m.id.includes('gpt-oss-20b'))?.id || models.find((m) => m.id.includes('nemotron-70b'))?.id || models[0].id
 
   return { models, default_model: defaultModel }
 }
@@ -879,17 +920,17 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
           let activeModel = model
           let nvidiaResponse: Response | null = null
 
-          // Try primary model with 12s timeout
+          // Try primary model with generous 60s timeout (for deep reasoning models)
           try {
-            nvidiaResponse = await fetchNvidiaStreamWithTimeout(apiKey, activeModel, messagesPayload, 12000)
-            if (!nvidiaResponse.ok && (nvidiaResponse.status === 404 || nvidiaResponse.status >= 500)) {
+            nvidiaResponse = await fetchNvidiaStreamWithTimeout(apiKey, activeModel, messagesPayload, 60000)
+            if (!nvidiaResponse.ok && (nvidiaResponse.status === 404 || nvidiaResponse.status === 410 || nvidiaResponse.status >= 500)) {
               throw new Error(`Status ${nvidiaResponse.status}`)
             }
           } catch (primaryErr) {
-            // Fast fallback: if primary model is slow, queued, or errored
-            const fallbackModel = activeModel.includes('vision')
-              ? 'meta/llama-3.2-11b-vision-instruct'
-              : (activeModel === 'meta/llama-3.2-3b-instruct' ? 'meta/llama-3.2-11b-vision-instruct' : 'meta/llama-3.2-3b-instruct')
+            // Fast fallback: if primary model returns 404, 410, or server error
+            const fallbackModel = activeModel === 'meta/llama-3.2-11b-vision-instruct'
+              ? 'nvidia/llama-3.1-nemotron-70b-instruct'
+              : 'meta/llama-3.2-11b-vision-instruct'
 
             controller.enqueue(
               encoder.encode(
@@ -898,7 +939,7 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
             )
             try {
               activeModel = fallbackModel
-              nvidiaResponse = await fetchNvidiaStreamWithTimeout(apiKey, fallbackModel, messagesPayload, 15000)
+              nvidiaResponse = await fetchNvidiaStreamWithTimeout(apiKey, fallbackModel, messagesPayload, 60000)
             } catch (fallbackErr) {
               controller.enqueue(
                 encoder.encode(

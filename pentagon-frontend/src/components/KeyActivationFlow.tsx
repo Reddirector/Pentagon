@@ -39,12 +39,12 @@ function cleanModelName(id: string): string {
 }
 
 const FALLBACK_NVIDIA_MODELS: ModelInfo[] = [
-  { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
   { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
+  { id: 'openai/gpt-oss-20b', supports_vision: false, context_window: 131072 },
+  { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
   { id: 'meta/llama-3.2-90b-vision-instruct', supports_vision: true, context_window: 131072 },
-  { id: 'deepseek-ai/deepseek-r1', supports_vision: false, is_reasoning: true, context_window: 65536 },
   { id: 'mistralai/mistral-large-2-instruct', supports_vision: false, context_window: 131072 },
-  { id: 'qwen/qwen2.5-72b-instruct', supports_vision: false, context_window: 32768 },
+  { id: 'mistralai/mistral-7b-instruct-v0.3', supports_vision: false, context_window: 32768 },
 ]
 
 function getModelFamily(id: string): { label: string; tone: string } {
@@ -52,7 +52,8 @@ function getModelFamily(id: string): { label: string; tone: string } {
   if (lower.includes('nemotron')) return { label: 'Nemotron', tone: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' }
   if (lower.includes('deepseek')) return { label: 'DeepSeek', tone: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' }
   if (lower.includes('llama')) return { label: 'Llama', tone: 'text-blue-400 bg-blue-500/10 border-blue-500/20' }
-  if (lower.includes('mistral')) return { label: 'Mistral', tone: 'text-amber-400 bg-amber-500/10 border-amber-500/20' }
+  if (lower.includes('mistral') || lower.includes('mixtral')) return { label: 'Mistral', tone: 'text-amber-400 bg-amber-500/10 border-amber-500/20' }
+  if (lower.includes('gpt') || lower.includes('openai')) return { label: 'OpenAI', tone: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' }
   if (lower.includes('gemma')) return { label: 'Gemma', tone: 'text-rose-400 bg-rose-500/10 border-rose-500/20' }
   if (lower.includes('qwen')) return { label: 'Qwen', tone: 'text-purple-400 bg-purple-500/10 border-purple-500/20' }
   return { label: 'NVIDIA', tone: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20' }

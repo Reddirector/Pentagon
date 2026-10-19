@@ -90,6 +90,7 @@ export function ModelSelector({
     if (id.includes('deepseek')) return 'DeepSeek'
     if (id.includes('mixtral') || id.includes('mistral')) return 'Mistral'
     if (id.includes('nemotron')) return 'Nemotron'
+    if (id.includes('gpt') || id.includes('openai')) return 'OpenAI'
     if (id.includes('qwen')) return 'Qwen'
     if (id.includes('gemma')) return 'Gemma'
     return 'LLM'
