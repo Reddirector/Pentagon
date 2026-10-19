@@ -1339,7 +1339,7 @@ function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; 
         const sourceText = file.preview_text || messageContent
         if (fmt === 'pdf' && sourceText && sourceText.trim().length > 20) {
           const docTitle = file.filename.replace(/\.pdf$/i, '').replace(/_/g, ' ')
-          const built = buildClientPdfBlobUrl(docTitle, sourceText)
+          const built = await buildClientPdfBlobUrl(docTitle, sourceText)
           if (!cancelled) {
             setPdfBlobUrl(built.blobUrl)
             setPreviewData({
@@ -1371,7 +1371,7 @@ function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; 
           } else if (sourceText) {
             // Serverless isolate didn't have file in memory: compile on client side!
             const docTitle = file.filename.replace(/\.pdf$/i, '').replace(/_/g, ' ')
-            const built = buildClientPdfBlobUrl(docTitle, sourceText)
+            const built = await buildClientPdfBlobUrl(docTitle, sourceText)
             setPdfBlobUrl(built.blobUrl)
             setPreviewData({
               id: file.id,
@@ -1426,7 +1426,7 @@ function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; 
       const sourceText = file.preview_text || messageContent
       if (fmt === 'pdf' && sourceText) {
         const docTitle = file.filename.replace(/\.pdf$/i, '').replace(/_/g, ' ')
-        const built = buildClientPdfBlobUrl(docTitle, sourceText)
+        const built = await buildClientPdfBlobUrl(docTitle, sourceText)
         triggerBlobDownload(built.blobUrl, file.filename)
         return
       }

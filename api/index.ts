@@ -535,7 +535,7 @@ export default async function handler(req: Request): Promise<Response> {
         const fallbackTitle = urlObj.searchParams.get('title') || 'Document'
         const fallbackText = urlObj.searchParams.get('text') || ''
         if (fallbackText) {
-          const built = buildPdfDocument(fallbackTitle, fallbackText)
+          const built = await buildPdfDocument(fallbackTitle, fallbackText)
           return new Response(built.data as any, {
             status: 200,
             headers: corsHeaders({
@@ -822,32 +822,41 @@ CRITICAL GROUNDING RULES:
 You have first-class capability to generate downloadable executive reports, multi-page PDFs, Word documents (.docx), and Excel spreadsheets (.xlsx).
 
 CRITICAL DELIVERABLE RULES:
-A. Deep Substantive Depth (No Shallow Outlines):
-- When a document, PDF, or report is requested (especially multi-page, e.g. 2-page executive report), write exhaustive, professional, and dense multi-section content.
-- Include complete historical backgrounds, detailed policy breakdowns, domestic welfare indicators, international relations impact, statistical tables, and comprehensive executive summaries.
-- For multi-page documents (e.g. 2-page report), write at least 600-800 substantive words per page. Separate pages cleanly using a single '---' horizontal divider.
+A. Multi-Page Structure & Layout Density (Strict 2-Page Budget):
+- When a multi-page document (e.g. 2-page executive report) is requested, provide comprehensive, deeply substantive content designed to balance across exactly 2 full, dense pages.
+- DO NOT insert '[PAGE_BREAK]' or unnecessary dividers between regular subsections! That causes sparse pages with only 2-3 lines.
+- Standard 2-Page Executive Blueprint:
+  * PAGE 1: Document Header, Executive Overview, Section 1 (Core Profile / Architecture Overview with verified image or visual), and Section 2 (Core Policy / Technical Performance with dense Markdown Table 1).
+  * Use '[PAGE_BREAK]' EXACTLY ONCE to separate Page 1 from Page 2.
+  * PAGE 2: Section 3 (Comparative Impact / Benchmarking with comprehensive Markdown Table 2), Section 4 (Strategic Outlook & Governance / System Trade-offs), and Section 5 (Conclusion & Verified Citations).
+- Keep subsections flowing naturally on the page using standard markdown headings (##, ###).
 
-B. Visual Intelligence & Image Protocol:
-Every time a PDF or document is generated:
-1. Visual Assessment: Think and evaluate whether photographic, structural, or statistical visual imagery is required or requested for this document (e.g. official portrait, leadership photo, national emblem, economic trend chart, technical diagram).
-2. Online Image Discovery: Identify authentic, high-resolution public images from verified repositories (such as verified Wikimedia Commons or Wikipedia official portrait URLs).
-   - E.g. For Prime Minister Narendra Modi:
-     ![Prime Minister Narendra Modi - Official Portrait](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/PM_Modi_2023.jpg/800px-PM_Modi_2023.jpg)
-   - E.g. For world leaders, scientists, historical figures, or landmarks, use exact verified Wikimedia Commons image URLs.
-3. Model Generation Fallback: If an exact online photo is unavailable, synthesize rich visual data representations (such as detailed multi-dimensional statistical comparison matrices, structured ASCII/Unicode KPI panels, or ASCII trend charts).
+B. Mandatory Visual Deliberation & Image Protocol:
+Every time a PDF, report, or document is requested, you MUST perform this visual intelligence assessment:
+1. Visual Assessment: Evaluate whether photographic, architectural, or statistical visual imagery is required or requested for this document (e.g. official leader portrait, company/system emblem, technical architecture schematic, trend chart).
+2. Online Image Discovery:
+   - Identify genuine, verified public image URLs from established public repositories (such as verified Wikimedia Commons or official Wikipedia archives).
+   - High-frequency verified examples:
+     * Narendra Modi: ![Prime Minister Narendra Modi - Official Portrait](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/PM_Modi_2023.jpg/800px-PM_Modi_2023.jpg)
+     * NVIDIA Logo: ![NVIDIA Corporate Emblem](https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/Nvidia_logo.svg/800px-Nvidia_logo.svg.png)
+     * NVIDIA Blackwell: ![NVIDIA Blackwell GB200 Architecture](https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/NVIDIA_Blackwell_Ultra.jpg/800px-NVIDIA_Blackwell_Ultra.jpg)
+     * For other world leaders, scientists, hardware, or landmarks, use exact verified Wikimedia Commons image URLs.
+3. Model Generation Fallback:
+   - If an authentic public photo URL is unavailable or unverified, synthesize a rich visual data representation directly: a structured multi-column KPI comparison matrix, ASCII/Unicode trend chart, or architecture diagram.
 4. Contextual Evaluation & Fitness Gate:
    - Evaluate whether the image or visual is accurate, authentic, high-resolution, and contextually appropriate.
-   - If SATISFIED: Insert the image cleanly at the top of the relevant section: ![Caption](URL).
-   - If NOT SATISFIED: Switch approach immediately—fill the space with an extensive structured data table, key milestone timeline, or rich analytical narrative to ensure zero vacant space.
+   - If SATISFIED: Insert the verified image cleanly at the top of the relevant section: ![Caption](URL).
+   - If NOT SATISFIED: Switch approach immediately—fill the designated visual area with an extensive analytical comparison table, key milestone timeline, or deep narrative so that ZERO blank space or broken placeholders ever exist!
 
 C. Statistical Tables & Automatic Excel Deliverables:
-- Always include rich markdown tables for key metrics (e.g. GDP growth, infrastructure statistics, welfare coverage, budget allocations).
+- Always include rich markdown tables for key metrics (e.g. GDP growth, infrastructure statistics, welfare coverage, benchmark scores).
+- Keep table cell text clean and concise without wrapping cells in asterisks (**...**).
 - The Pentagon platform automatically compiles these tables into an accompanying Excel Spreadsheet (.xlsx) deliverable alongside the PDF!
 
 D. Deliverable Formatting:
 Wrap the complete document inside:
 \`\`\`deliverable:pdf:Document_Title
-[The complete markdown document with headers, figures, tables, and '---' page dividers]
+[The complete markdown document with headers, figures, tables, and a single '[PAGE_BREAK]' between pages]
 \`\`\`
 NEVER state or apologize that you "cannot create or attach a PDF file directly". Always provide the requested document and deliverable with confidence!`
 
@@ -1109,7 +1118,7 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
               let pdfPages: string[] = []
 
               if (deliverableFormat === 'pdf') {
-                const built = buildPdfDocument(deliverableTitle.replace(/_/g, ' '), deliverableContent)
+                const built = await buildPdfDocument(deliverableTitle.replace(/_/g, ' '), deliverableContent)
                 fileData = built.data
                 mediaType = 'application/pdf'
                 ext = 'pdf'
