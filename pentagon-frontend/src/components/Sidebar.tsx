@@ -220,7 +220,7 @@ export function Sidebar({
     // from md up it is a plain flex column and the transform is neutralised.
     // md:relative (not static) so the resize handle can anchor to this element.
     style={isDesktop && appliedWidth ? { width: `${appliedWidth}px` } : undefined}
-    className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(86vw,300px)] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] py-5 shadow-[0_0_60px_rgba(0,0,0,.6)] backdrop-blur-2xl backdrop-saturate-150 transition-transform duration-200 ease-out md:relative md:z-auto md:w-[270px] md:translate-x-0 md:shadow-none lg:w-[230px] xl:w-[270px] ${collapsed ? 'px-3' : 'px-4'} ${open ? 'translate-x-0' : '-translate-x-full'}`}
+    className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(86vw,310px)] shrink-0 flex-col border-r border-white/[0.07] bg-[var(--surface-sidebar)] pt-[calc(1.25rem+env(safe-area-inset-top))] pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-[0_0_60px_rgba(0,0,0,.6)] backdrop-blur-2xl backdrop-saturate-150 transition-transform duration-200 ease-out md:relative md:z-auto md:w-[270px] md:translate-x-0 md:shadow-none lg:w-[230px] xl:w-[270px] md:py-5 ${collapsed ? 'px-3' : 'px-4'} ${open ? 'translate-x-0' : '-translate-x-full'}`}
   >
   {isDesktop && !collapsed ? (
     <div

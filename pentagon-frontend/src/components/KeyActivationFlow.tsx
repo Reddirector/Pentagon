@@ -456,7 +456,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
   const isKeyStep = step === 'key_input' || step === 'validating' || step === 'discovering'
 
   return (
-    <main className="relative flex min-h-screen w-full items-center justify-center overflow-x-hidden overflow-y-auto bg-[#000000] px-4 py-8 text-zinc-100 selection:bg-emerald-400/20">
+    <main className="relative flex min-h-dvh w-full items-center justify-center overflow-x-hidden overflow-y-auto bg-[#000000] px-3 sm:px-4 pt-[calc(1.25rem+env(safe-area-inset-top))] pb-[calc(1.75rem+env(safe-area-inset-bottom))] text-zinc-100 selection:bg-emerald-400/20">
       {/* Dynamic Ambient Constellation Layer */}
       <AmbientLayer />
 
@@ -466,20 +466,20 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
       {/* Main Glassmorphic Onboarding Interface Card */}
       <section className="relative z-10 flex w-full max-w-[480px] flex-col items-center">
         {/* Sleek Central Pentagon SVG Brand Mark with Live Orbital Spin */}
-        <div className="relative mb-5 flex items-center justify-center">
-          <div className="absolute size-36 rounded-full bg-emerald-400/[0.16] blur-3xl transition duration-700" />
+        <div className="relative mb-4 sm:mb-5 flex items-center justify-center">
+          <div className="absolute size-32 sm:size-36 rounded-full bg-emerald-400/[0.16] blur-3xl transition duration-700" />
 
           {(step === 'validating' || step === 'discovering' || authBusy) && (
             <div
-              className="absolute size-32 animate-spin rounded-full border border-dashed border-emerald-400/40"
+              className="absolute size-28 sm:size-32 animate-spin rounded-full border border-dashed border-emerald-400/40"
               style={{ animationDuration: '3.6s' }}
             />
           )}
 
-          <div className="relative flex size-24 items-center justify-center rounded-3xl border border-white/[0.12] bg-[#090a0d]/90 shadow-[0_24px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl ring-1 ring-white/[0.06]">
-            <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-white/[0.08] to-transparent" />
+          <div className="relative flex size-20 sm:size-24 items-center justify-center rounded-2xl sm:rounded-3xl border border-white/[0.12] bg-[#090a0d]/90 shadow-[0_24px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl ring-1 ring-white/[0.06]">
+            <div className="absolute inset-0 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-white/[0.08] to-transparent" />
             <LogomarkBadge
-              size={60}
+              size={52}
               loading={step === 'validating' || step === 'discovering' || authBusy}
               className="transition duration-500 hover:scale-105"
             />

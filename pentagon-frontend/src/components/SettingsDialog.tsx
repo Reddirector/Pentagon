@@ -86,15 +86,15 @@ export function SettingsDialog({
         className="panel-enter flex h-full max-h-full w-full max-w-[720px] flex-col overflow-hidden border-white/[0.1] bg-[var(--surface-panel)] shadow-[0_40px_120px_rgba(0,0,0,.6)] outline-none sm:h-auto sm:max-h-full sm:rounded-2xl sm:border"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.07] px-4 py-4 sm:px-6">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.07] px-4 py-3 sm:py-4 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:pt-4 sm:px-6">
           <h2 className="text-body-lg font-semibold tracking-[-.01em] text-zinc-100">Settings</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close settings"
-            className="rounded-lg p-1 text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200"
+            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200"
           >
-            <X size={15} />
+            <X size={16} />
           </button>
         </div>
 
@@ -116,7 +116,7 @@ export function SettingsDialog({
           ))}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
           {topTab === 'Account' && <AccountTab userId={userId} onKeySaved={onKeySaved} />}
           {topTab === 'Permissions' && (
             <PermissionsTab

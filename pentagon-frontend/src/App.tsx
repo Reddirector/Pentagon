@@ -864,7 +864,7 @@ function App() {
     )
   }
 
-  return <div className="flex h-dvh min-h-[620px] overflow-hidden bg-transparent text-zinc-100 selection:bg-emerald-300/30">
+  return <div className="flex h-dvh md:min-h-[620px] overflow-hidden bg-transparent text-zinc-100 selection:bg-emerald-300/30">
     <AmbientLayer />
     {sidebarOpen ? (
       <button
@@ -901,8 +901,8 @@ function App() {
       }}
     />
     <main className="relative flex min-w-0 flex-1 flex-col">
-      <header className="z-20 flex min-h-[66px] items-center justify-between gap-2 border-b border-white/[0.065] bg-[#000000]/90 px-3 pt-[env(safe-area-inset-top)] backdrop-blur-xl sm:gap-3 sm:px-5 lg:px-7">
-        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+      <header className="z-20 flex min-h-[58px] sm:min-h-[66px] items-center justify-between gap-1.5 sm:gap-3 border-b border-white/[0.065] bg-[#000000]/90 px-2 sm:px-5 lg:px-7 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
@@ -923,13 +923,13 @@ function App() {
           />
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <button
             type="button"
             onClick={() => setKeyNeeded(true)}
             aria-label="NVIDIA API Key"
             title="Manage or re-enter NVIDIA API Key"
-            className="flex h-9 items-center gap-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-2.5 text-caption font-medium text-emerald-400 transition duration-150 hover:border-emerald-500/40 hover:bg-emerald-500/15 hover:text-emerald-300"
+            className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-2 sm:px-2.5 text-caption font-medium text-emerald-400 transition duration-150 hover:border-emerald-500/40 hover:bg-emerald-500/15 hover:text-emerald-300"
           >
             <Key size={13} className="text-emerald-400" />
             <span className="hidden sm:inline">API Key</span>
@@ -939,7 +939,7 @@ function App() {
             onClick={startThread}
             aria-label="New thread"
             title="New thread (⌘N)"
-            className="flex h-9 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 text-small text-zinc-300 transition duration-150 hover:border-emerald-400/30 hover:bg-white/[0.06] hover:text-white"
+            className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-2 sm:px-3 text-small text-zinc-300 transition duration-150 hover:border-emerald-400/30 hover:bg-white/[0.06] hover:text-white"
           >
             <Plus size={15} className="text-emerald-400" />
             <span className="hidden sm:inline">New Thread</span>
@@ -974,7 +974,7 @@ function App() {
           <ChevronDown size={12} className="rotate-180" />Jump to latest
         </button> : null}
         <div ref={conversationViewport} onScroll={handleConversationScroll} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="Conversation" role="log" aria-live="off">
-          <div className="mx-auto flex w-full max-w-[980px] 2xl:max-w-[1140px] flex-1 flex-col px-4 pb-5 pt-5 sm:px-7 sm:pt-8">
+          <div className="mx-auto flex w-full max-w-[980px] 2xl:max-w-[1140px] flex-1 flex-col px-3 pb-4 pt-3 sm:px-7 sm:pt-8">
             {notice && <div role="status" className="mb-4 flex items-center justify-between rounded-lg border border-emerald-300/10 bg-emerald-300/[0.04] px-3 py-2 text-small text-emerald-100/80"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={13} /></button></div>}
             {error && <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-rose-400/15 bg-rose-400/[0.05] px-3 py-2.5 text-small leading-5 text-rose-200"><span>{error}</span><span className="flex shrink-0 items-center gap-2">{canRetry && !streaming && <button type="button" onClick={() => void chat.retryLastMessage()} className="rounded-lg border border-rose-300/25 px-2.5 py-1 text-caption text-rose-100 transition hover:bg-rose-300/10">Try again</button>}<button onClick={() => setError('')} aria-label="Dismiss error"><X size={13} /></button></span></div>}
             {pendingApprovals.length > 0 && (
@@ -1042,7 +1042,7 @@ function App() {
                 <span className="font-mono text-[10px] text-sky-100/40">{doc.chunks_stored}</span>
               </span>)}
             </div>}
-            {messages.length ? <div className="space-y-8">
+            {messages.length ? <div className="space-y-6 sm:space-y-8">
               {messages.map((message, index) => <MessageRow
                 key={message.id}
                 message={message}
@@ -1060,36 +1060,37 @@ function App() {
                 deciding={Boolean((message.pendingCommand && deciding === message.pendingCommand.request_id) || (message.turnId && deciding === message.turnId))}
               />)}
             </div> : (
-              <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-10 text-center">
-                <div className="relative mb-6 grid size-[88px] place-items-center">
+              <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-6 sm:py-10 text-center">
+                <div className="relative mb-4 sm:mb-6 grid size-16 sm:size-[88px] place-items-center">
                   <div className="absolute inset-0 rounded-full bg-emerald-400/[0.14] blur-2xl" />
-                  <LogomarkBadge size={72} />
+                  <LogomarkBadge size={56} className="sm:hidden" />
+                  <LogomarkBadge size={72} className="hidden sm:grid" />
                 </div>
 
-                <p className="mb-2 text-caption font-semibold uppercase tracking-[.25em] text-emerald-300/80">
+                <p className="mb-2 text-[11px] sm:text-caption font-semibold uppercase tracking-[.25em] text-emerald-300/80">
                   Intelligent Workspace
                 </p>
 
-                <h1 className="max-w-xl text-balance text-hero-fluid font-medium leading-[1.14] tracking-[-.04em] text-zinc-100">
+                <h1 className="max-w-xl text-balance text-2xl sm:text-3xl md:text-hero-fluid font-medium leading-[1.18] tracking-[-.03em] text-zinc-100">
                   {active
                     ? (userName ? `How can I help you today, ${userName}?` : 'How can I help you today?')
                     : (userName ? `Welcome back, ${userName}` : 'Welcome back')}
                 </h1>
 
-                <div className="mt-3.5 flex flex-wrap items-center justify-center gap-2 text-micro">
-                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-zinc-400">
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 text-[11px] sm:text-micro">
+                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 sm:px-3 py-1 text-zinc-400">
                     <Sparkles size={11} className="text-emerald-400" /> Multi-Step Reasoning
                   </span>
-                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-zinc-400">
+                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 sm:px-3 py-1 text-zinc-400">
                     <Globe size={11} className="text-sky-400" /> Grounded Search
                   </span>
-                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-zinc-400">
+                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 sm:px-3 py-1 text-zinc-400">
                     <FileText size={11} className="text-purple-400" /> Rich Deliverables
                   </span>
                 </div>
 
                 {/* Quick Action Cards Grid */}
-                <div className="mt-8 grid w-full max-w-2xl grid-cols-2 gap-3 max-sm:grid-cols-1">
+                <div className="mt-6 sm:mt-8 grid w-full max-w-2xl grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
                   {DASHBOARD_ACTIONS.map((card) => {
                     const Icon = card.icon
                     return (
@@ -1100,20 +1101,20 @@ function App() {
                           ensureDraftThread()
                           setDraft(card.prompt)
                         }}
-                        className="group flex flex-col items-start rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-emerald-400/30 hover:bg-emerald-400/[0.04] hover:shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+                        className="group flex flex-col items-start rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 sm:p-3.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-emerald-400/30 hover:bg-emerald-400/[0.04] hover:shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
                       >
-                        <div className="mb-2.5 flex w-full items-center justify-between">
-                          <div className="grid size-8 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-emerald-400 transition group-hover:border-emerald-400/30 group-hover:bg-emerald-400/10">
-                            <Icon size={16} />
+                        <div className="mb-2 flex w-full items-center justify-between">
+                          <div className="grid size-7 sm:size-8 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-emerald-400 transition group-hover:border-emerald-400/30 group-hover:bg-emerald-400/10">
+                            <Icon size={15} />
                           </div>
-                          <span className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 font-mono text-[10px] text-zinc-400 group-hover:text-emerald-300">
+                          <span className="rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 sm:px-2 py-0.5 font-mono text-[10px] text-zinc-400 group-hover:text-emerald-300">
                             {card.tag}
                           </span>
                         </div>
                         <div className="text-small font-semibold text-zinc-200 group-hover:text-white">
                           {card.title}
                         </div>
-                        <div className="mt-1.5 flex items-center gap-1.5 text-micro text-emerald-400/80">
+                        <div className="mt-1 flex items-center gap-1.5 text-micro text-emerald-400/80">
                           <Sparkles size={11} />
                           <span>{card.badge}</span>
                         </div>
@@ -1122,8 +1123,8 @@ function App() {
                   })}
                 </div>
 
-                {/* Shortcut hints pill bar */}
-                <div className="mt-7 flex flex-wrap items-center justify-center gap-3 text-caption text-zinc-500">
+                {/* Shortcut hints pill bar (desktop only) */}
+                <div className="mt-7 hidden sm:flex flex-wrap items-center justify-center gap-3 text-caption text-zinc-500">
                   <span className="flex items-center gap-1.5">
                     <kbd className="rounded border border-white/[0.1] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">⌘N</kbd>
                     <span>New thread</span>
@@ -1145,16 +1146,16 @@ function App() {
         </div>
 
         <div
-          className={`relative mx-auto w-full max-w-[980px] 2xl:max-w-[1140px] px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-2 sm:px-7 sm:pb-5 ${dragging ? 'after:pointer-events-none after:absolute after:inset-x-7 after:top-0 after:bottom-5 after:rounded-2xl after:border after:border-dashed after:border-emerald-300/60 after:bg-emerald-300/[0.04] after:content-["Drop_files_to_attach"] after:grid after:place-items-center after:text-body after:text-emerald-100' : ''}`}
+          className={`relative mx-auto w-full max-w-[980px] 2xl:max-w-[1140px] px-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-1 sm:px-7 sm:pb-5 ${dragging ? 'after:pointer-events-none after:absolute after:inset-x-7 after:top-0 after:bottom-5 after:rounded-2xl after:border after:border-dashed after:border-emerald-300/60 after:bg-emerald-300/[0.04] after:content-["Drop_files_to_attach"] after:grid after:place-items-center after:text-body after:text-emerald-100' : ''}`}
           onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false) }}
           onDrop={(event) => { event.preventDefault(); setDragging(false); ensureDraftThread(); void acceptFiles(Array.from(event.dataTransfer.files)) }}
         >
           {/* Fade the last message into the composer instead of hard-cutting it. */}
-          <div aria-hidden="true" className="pointer-events-none -mt-12 h-12 bg-gradient-to-t from-[#000000] via-[#000000]/70 to-transparent" />
+          <div aria-hidden="true" className="pointer-events-none -mt-10 sm:-mt-12 h-10 sm:h-12 bg-gradient-to-t from-[#000000] via-[#000000]/70 to-transparent" />
           {media && <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-micro text-zinc-300"><span className="text-emerald-200">{isVideo(media) ? <Video size={13} /> : <ImageIcon size={13} />}</span><span className="min-w-0 flex-1 truncate">{media.name}</span><span className="text-zinc-600">{isVideo(media) ? 'Video' : 'Image'}</span><button onClick={() => setMedia(null)} aria-label="Remove attachment" className="text-zinc-500 hover:text-white"><X size={13} /></button></div>}
           {queuedDocuments.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{queuedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className="panel-enter inline-flex max-w-full items-center gap-1.5 rounded-lg border border-sky-300/10 bg-sky-300/[0.045] px-2 py-1.5 text-caption text-sky-100/80"><FileText size={11} /><span className="max-w-[180px] truncate">{file.name}</span><span className="text-sky-100/40">queued</span><button onClick={() => setQueuedDocuments((items) => items.filter((_, current) => current !== index))} aria-label={`Remove ${file.name}`}><X size={11} /></button></span>)}</div>}
-          <form onSubmit={(event) => void chat.handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#0f0f0f] p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition-[border-color,box-shadow] duration-200 ease-out focus-within:border-emerald-300/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,.045),0_20px_90px_rgba(0,0,0,.28)]">
+          <form onSubmit={(event) => void chat.handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#0f0f0f] p-1.5 sm:p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition-[border-color,box-shadow] duration-200 ease-out focus-within:border-emerald-300/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,.045),0_20px_90px_rgba(0,0,0,.28)]">
             <textarea
               value={draft}
               onChange={(event) => {
@@ -1173,13 +1174,13 @@ function App() {
               rows={2}
               disabled={streaming || transcribing}
               placeholder="Message Pentagon…"
-              className="max-h-44 min-h-[55px] w-full resize-y bg-transparent px-3 py-2 text-body-lg leading-6 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed"
+              className="max-h-36 min-h-[46px] sm:max-h-44 sm:min-h-[55px] w-full resize-none bg-transparent px-2.5 py-1.5 sm:px-3 sm:py-2 text-[15px] sm:text-body-lg leading-relaxed text-zinc-100 outline-none placeholder:text-zinc-600 disabled:cursor-not-allowed"
               aria-label="Write a message"
             />
-            <div className="flex items-center justify-between gap-2 px-1 pb-0.5">
-              <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex items-center justify-between gap-1.5 sm:gap-2 px-1 pb-0.5">
+              <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
                 <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log" multiple hidden onChange={(event) => { ensureDraftThread(); void chat.handleAttachmentChange(event) }} />
-                <button type="button" onClick={() => { ensureDraftThread(); fileInput.current?.click() }} disabled={streaming || uploading} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, document, or spreadsheet"><Paperclip size={14} /><span className="max-sm:hidden">Attach</span></button>
+                <button type="button" onClick={() => { ensureDraftThread(); fileInput.current?.click() }} disabled={streaming || uploading} className="flex min-h-8 sm:min-h-9 items-center gap-1.5 rounded-lg px-2 sm:px-2.5 py-1 sm:py-1.5 text-micro text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, document, or spreadsheet"><Paperclip size={14} /><span className="max-sm:hidden">Attach</span></button>
                 <button type="button" onClick={() => { ensureDraftThread(); void chat.toggleRecording() }} disabled={streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
               </div>
               {streaming
@@ -1188,7 +1189,7 @@ function App() {
               <span className="sr-only">{queuedDocuments.length ? `${queuedDocuments.length} documents queued` : uploading ? 'Uploading document' : ''}</span>
             </div>
           </form>
-          <div className="flex items-center justify-between gap-3 px-2 pt-2 text-caption text-zinc-600 max-sm:text-caption-xs">
+          <div className="flex items-center justify-between gap-3 px-2 pt-1.5 sm:pt-2 text-[11px] sm:text-caption text-zinc-600">
             <span className="truncate">Drop files to upload · Markdown supported</span>
             {(transcribing || uploading) && (
               <span className="max-w-[50%] truncate text-right">{transcribing ? 'Transcribing…' : 'Uploading…'}</span>
@@ -1268,13 +1269,13 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
         <Logomark size={20} loading={deciding || isStreaming} className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.35)]" />
       </div>
     )}
-    <div className={`min-w-0 ${user ? 'max-w-[78%]' : 'w-full max-w-[calc(100%-40px)]'}`}>
+    <div className={`min-w-0 ${user ? 'max-w-[88%] sm:max-w-[78%]' : 'w-full max-w-[calc(100%-34px)] sm:max-w-[calc(100%-40px)]'}`}>
       {user ? (
-        <div className="mb-2 flex items-center justify-end pr-1 text-micro text-zinc-500">
+        <div className="mb-1.5 flex items-center justify-end pr-1 text-micro text-zinc-500">
           <span className="font-medium text-zinc-300">{currentUserName}</span>
         </div>
       ) : null}
-      {user ? <div className="rounded-2xl rounded-tr-md border border-white/[0.07] bg-[#171717] px-4 py-3 text-body-lg leading-6 text-zinc-100">
+      {user ? <div className="rounded-2xl rounded-tr-md border border-white/[0.07] bg-[#171717] px-3.5 py-2.5 sm:px-4 sm:py-3 text-[14px] sm:text-body-lg leading-6 text-zinc-100">
         <div className="whitespace-pre-wrap break-words">{message.content}</div>
         {message.attachmentName && <div className="mt-2 flex items-center gap-1.5 text-caption text-zinc-500"><Paperclip size={11} />{message.attachmentName}</div>}
       </div> : <div className="min-w-0 pt-0.5">
