@@ -910,32 +910,21 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
 
       const sseStream = new ReadableStream({
         async start(controller) {
+          let activeModel = model
           // 1. Immediately emit ping to flush response headers in <5ms and eliminate 504 Gateway Timeout!
           controller.enqueue(encoder.encode(': ping\n\n'))
           controller.enqueue(
-            encoder.encode(`event: status\ndata: ${JSON.stringify({ message: 'Connected' })}\n\n`)
+            encoder.encode(`event: status\ndata: ${JSON.stringify({ message: 'Connected', model: activeModel })}\n\n`)
+          )
+          controller.enqueue(
+            encoder.encode(`event: model\ndata: ${JSON.stringify({ model: activeModel })}\n\n`)
           )
 
-          // 2. If RAG sources were retrieved, inform the user and emit sources metadata immediately
+          // 2. If RAG sources were retrieved, emit sources metadata immediately
           if (sourcesUsed && sourcesUsed.documents.length > 0) {
-            const count = sourcesUsed.documents.reduce((acc, d) => acc + d.chunk_ids.length, 0)
-            controller.enqueue(
-              encoder.encode(
-                `event: status\ndata: ${JSON.stringify({ message: `Retrieved ${count} passages from knowledge base` })}\n\n`
-              )
-            )
             controller.enqueue(
               encoder.encode(
                 `event: metadata\ndata: ${JSON.stringify({ sources_used: sourcesUsed })}\n\n`
-              )
-            )
-          }
-
-          if (effectiveLocation && (effectiveLocation.city || effectiveLocation.country)) {
-            const locName = [effectiveLocation.city, effectiveLocation.region, effectiveLocation.country].filter(Boolean).join(', ')
-            controller.enqueue(
-              encoder.encode(
-                `event: status\ndata: ${JSON.stringify({ message: `Location grounded: ${locName} (${effectiveLocation.source.toUpperCase()})` })}\n\n`
               )
             )
           }
@@ -950,7 +939,6 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
           }, 2000)
 
           try {
-          let activeModel = model
           let nvidiaResponse: Response | null = null
 
           // Try primary model with generous 60s timeout (for deep reasoning models)
@@ -965,15 +953,18 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
               ? 'nvidia/llama-3.1-nemotron-70b-instruct'
               : 'meta/llama-3.2-11b-vision-instruct'
 
+            activeModel = fallbackModel
             controller.enqueue(
-              encoder.encode(
-                `event: status\ndata: ${JSON.stringify({ message: `Model "${activeModel}" is busy; accelerating with ${fallbackModel}...` })}\n\n`
-              )
+              encoder.encode(`event: model\ndata: ${JSON.stringify({ model: activeModel })}\n\n`)
             )
             try {
-              activeModel = fallbackModel
               nvidiaResponse = await fetchNvidiaStreamWithTimeout(apiKey, fallbackModel, messagesPayload, 60000)
             } catch (fallbackErr) {
+              controller.enqueue(
+                encoder.encode(
+                  `event: status\ndata: ${JSON.stringify({ message: 'Failed to connect', model: activeModel })}\n\n`
+                )
+              )
               controller.enqueue(
                 encoder.encode(
                   `event: error\ndata: ${JSON.stringify({ message: 'NVIDIA API request timed out. Please check your API key or try again in a moment.' })}\n\n`
@@ -999,6 +990,9 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
             }
 
             controller.enqueue(
+              encoder.encode(`event: status\ndata: ${JSON.stringify({ message: 'Failed to connect', model: activeModel })}\n\n`)
+            )
+            controller.enqueue(
               encoder.encode(`event: error\ndata: ${JSON.stringify({ message: errDetail })}\n\n`)
             )
             controller.close()
@@ -1007,6 +1001,9 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
           }
 
           if (!nvidiaResponse.body) {
+            controller.enqueue(
+              encoder.encode(`event: status\ndata: ${JSON.stringify({ message: 'Failed to connect', model: activeModel })}\n\n`)
+            )
             controller.enqueue(
               encoder.encode(`event: error\ndata: ${JSON.stringify({ message: 'No response stream from NVIDIA' })}\n\n`)
             )
@@ -1209,11 +1206,6 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
                 globalGeneratedFilesMap.set(fileRecord.id, fileRecord)
                 controller.enqueue(
                   encoder.encode(
-                    `event: status\ndata: ${JSON.stringify({ message: `Generated deliverable: ${fileRecord.filename}` })}\n\n`
-                  )
-                )
-                controller.enqueue(
-                  encoder.encode(
                     `event: file\ndata: ${JSON.stringify({
                       id: fileRecord.id,
                       filename: fileRecord.filename,
@@ -1233,10 +1225,12 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
             }
 
             // Successfully finished
-            controller.enqueue(encoder.encode(`event: status\ndata: ${JSON.stringify({ message: 'Done' })}\n\n`))
             controller.enqueue(encoder.encode('event: done\ndata: {}\n\n'))
             controller.close()
           } catch (err) {
+            controller.enqueue(
+              encoder.encode(`event: status\ndata: ${JSON.stringify({ message: 'Failed to connect', model: activeModel })}\n\n`)
+            )
             controller.enqueue(
               encoder.encode(`event: error\ndata: ${JSON.stringify({ message: err instanceof Error ? err.message : String(err) })}\n\n`)
             )

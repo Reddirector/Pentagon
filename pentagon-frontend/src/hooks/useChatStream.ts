@@ -189,7 +189,11 @@ export function useChatStream(options: UseChatStreamOptions) {
         setError(errorMsg)
         if (messageShown) {
           setCanRetry(true)
-          setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: `I could not complete that request. (${errorMsg})` } : item))
+          setMessages((current) => current.map((item) => item.id === assistantId ? {
+            ...item,
+            statusNotes: ['Failed to connect'],
+            content: item.content || `I could not complete that request. (${errorMsg})`,
+          } : item))
         } else {
           // Nothing reached the thread -- creating it or uploading an
           // attachment failed first -- so the question goes back to the
@@ -516,14 +520,39 @@ export function useChatStream(options: UseChatStreamOptions) {
               }
             : step),
         }))
+      } else if (eventName === 'model' && typeof payload.model === 'string' && payload.model.trim()) {
+        const activeModel = payload.model.trim()
+        mutate((item) => ({ ...item, model_used: activeModel }))
       } else if (eventName === 'status') {
         const note = typeof payload.message === 'string' ? payload.message : ''
+        const modelFromPayload = typeof payload.model === 'string' ? payload.model.trim() : ''
         const revised = typeof payload.answer === 'string' ? payload.answer : null
         // A repaired answer supersedes the tokens that already streamed.
         if (revised !== null) bufferedText = ''
+
+        // Check if legacy acceleration notice includes a fallback model name
+        const accelMatch = note.match(/accelerating with ([^.]+)\.\.\./)
+        const detectedModel = modelFromPayload || (accelMatch ? accelMatch[1].trim() : '')
+
+        // Strict whitelist: only keep 'Connected' or 'Failed to connect'
+        let sanitizedNote: string | null = null
+        if (/^connected$/i.test(note.trim())) {
+          sanitizedNote = 'Connected'
+        } else if (/failed to connect/i.test(note.trim())) {
+          sanitizedNote = 'Failed to connect'
+        }
+
         mutate((item) => ({
           ...item,
-          ...(note ? { statusNotes: [...(item.statusNotes ?? []), note] } : {}),
+          ...(detectedModel ? { model_used: detectedModel } : {}),
+          ...(sanitizedNote
+            ? {
+                statusNotes: [
+                  ...(item.statusNotes ?? []).filter((n) => !/^connected$/i.test(n) && !/failed to connect/i.test(n)),
+                  sanitizedNote,
+                ],
+              }
+            : {}),
           ...(revised !== null ? { content: revised } : {}),
         }))
       } else if (eventName === 'plan') {
@@ -594,6 +623,10 @@ export function useChatStream(options: UseChatStreamOptions) {
           agentQuestion: null,
         }))
       } else if (eventName === 'error') {
+        mutate((item) => ({
+          ...item,
+          statusNotes: ['Failed to connect'],
+        }))
         const raw = String(payload.message || 'The model request failed.')
         if (raw.includes('Not found for account') || raw.includes('Function \'')) {
           throw new Error('NVIDIA Cloud Error: The requested model is not available or not provisioned for your NVIDIA account. Please switch to an active model (such as Llama 3.1 Nemotron or Llama 3.2 Vision) using the model selector.')

@@ -107,11 +107,16 @@ export function AgentActivity({
   const artifacts = message.agentArtifacts ?? []
   const question = message.agentQuestion
   const approval = message.pendingToolApproval
-  const notes = message.statusNotes ?? []
+  const rawNotes = message.statusNotes ?? []
   const verification = message.verification
   const turnId = message.turnId
 
-  if (!steps.length && !plan.length && !artifacts.length && !question && !approval && !notes.length && !verification) {
+  const isFailed = rawNotes.some((n) => /failed/i.test(n) || /error/i.test(n)) || (typeof message.content === 'string' && message.content.startsWith('I could not complete that request'))
+  const isConnected = !isFailed && rawNotes.some((n) => /^connected/i.test(n.trim()))
+  const showConnection = isConnected || isFailed
+  const modelName = message.model_used
+
+  if (!steps.length && !plan.length && !artifacts.length && !question && !approval && !showConnection && !verification) {
     return null
   }
 
@@ -134,6 +139,26 @@ export function AgentActivity({
 
   return (
     <section aria-label="Agent activity" className="my-2.5 space-y-2.5">
+      {showConnection && (
+        <div className="flex flex-wrap items-center gap-1.5 text-caption text-zinc-400">
+          <span className="inline-flex items-center gap-1.5 font-medium">
+            <span
+              className={`size-1.5 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-rose-400'}`}
+              aria-hidden="true"
+            />
+            <span className={isConnected ? 'text-emerald-400' : 'text-rose-400'}>
+              {isConnected ? 'Connected' : 'Failed to connect'}
+            </span>
+          </span>
+          {modelName && (
+            <>
+              <span className="text-zinc-600" aria-hidden="true">·</span>
+              <span className="font-mono text-[11px] text-zinc-400">{modelName}</span>
+            </>
+          )}
+        </div>
+      )}
+
       {approval && turnId && (
         <div role="group" aria-label="Tool approval required" className="rounded-xl border border-amber-300/20 bg-amber-300/[0.05] p-3 shadow-sm">
           <p className="mb-1 text-caption font-medium text-amber-100/90">
@@ -334,13 +359,6 @@ export function AgentActivity({
         </div>
       )}
 
-      {notes.length > 0 && (
-        <ul className="space-y-0.5">
-          {notes.map((note, index) => (
-            <li key={`${index}-${note.slice(0, 24)}`} className="text-caption italic text-zinc-500">{note}</li>
-          ))}
-        </ul>
-      )}
 
       {verification && (
         <div className="pt-0.5">
