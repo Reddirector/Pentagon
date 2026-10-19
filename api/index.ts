@@ -878,7 +878,8 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
                 item.content.trim()
               ) {
                 const text = item.content.trim()
-                const content = text.length > 1200 ? text.slice(0, 1200) + '... [truncated previous context]' : text
+                const maxLen = item.role === 'assistant' ? 600 : 1000
+                const content = text.length > maxLen ? text.slice(0, maxLen) + '... [truncated previous context]' : text
                 messagesPayload.push({ role: item.role, content })
               }
             }
@@ -955,11 +956,11 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
           // Try primary model with generous 60s timeout (for deep reasoning models)
           try {
             nvidiaResponse = await fetchNvidiaStreamWithTimeout(apiKey, activeModel, messagesPayload, 60000)
-            if (!nvidiaResponse.ok && (nvidiaResponse.status === 404 || nvidiaResponse.status === 410 || nvidiaResponse.status >= 500)) {
+            if (!nvidiaResponse.ok) {
               throw new Error(`Status ${nvidiaResponse.status}`)
             }
           } catch (primaryErr) {
-            // Fast fallback: if primary model returns 404, 410, or server error
+            // Fast fallback: if primary model returns error status or times out
             const fallbackModel = activeModel === 'meta/llama-3.2-11b-vision-instruct'
               ? 'nvidia/llama-3.1-nemotron-70b-instruct'
               : 'meta/llama-3.2-11b-vision-instruct'
@@ -1019,7 +1020,7 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
           let accumulatedText = ''
           let firstTokenReceived = false
 
-          // Safety watchdog: if after connecting, 18s pass without any token from NVIDIA
+          // Safety watchdog: 60s timeout for first token (accommodates deep reasoning pre-fill)
           const firstTokenWatchdog = setTimeout(() => {
             if (!firstTokenReceived) {
               try {
@@ -1028,7 +1029,7 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
                 // ignore
               }
             }
-          }, 18000)
+          }, 60000)
 
           try {
             while (true) {

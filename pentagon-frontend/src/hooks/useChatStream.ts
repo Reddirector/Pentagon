@@ -185,10 +185,11 @@ export function useChatStream(options: UseChatStreamOptions) {
         setNotice('Stopped. The partial answer above was kept.')
         if (messageShown) setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'Stopped before an answer was produced.' } : item))
       } else {
-        setError(cause instanceof Error ? cause.message : 'The chat request failed.')
+        const errorMsg = cause instanceof Error ? cause.message : 'The chat request failed.'
+        setError(errorMsg)
         if (messageShown) {
           setCanRetry(true)
-          setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: 'I could not complete that request.' } : item))
+          setMessages((current) => current.map((item) => item.id === assistantId && !item.content ? { ...item, content: `I could not complete that request. (${errorMsg})` } : item))
         } else {
           // Nothing reached the thread -- creating it or uploading an
           // attachment failed first -- so the question goes back to the
@@ -422,10 +423,10 @@ export function useChatStream(options: UseChatStreamOptions) {
     armStallTimer()
 
     let firstTokenReceived = false
-    const FIRST_TOKEN_TIMEOUT_MS = 40_000
+    const FIRST_TOKEN_TIMEOUT_MS = 65_000
     let firstTokenTimer: number | null = window.setTimeout(() => {
       if (!firstTokenReceived) {
-        stallError = new Error('The model took too long to produce the first token (40s timeout). Please try again or switch to a faster model.')
+        stallError = new Error('The model took too long to produce the first token (65s timeout). Please try again or switch to a faster model.')
         streamAbort.current?.abort()
       }
     }, FIRST_TOKEN_TIMEOUT_MS)
