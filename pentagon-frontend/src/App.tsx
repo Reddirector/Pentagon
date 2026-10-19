@@ -42,7 +42,7 @@ import { ThinkingIndicator } from './components/ThinkingIndicator'
 import { AmbientLayer } from './components/AmbientLayer'
 import { AgentActivity } from './components/AgentActivity'
 import { ModelSelector } from './components/ModelSelector'
-import { AVATAR_THEMES, getPreferences, subscribePreferences } from './lib/preferences'
+import { AVATAR_THEMES, getPreferences, setUserAvatarColor, setUserEmail, setUserName, subscribePreferences } from './lib/preferences'
 import type { ChatMessage, Conversation, DocumentInfo, ModelInfo } from './types'
 
 const CommandPalette = lazy(() => import('./components/CommandPalette').then((m) => ({ default: m.CommandPalette })))
@@ -312,10 +312,16 @@ function App() {
     ({
       models: discovered,
       selectedModel: chosen,
+      account,
     }: {
       key: string
       models: ModelInfo[]
       selectedModel: string
+      account?: {
+        userName?: string
+        userEmail?: string
+        avatarColor?: string
+      }
     }) => {
       if (discovered && discovered.length > 0) {
         setModels(discovered)
@@ -323,6 +329,15 @@ function App() {
       if (chosen) {
         setSelectedModel(chosen)
         setDefaultModel(chosen)
+      }
+      if (account?.userName) {
+        setUserName(account.userName)
+      }
+      if (account?.userEmail) {
+        setUserEmail(account.userEmail)
+      }
+      if (account?.avatarColor) {
+        setUserAvatarColor(account.avatarColor)
       }
       setKeyNeeded(false)
     },
@@ -901,7 +916,7 @@ function App() {
           <ModelSelector
             models={models}
             selectedModel={selectedModel}
-            onSelectModel={(id) => void switchModel(id)}
+            onSelectModel={(id: string) => void switchModel(id)}
             disabled={!models.length || switching || streaming}
             switching={switching}
             agentBadge={agentBadges[selectedModel]?.badge}
