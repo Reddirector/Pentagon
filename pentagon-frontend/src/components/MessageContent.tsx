@@ -62,8 +62,8 @@ function triggerBlobDownload(blobUrl: string, filename: string) {
 
 function sanitizeMarkdownContent(raw: string): string {
   if (!raw) return ''
-  let cleaned = raw.replace(/```deliverable:[^\n]*\r?\n([\s\S]*?)```/gi, '$1')
-  cleaned = cleaned.replace(/```deliverable:[^\n]*\r?\n/gi, '')
+  let cleaned = raw.replace(/(?:#\s*)?```deliverable:[^\n]*\r?\n([\s\S]*?)(?:```|$)/gi, '$1')
+  cleaned = cleaned.replace(/(?:#\s*)?```deliverable:[^\n]*(?:\r?\n|$)/gi, '')
   cleaned = cleaned.replace(/^[ \t]*DELIVERABLE:[^\r\n]+(?:\r?\n|$)/gim, '')
   return cleaned
 }

@@ -1078,15 +1078,17 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
             return
           }
 
-            // Check for requested deliverables (PDF, HTML, DOCX, CSV)
+            // Check for requested deliverables (PDF, HTML, DOCX, CSV, XLSX)
             let deliverableFormat = ''
             let deliverableTitle = ''
             let deliverableContent = ''
 
-            const deliverableMatch = accumulatedText.match(/```deliverable:([a-z0-9_-]+):([^\n\r]+)\s*([\s\S]*?)```/i)
+            const deliverableMatch = accumulatedText.match(
+              /(?:#\s*)?```deliverable:([a-z0-9_-]+):([^\n\r]+)\s*([\s\S]*?)(?:```|$)/i
+            )
             if (deliverableMatch) {
-              deliverableFormat = deliverableMatch[1].toLowerCase()
-              deliverableTitle = deliverableMatch[2].trim().replace(/\s+/g, '_')
+              deliverableFormat = deliverableMatch[1].toLowerCase().trim()
+              deliverableTitle = deliverableMatch[2].trim().replace(/[:/\\]/g, '_').replace(/\s+/g, '_')
               deliverableContent = deliverableMatch[3].trim()
             } else if (
               /(\bpdf\b|\breport\b|\bdocument\b|\bword\b|\bdocx\b|\bexcel\b|\bspreadsheet\b|\bcsv\b|\bpptx\b|\bhtml\b|\bdownload\b)/i.test(
@@ -1094,19 +1096,37 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
               ) &&
               accumulatedText.length > 80
             ) {
-              deliverableFormat = /(\bcsv\b|\bexcel\b|\bspreadsheet\b)/i.test(prompt)
-                ? 'csv'
-                : /(\bhtml\b|\bwebsite\b)/i.test(prompt)
-                ? 'html'
-                : /(\bword\b|\bdocx\b)/i.test(prompt)
-                ? 'docx'
-                : 'pdf'
               const titleMatch = accumulatedText.match(/^#+\s*(.+)$/m)
               deliverableTitle = (titleMatch ? titleMatch[1].trim() : prompt.slice(0, 32).trim()).replace(
                 /[^a-zA-Z0-9_-]/g,
                 '_'
               )
               deliverableContent = accumulatedText
+            }
+
+            // Clean deliverableContent to strip any residual deliverable markers
+            if (deliverableContent) {
+              deliverableContent = deliverableContent
+                .replace(/(?:#\s*)?```deliverable:[^\n]*(?:\r?\n|$)/gi, '')
+                .replace(/```\s*$/g, '')
+                .trim()
+            }
+
+            // Guaranteed format priority: if the prompt requests a PDF or report, ensure PDF is primary!
+            if (/\bpdf\b|\breport\b/i.test(prompt)) {
+              deliverableFormat = 'pdf'
+            } else if (!deliverableFormat) {
+              if (/\b(docx|word)\b/i.test(prompt)) {
+                deliverableFormat = 'docx'
+              } else if (/\b(html|website)\b/i.test(prompt)) {
+                deliverableFormat = 'html'
+              } else if (/\b(xlsx|excel|spreadsheet)\b/i.test(prompt)) {
+                deliverableFormat = 'xlsx'
+              } else if (/\bcsv\b/i.test(prompt)) {
+                deliverableFormat = 'csv'
+              } else {
+                deliverableFormat = 'pdf'
+              }
             }
 
             if (deliverableContent) {
