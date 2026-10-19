@@ -858,7 +858,7 @@ function App() {
     return (
       <KeyActivationFlow
         userId={userId}
-        initialKey={getStoredNvidiaKey()}
+        initialKey=""
         onComplete={handleKeyActivationComplete}
       />
     )

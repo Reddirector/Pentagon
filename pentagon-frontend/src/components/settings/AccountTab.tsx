@@ -205,7 +205,7 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
         <div className="space-y-4">
           <div className="flex items-center gap-4">
             <div
-              className={`grid size-14 shrink-0 place-items-center rounded-2xl border ${avatarTheme.border} ${avatarTheme.bg} font-semibold text-hero-fluid ${avatarTheme.text} shadow-inner`}
+              className={`grid size-14 shrink-0 place-items-center rounded-2xl border ${avatarTheme.border} ${avatarTheme.bg} font-bold text-lg ${avatarTheme.text} shadow-inner select-none`}
             >
               {initials}
             </div>
@@ -216,7 +216,7 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
                 <span className="inline-flex items-center gap-1 rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-caption-xs font-medium text-emerald-300">
                   <span className="size-1.5 rounded-full bg-emerald-400" /> Active Session
                 </span>
-                <span className="text-caption-xs text-zinc-500">Local &amp; Secure</span>
+                <span className="text-caption-xs text-zinc-400">Verified Profile</span>
               </div>
             </div>
           </div>
@@ -354,7 +354,7 @@ export function AccountTab({ userId, onKeySaved }: { userId: string; onKeySaved:
 
       <Section
         title="NVIDIA API key"
-        hint="Stored encrypted on the backend and reused for every request. If the server has a key configured, this is optional."
+        hint="Bring Your Own Key (BYOK) — Stored securely on your private client session. Never shared with other users or public servers."
       >
         <div className="space-y-2.5">
           <div className="relative flex items-center">

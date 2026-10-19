@@ -16,6 +16,7 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  Star,
   User,
   UserCheck,
   UserPlus,
@@ -24,6 +25,7 @@ import {
 import { apiRequest, setStoredNvidiaKey } from '../api'
 import type { ModelInfo } from '../types'
 import { LogomarkBadge } from './Logomark'
+import { AmbientLayer } from './AmbientLayer'
 import {
   AVATAR_THEMES,
   getPreferences,
@@ -48,6 +50,51 @@ export interface KeyActivationFlowProps {
       avatarColor?: string
     }
   }) => void
+}
+
+interface StoredAccount {
+  email: string
+  name: string
+  passwordHash: string
+  avatarColor: string
+  createdAt: string
+}
+
+function getStoredAccounts(): StoredAccount[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem('pentagon.accounts_registry')
+    return raw ? (JSON.parse(raw) as StoredAccount[]) : []
+  } catch {
+    return []
+  }
+}
+
+function saveStoredAccount(account: StoredAccount): void {
+  if (typeof window === 'undefined') return
+  try {
+    const accounts = getStoredAccounts().filter(
+      (a) => a.email.toLowerCase() !== account.email.toLowerCase(),
+    )
+    accounts.push(account)
+    localStorage.setItem('pentagon.accounts_registry', JSON.stringify(accounts))
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+async function hashPassword(password: string): Promise<string> {
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+    try {
+      const msgBuffer = new TextEncoder().encode(password)
+      const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+    } catch {
+      // fallback to btoa
+    }
+  }
+  return btoa(password)
 }
 
 function cleanModelName(id: string): string {
@@ -81,10 +128,48 @@ function getModelFamily(id: string): { label: string; tone: string } {
   return { label: 'NVIDIA', tone: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20' }
 }
 
-export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyActivationFlowProps) {
+/**
+ * Passive decorative star vectors and radiant sparkles for the AI vibe.
+ */
+function PassiveStarElements() {
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+      {/* 4-point radiant compass stars */}
+      <div className="absolute left-[8%] top-[14%] animate-pulse text-emerald-400/35 transition-all duration-1000" style={{ animationDuration: '4.5s' }}>
+        <Sparkles size={18} />
+      </div>
+      <div className="absolute right-[12%] top-[18%] animate-pulse text-white/25 transition-all duration-1000" style={{ animationDuration: '6s', animationDelay: '1s' }}>
+        <Star size={14} fill="currentColor" />
+      </div>
+      <div className="absolute left-[15%] bottom-[22%] animate-pulse text-teal-300/30 transition-all duration-1000" style={{ animationDuration: '5.2s', animationDelay: '2s' }}>
+        <Sparkles size={16} />
+      </div>
+      <div className="absolute right-[16%] bottom-[26%] animate-pulse text-emerald-300/25 transition-all duration-1000" style={{ animationDuration: '7s', animationDelay: '1.5s' }}>
+        <Star size={12} fill="currentColor" />
+      </div>
+
+      {/* Subtle starlight cross twinkles */}
+      <div className="absolute left-[28%] top-[8%] size-1 rounded-full bg-emerald-300 shadow-[0_0_12px_#34d399] opacity-60" />
+      <div className="absolute right-[32%] top-[10%] size-1.5 rounded-full bg-white shadow-[0_0_14px_rgba(255,255,255,0.8)] opacity-40" />
+      <div className="absolute left-[22%] bottom-[12%] size-1 rounded-full bg-teal-200 shadow-[0_0_10px_#5eead4] opacity-50" />
+      <div className="absolute right-[24%] bottom-[15%] size-1.5 rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399] opacity-45" />
+
+      {/* Deep concentric cosmic rings */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="size-[540px] rounded-full border border-emerald-500/[0.04]" />
+        <div className="absolute size-[720px] rounded-full border border-white/[0.02]" />
+        <div className="absolute size-[900px] rounded-full border border-white/[0.015]" />
+      </div>
+    </div>
+  )
+}
+
+export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps) {
   const currentPrefs = getPreferences()
   const [step, setStep] = useState<FlowStep>('key_input')
-  const [keyInput, setKeyInput] = useState(initialKey)
+
+  // BYOK: Always start keyInput empty so the user's private key is never pre-filled or exposed
+  const [keyInput, setKeyInput] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [error, setError] = useState('')
   const [discoveredModels, setDiscoveredModels] = useState<ModelInfo[]>([])
@@ -101,11 +186,11 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
   const [authBusy, setAuthBusy] = useState(false)
   const [authNotice, setAuthNotice] = useState('')
 
-  // Keep initials updated live
+  // Live initials calculation: properly constrained to 2 letters
   const initials = useMemo(() => {
-    const raw = (nameInput.trim() || 'User').split(' ').filter(Boolean)
+    const raw = (nameInput.trim() || 'Workspace User').split(' ').filter(Boolean)
     if (raw.length >= 2) return `${raw[0][0]}${raw[1][0]}`.toUpperCase()
-    return (raw[0]?.[0] || 'U').toUpperCase()
+    return (raw[0]?.slice(0, 2) || 'WU').toUpperCase()
   }, [nameInput])
 
   const avatarTheme = AVATAR_THEMES[avatarColor] ?? AVATAR_THEMES.emerald
@@ -157,7 +242,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
         return
       }
 
-      // Store key in browser storage and sync
+      // Store key in client session
       setStoredNvidiaKey(trimmedKey)
       try {
         await apiRequest('/api/keys', {
@@ -166,7 +251,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
           body: JSON.stringify({ user_id: userId, api_key: trimmedKey }),
         })
       } catch {
-        // Safe to ignore backend sync if stored locally
+        // Safe if offline
       }
 
       // 2. Discover models associated with this key
@@ -179,7 +264,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
         try {
           const modelsResult = await apiRequest<{ models: ModelInfo[]; default_model?: string }>(
             '/api/models',
-            { headers: { 'X-Nvidia-Key': trimmedKey } }
+            { headers: { 'X-Nvidia-Key': trimmedKey } },
           )
           models = modelsResult.models || []
           defModel = modelsResult.default_model || ''
@@ -206,88 +291,164 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
     if (!selectedModel && discoveredModels.length > 0) {
       setSelectedModel(discoveredModels[0].id)
     }
+    setError('')
     setStep('account_setup')
   }
 
-  // Handle Account Setup Submission (Sign up, Sign in, or Local Guest)
+  // Handle Account Setup Submission (Strict Verification)
   async function handleAccountSubmit(event?: FormEvent) {
     if (event) event.preventDefault()
     setAuthBusy(true)
     setError('')
     setAuthNotice('')
 
-    const finalName = nameInput.trim() || 'Workspace User'
-    const finalEmail = emailInput.trim() || (authMode === 'signup' ? `${finalName.toLowerCase().replace(/\s+/g, '.')}@pentagon.local` : 'user@pentagon.local')
+    const email = emailInput.trim().toLowerCase()
+    const password = passwordInput.trim()
+
+    // 1. Basic validation rules
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Please provide a valid email address.')
+      setAuthBusy(false)
+      return
+    }
+
+    if (!password || password.length < 6) {
+      setError('Password must contain at least 6 characters.')
+      setAuthBusy(false)
+      return
+    }
+
+    if (authMode === 'signup' && nameInput.trim().length < 2) {
+      setError('Please enter your full name (at least 2 characters).')
+      setAuthBusy(false)
+      return
+    }
 
     try {
       const client = getSupabase()
-      if (client && passwordInput.trim()) {
-        if (authMode === 'signup') {
+      const existingAccounts = getStoredAccounts()
+      const existing = existingAccounts.find((a) => a.email.toLowerCase() === email)
+
+      if (authMode === 'signin') {
+        // ================= LOG IN MODE =================
+        let authenticated = false
+        let accountName = existing?.name || ''
+        let accountColor = existing?.avatarColor || avatarColor
+
+        if (client) {
+          const { data, error: signInError } = await client.auth.signInWithPassword({
+            email,
+            password,
+          })
+          if (signInError) {
+            setError(signInError.message || 'Invalid email or password.')
+            setAuthBusy(false)
+            return
+          }
+          if (data.session) {
+            authenticated = true
+            accountName = (data.session.user.user_metadata?.display_name as string) || existing?.name || nameInput.trim() || 'User'
+          }
+        }
+
+        if (!authenticated) {
+          if (!existing) {
+            setError('Account not found. Please click "Create Account" to register first.')
+            setAuthBusy(false)
+            return
+          }
+
+          const hashed = await hashPassword(password)
+          if (hashed !== existing.passwordHash) {
+            setError('Incorrect password. Please verify your credentials and try again.')
+            setAuthBusy(false)
+            return
+          }
+          authenticated = true
+          accountName = existing.name
+          accountColor = existing.avatarColor
+        }
+
+        if (!authenticated) {
+          setError('Could not verify credentials. Please try again.')
+          setAuthBusy(false)
+          return
+        }
+
+        // Successfully logged in
+        setUserName(accountName)
+        setUserEmail(email)
+        setUserAvatarColor(accountColor)
+
+        const finalModel = selectedModel || discoveredModels[0]?.id || 'nvidia/llama-3.1-nemotron-70b-instruct'
+        localStorage.setItem('pentagon.defaultModel', finalModel)
+
+        onComplete({
+          key: trimmedKey,
+          models: discoveredModels,
+          selectedModel: finalModel,
+          account: {
+            userName: accountName,
+            userEmail: email,
+            avatarColor: accountColor,
+          },
+        })
+      } else {
+        // ================= CREATE ACCOUNT MODE =================
+        if (existing) {
+          setError('An account with this email address already exists. Please switch to "Log In".')
+          setAuthBusy(false)
+          return
+        }
+
+        const finalName = nameInput.trim()
+
+        if (client) {
           const { error: signUpError } = await client.auth.signUp({
-            email: finalEmail,
-            password: passwordInput,
+            email,
+            password,
             options: { data: { display_name: finalName } },
           })
-          if (signUpError) throw signUpError
-          setAuthNotice('Cloud account created successfully.')
-        } else {
-          const { error: signInError } = await client.auth.signInWithPassword({
-            email: finalEmail,
-            password: passwordInput,
-          })
-          if (signInError) throw signInError
-          setAuthNotice('Signed in to cloud account.')
+          if (signUpError && !signUpError.message.includes('already registered')) {
+            setError(signUpError.message)
+            setAuthBusy(false)
+            return
+          }
         }
-      }
 
-      // Sync identity to local preferences
-      setUserName(finalName)
-      setUserEmail(finalEmail)
-      setUserAvatarColor(avatarColor)
-
-      // Complete onboarding and launch workspace
-      const finalModel = selectedModel || discoveredModels[0]?.id || 'nvidia/llama-3.1-nemotron-70b-instruct'
-      localStorage.setItem('pentagon.defaultModel', finalModel)
-
-      onComplete({
-        key: trimmedKey,
-        models: discoveredModels,
-        selectedModel: finalModel,
-        account: {
-          userName: finalName,
-          userEmail: finalEmail,
+        // Store new account record
+        const passHash = await hashPassword(password)
+        saveStoredAccount({
+          email,
+          name: finalName,
+          passwordHash: passHash,
           avatarColor,
-        },
-      })
+          createdAt: new Date().toISOString(),
+        })
+
+        setUserName(finalName)
+        setUserEmail(email)
+        setUserAvatarColor(avatarColor)
+
+        const finalModel = selectedModel || discoveredModels[0]?.id || 'nvidia/llama-3.1-nemotron-70b-instruct'
+        localStorage.setItem('pentagon.defaultModel', finalModel)
+
+        onComplete({
+          key: trimmedKey,
+          models: discoveredModels,
+          selectedModel: finalModel,
+          account: {
+            userName: finalName,
+            userEmail: email,
+            avatarColor,
+          },
+        })
+      }
     } catch (cause) {
-      // If cloud auth encounters an error, inform user clearly but offer local continuation
       setError(cause instanceof Error ? cause.message : 'Authentication could not complete.')
     } finally {
       setAuthBusy(false)
     }
-  }
-
-  // Direct Guest / Local workspace entry
-  function handleContinueAsGuest() {
-    const finalName = nameInput.trim() || 'Workspace User'
-    const finalEmail = emailInput.trim() || 'user@pentagon.local'
-    setUserName(finalName)
-    setUserEmail(finalEmail)
-    setUserAvatarColor(avatarColor)
-
-    const finalModel = selectedModel || discoveredModels[0]?.id || 'nvidia/llama-3.1-nemotron-70b-instruct'
-    localStorage.setItem('pentagon.defaultModel', finalModel)
-
-    onComplete({
-      key: trimmedKey,
-      models: discoveredModels,
-      selectedModel: finalModel,
-      account: {
-        userName: finalName,
-        userEmail: finalEmail,
-        avatarColor,
-      },
-    })
   }
 
   const isModelStep = step === 'model_select'
@@ -296,15 +457,14 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
 
   return (
     <main className="relative flex min-h-screen w-full items-center justify-center overflow-x-hidden overflow-y-auto bg-[#000000] px-4 py-8 text-zinc-100 selection:bg-emerald-400/20">
-      {/* Ambient Cosmos Glow & Orbital Rings */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden">
-        <div className="size-[580px] rounded-full bg-gradient-to-tr from-emerald-500/[0.09] via-teal-500/[0.04] to-transparent blur-[140px]" />
-        <div className="absolute size-[320px] rounded-full border border-emerald-500/[0.05]" />
-        <div className="absolute size-[480px] rounded-full border border-white/[0.02]" />
-        <div className="absolute size-[640px] rounded-full border border-white/[0.015]" />
-      </div>
+      {/* Dynamic Ambient Constellation Layer */}
+      <AmbientLayer />
 
-      <section className="relative z-10 flex w-full max-w-[500px] flex-col items-center">
+      {/* Passive Celestial Star Elements for Authentic AI Vibe */}
+      <PassiveStarElements />
+
+      {/* Main Glassmorphic Onboarding Interface Card */}
+      <section className="relative z-10 flex w-full max-w-[480px] flex-col items-center">
         {/* Sleek Central Pentagon SVG Brand Mark with Live Orbital Spin */}
         <div className="relative mb-5 flex items-center justify-center">
           <div className="absolute size-36 rounded-full bg-emerald-400/[0.16] blur-3xl transition duration-700" />
@@ -312,7 +472,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
           {(step === 'validating' || step === 'discovering' || authBusy) && (
             <div
               className="absolute size-32 animate-spin rounded-full border border-dashed border-emerald-400/40"
-              style={{ animationDuration: '4s' }}
+              style={{ animationDuration: '3.6s' }}
             />
           )}
 
@@ -327,7 +487,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
         </div>
 
         {/* 3-Step High-Tech Progress Stepper */}
-        <div className="mb-6 flex w-full max-w-[420px] items-center justify-between rounded-full border border-white/[0.08] bg-[#0b0c10]/80 p-1 backdrop-blur-xl shadow-lg">
+        <div className="mb-6 flex w-full max-w-[400px] items-center justify-between rounded-full border border-white/[0.08] bg-[#0b0c10]/85 p-1 backdrop-blur-2xl shadow-xl">
           {/* Step 1: API Key */}
           <button
             type="button"
@@ -337,7 +497,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
             disabled={step === 'validating' || step === 'discovering'}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-micro font-medium transition ${
               isKeyStep
-                ? 'border border-emerald-400/40 bg-emerald-400/15 text-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.2)]'
+                ? 'border border-emerald-400/40 bg-emerald-400/15 text-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.25)]'
                 : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >
@@ -360,7 +520,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
             disabled={discoveredModels.length === 0}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-micro font-medium transition ${
               isModelStep
-                ? 'border border-emerald-400/40 bg-emerald-400/15 text-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.2)]'
+                ? 'border border-emerald-400/40 bg-emerald-400/15 text-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.25)]'
                 : discoveredModels.length > 0
                 ? 'text-zinc-400 hover:text-zinc-200'
                 : 'cursor-not-allowed text-zinc-700'
@@ -385,7 +545,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
             disabled={discoveredModels.length === 0}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-micro font-medium transition ${
               isAccountStep
-                ? 'border border-emerald-400/40 bg-emerald-400/15 text-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.2)]'
+                ? 'border border-emerald-400/40 bg-emerald-400/15 text-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.25)]'
                 : discoveredModels.length > 0
                 ? 'text-zinc-400 hover:text-zinc-200'
                 : 'cursor-not-allowed text-zinc-700'
@@ -433,13 +593,13 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
         )}
 
         {/* =================================================================== */}
-        {/* STEP 1: ENTER API KEY                                              */}
+        {/* STEP 1: ENTER API KEY (STRICT BYOK - BRING YOUR OWN KEY)            */}
         {/* =================================================================== */}
         {step === 'key_input' && (
           <div className="w-full text-center">
             <h1 className="text-hero font-semibold tracking-tight text-white">Connect AI Engine</h1>
             <p className="mt-1.5 text-small text-zinc-400">
-              Enter your NVIDIA NIM API key to unlock ultra-fast inference and reasoning models.
+              Bring Your Own Key (BYOK) — Enter your personal NVIDIA NIM key to connect enterprise inference models.
             </p>
 
             <form onSubmit={handleValidate} className="mt-5 w-full">
@@ -494,7 +654,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
                       ? 'Format starts with nvapi-'
                       : isReadyToValidate
                       ? 'Ready to connect'
-                      : 'Incomplete token'}
+                      : 'Incomplete token string'}
                   </span>
                 </div>
 
@@ -509,10 +669,10 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
                 </a>
               </div>
 
-              {/* Security Telemetry Badge */}
-              <div className="mt-6 flex items-center justify-center gap-2 text-caption-xs text-zinc-600">
+              {/* Security Privacy Notice */}
+              <div className="mt-6 flex items-center justify-center gap-2 text-caption-xs text-zinc-500">
                 <ShieldCheck size={12} className="text-emerald-400/80" />
-                <span>Keys stored client-side in encrypted local sandbox</span>
+                <span>Dedicated private session · Never shared or exposed across users</span>
               </div>
             </form>
           </div>
@@ -609,7 +769,7 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
             </div>
 
             {/* Model Cards List */}
-            <div className="mt-2.5 max-h-[250px] w-full space-y-2 overflow-y-auto pr-1 text-left custom-scrollbar">
+            <div className="mt-2.5 max-h-[240px] w-full space-y-2 overflow-y-auto pr-1 text-left custom-scrollbar">
               {filteredDiscoveredModels.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Cpu size={24} className="mb-2 text-zinc-600" />
@@ -708,25 +868,32 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
         )}
 
         {/* =================================================================== */}
-        {/* STEP 3: ACCOUNT & PROFILE SETUP (CREATE OR LOG IN)                 */}
+        {/* STEP 3: ACCOUNT & PROFILE SETUP (AUTHENTICATED SIGN IN / SIGN UP)   */}
         {/* =================================================================== */}
         {step === 'account_setup' && (
           <div className="w-full text-center">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-caption text-emerald-300">
               <Sparkles size={13} className="text-emerald-400" />
-              <span>Step 3 · Identity &amp; Workspace</span>
+              <span>Step 3 · Identity &amp; Security</span>
             </div>
 
-            <h1 className="mt-2 text-hero font-semibold text-white">Create Account or Log In</h1>
+            <h1 className="mt-2 text-hero font-semibold text-white">
+              {authMode === 'signup' ? 'Create Your Account' : 'Sign In to Your Account'}
+            </h1>
             <p className="mt-1 text-small text-zinc-400">
-              Set up your workspace profile to save threads, custom tools, and exports.
+              {authMode === 'signup'
+                ? 'Register your profile to secure your workspace, conversations, and document exports.'
+                : 'Enter your credentials to access your existing workspace and saved history.'}
             </p>
 
             {/* Mode Switch Tabs */}
             <div className="mt-4 flex w-full rounded-xl border border-white/[0.08] bg-white/[0.025] p-1">
               <button
                 type="button"
-                onClick={() => setAuthMode('signup')}
+                onClick={() => {
+                  setAuthMode('signup')
+                  setError('')
+                }}
                 className={`flex-1 rounded-lg py-1.5 text-small font-medium transition ${
                   authMode === 'signup'
                     ? 'bg-white/[0.1] text-white shadow-sm'
@@ -737,30 +904,33 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
               </button>
               <button
                 type="button"
-                onClick={() => setAuthMode('signin')}
+                onClick={() => {
+                  setAuthMode('signin')
+                  setError('')
+                }}
                 className={`flex-1 rounded-lg py-1.5 text-small font-medium transition ${
                   authMode === 'signin'
                     ? 'bg-white/[0.1] text-white shadow-sm'
                     : 'text-zinc-500 hover:text-zinc-300'
                 }`}
               >
-                Log In
+                Sign In
               </button>
             </div>
 
-            {/* Live Profile / Avatar Preview Card */}
+            {/* Profile Avatar Preview Card */}
             <div className="mt-4 flex items-center gap-3.5 rounded-2xl border border-white/[0.08] bg-[#0c0d12]/90 p-3 text-left shadow-md">
               <div
-                className={`grid size-12 shrink-0 place-items-center rounded-2xl border font-semibold text-base transition-all duration-300 ${avatarTheme.bg} ${avatarTheme.text} ${avatarTheme.border}`}
+                className={`grid size-12 shrink-0 place-items-center rounded-2xl border font-bold text-base transition-all duration-300 select-none ${avatarTheme.bg} ${avatarTheme.text} ${avatarTheme.border}`}
               >
                 {initials}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-small font-semibold text-white">
-                  {nameInput.trim() || 'Your Name'}
+                  {nameInput.trim() || (authMode === 'signin' ? 'Account Login' : 'New User')}
                 </div>
                 <div className="truncate text-micro text-zinc-400">
-                  {emailInput.trim() || 'user@pentagon.local'}
+                  {emailInput.trim() || 'email@example.com'}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
                   <div className="flex items-center gap-1.5 text-emerald-400/90">
@@ -768,8 +938,8 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
                     <span>Model: {cleanModelName(selectedModel || 'Nemotron 70B')}</span>
                   </div>
                   <div className="flex items-center gap-1 text-zinc-500">
-                    <span className={`size-1.5 rounded-full ${isSupabaseConfigured ? 'bg-emerald-400' : 'bg-cyan-400'}`} />
-                    <span>{isSupabaseConfigured ? 'Cloud Sync Ready' : 'Local Sandbox'}</span>
+                    <span className={`size-1.5 rounded-full ${isSupabaseConfigured ? 'bg-emerald-400' : 'bg-teal-400'}`} />
+                    <span>{isSupabaseConfigured ? 'Cloud Sync' : 'Active'}</span>
                   </div>
                 </div>
               </div>
@@ -781,16 +951,17 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
               {authMode === 'signup' && (
                 <div>
                   <label className="mb-1 block text-micro font-medium text-zinc-400" htmlFor="setup-name">
-                    Display Name
+                    Full Name
                   </label>
                   <div className="relative flex items-center rounded-xl border border-white/[0.08] bg-white/[0.03] transition focus-within:border-emerald-400/40 focus-within:bg-white/[0.05]">
                     <User size={15} className="ml-3 text-zinc-500" />
                     <input
                       id="setup-name"
                       type="text"
+                      required
                       value={nameInput}
                       onChange={(e) => setNameInput(e.target.value)}
-                      placeholder="e.g. John Doe"
+                      placeholder="e.g. Alex Mercer"
                       className="h-10 w-full bg-transparent px-3 text-small text-zinc-100 outline-none placeholder:text-zinc-600"
                     />
                   </div>
@@ -807,9 +978,10 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
                   <input
                     id="setup-email"
                     type="email"
+                    required
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
-                    placeholder="john@example.com"
+                    placeholder="alex@domain.com"
                     className="h-10 w-full bg-transparent px-3 text-small text-zinc-100 outline-none placeholder:text-zinc-600"
                   />
                 </div>
@@ -825,9 +997,10 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
                   <input
                     id="setup-password"
                     type={showPassword ? 'text' : 'password'}
+                    required
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    placeholder={authMode === 'signup' ? 'Create a secure password' : 'Enter your password'}
+                    placeholder={authMode === 'signup' ? 'Min 6 characters' : 'Enter account password'}
                     className="h-10 w-full bg-transparent px-3 text-small text-zinc-100 outline-none placeholder:text-zinc-600"
                   />
                   <button
@@ -888,26 +1061,15 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
                     {authBusy
                       ? 'Authenticating...'
                       : authMode === 'signup'
-                      ? 'Create Account & Launch'
-                      : 'Sign In & Launch'}
+                      ? 'Create Account & Enter Workspace'
+                      : 'Sign In & Enter Workspace'}
                   </span>
                   <ArrowRight size={16} />
                 </button>
               </div>
 
-              {/* Quick Guest / Local fallback option */}
-              <div className="text-center pt-1">
-                <button
-                  type="button"
-                  onClick={handleContinueAsGuest}
-                  className="text-micro text-zinc-500 transition hover:text-zinc-300"
-                >
-                  Or enter as Guest (Local Workspace without password)
-                </button>
-              </div>
-
               {/* Back to Model Selection */}
-              <div className="text-center pt-1">
+              <div className="text-center pt-2">
                 <button
                   type="button"
                   onClick={() => setStep('model_select')}
