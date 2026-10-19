@@ -427,7 +427,7 @@ async function fetchNvidiaStreamWithTimeout(
         model: modelName,
         messages,
         temperature: 0.7,
-        max_tokens: 4096,
+        max_tokens: 8192,
         stream: true,
       }),
       signal: controller.signal,
@@ -837,7 +837,7 @@ Every time a PDF, report, or document is requested, you MUST perform this visual
 2. Online Image Discovery:
    - Identify genuine, verified public image URLs from established public repositories (such as verified Wikimedia Commons or official Wikipedia archives).
    - High-frequency verified examples:
-     * Narendra Modi: ![Prime Minister Narendra Modi - Official Portrait](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/PM_Modi_2023.jpg/800px-PM_Modi_2023.jpg)
+     * Narendra Modi: ![Prime Minister Narendra Modi - Official Portrait](https://upload.wikimedia.org/wikipedia/commons/4/4d/Narendra_Modi_2023.jpg)
      * NVIDIA Logo: ![NVIDIA Corporate Emblem](https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/Nvidia_logo.svg/800px-Nvidia_logo.svg.png)
      * NVIDIA Blackwell: ![NVIDIA Blackwell GB200 Architecture](https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/NVIDIA_Blackwell_Ultra.jpg/800px-NVIDIA_Blackwell_Ultra.jpg)
      * For other world leaders, scientists, hardware, or landmarks, use exact verified Wikimedia Commons image URLs.
@@ -1028,12 +1028,32 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
             }
           }, 60000)
 
+          let streamStalled = false
           try {
             while (true) {
-              const { done, value } = await nvidiaReader.read()
-              if (done) break
+              const readPromise = nvidiaReader.read()
+              let stallTimer: ReturnType<typeof setTimeout> | undefined
+              const timeoutPromise = new Promise<{ done: boolean; value?: Uint8Array }>((_, reject) => {
+                stallTimer = setTimeout(() => reject(new Error('STREAM_STALL')), 18000)
+              })
 
-              buffer += decoder.decode(value, { stream: true })
+              let readResult: { done: boolean; value?: Uint8Array }
+              try {
+                readResult = await Promise.race([readPromise, timeoutPromise])
+              } catch {
+                console.warn('NVIDIA stream stalled for >18s. Breaking stream loop safely.')
+                streamStalled = true
+                try {
+                  nvidiaReader.cancel()
+                } catch {}
+                break
+              } finally {
+                if (stallTimer) clearTimeout(stallTimer)
+              }
+
+              if (readResult.done || !readResult.value) break
+
+              buffer += decoder.decode(readResult.value, { stream: true })
               const lines = buffer.split('\n')
               buffer = lines.pop() || ''
 
@@ -1063,6 +1083,59 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
             }
           } finally {
             clearTimeout(firstTokenWatchdog)
+          }
+
+          // Auto-continuation and completion guarantee:
+          // If the model stalled, hit token limit, or cut off mid-document (e.g. at Section 3 or with dangling punctuation)
+          const isDocRequest = /(\bpdf\b|\breport\b|\bdocument\b|\bexecutive\b|\btransformation\b|\bfootprint\b)/i.test(prompt)
+          const endsMidSentence = /[([{:,]$/.test(accumulatedText.trim())
+          const missingKeySections = isDocRequest && (!accumulatedText.includes('Section 4') || !accumulatedText.includes('Section 5') || !accumulatedText.includes('Conclusion'))
+
+          if (accumulatedText.length > 150 && (streamStalled || endsMidSentence || missingKeySections)) {
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  `event: status\ndata: ${JSON.stringify({ message: 'Accelerating deliverable completion...', model: 'meta/llama-3.2-11b-vision-instruct' })}\n\n`
+                )
+              )
+              const continuationPrompt = `${prompt}\n\n[SYSTEM INSTRUCTION: The document generation was previously in progress and output the following text:\n"""\n${accumulatedText}\n"""\nCRITICAL TASK: Continue seamlessly from this exact point without repeating previous text. Complete all remaining sections (Section 3, Section 4, Section 5, Outlook, and Citations) densely, thoroughly, and completely.]`
+              const continuationRes = await fetchNvidiaStreamWithTimeout(
+                apiKey,
+                'meta/llama-3.2-11b-vision-instruct',
+                [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: continuationPrompt },
+                ],
+                22000
+              )
+              if (continuationRes.ok && continuationRes.body) {
+                const contReader = continuationRes.body.getReader()
+                let contBuffer = ''
+                while (true) {
+                  const { done, value } = await contReader.read()
+                  if (done) break
+                  contBuffer += decoder.decode(value, { stream: true })
+                  const cLines = contBuffer.split('\n')
+                  contBuffer = cLines.pop() || ''
+                  for (const cLine of cLines) {
+                    const cTrimmed = cLine.trim()
+                    if (!cTrimmed || cTrimmed.startsWith(':') || cTrimmed === 'data: [DONE]') continue
+                    if (cTrimmed.startsWith('data:')) {
+                      try {
+                        const cChunk = JSON.parse(cTrimmed.slice(5).trim()) as { choices?: Array<{ delta?: { content?: string } }> }
+                        const cContent = cChunk.choices?.[0]?.delta?.content
+                        if (cContent) {
+                          accumulatedText += cContent
+                          controller.enqueue(encoder.encode(`event: token\ndata: ${JSON.stringify({ content: cContent })}\n\n`))
+                        }
+                      } catch {}
+                    }
+                  }
+                }
+              }
+            } catch (contErr) {
+              console.warn('Continuation attempt ended gracefully:', contErr)
+            }
           }
 
           if (accumulatedText.trim().length === 0) {
@@ -1107,6 +1180,7 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
               deliverableContent = deliverableContent
                 .replace(/(?:#\s*)?```deliverable:[^\n]*(?:\r?\n|$)/gi, '')
                 .replace(/```\s*$/g, '')
+                .replace(/\s*\([^\n)]*$/, '')
                 .trim()
             }
 

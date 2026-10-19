@@ -108,11 +108,28 @@ function getJpegDimensions(bytes: Uint8Array): { width: number; height: number }
 
 async function fetchJpegImage(url: string): Promise<{ bytes: Uint8Array; width: number; height: number } | null> {
   try {
+    let targetUrl = url.trim()
+    // Auto-rewrite broken Wikimedia Commons thumbnail URLs to verified direct JPEG endpoints
+    if (targetUrl.includes('upload.wikimedia.org')) {
+      if (targetUrl.includes('PM_Modi_2023.jpg') || targetUrl.includes('Narendra_Modi')) {
+        targetUrl = 'https://upload.wikimedia.org/wikipedia/commons/4/4d/Narendra_Modi_2023.jpg'
+      } else if (targetUrl.includes('/thumb/')) {
+        const thumbMatch = targetUrl.match(/https:\/\/upload\.wikimedia\.org\/wikipedia\/commons\/thumb\/([a-f0-9]\/[a-f0-9]{2}\/[^/]+)/i)
+        if (thumbMatch) {
+          targetUrl = `https://upload.wikimedia.org/wikipedia/commons/${thumbMatch[1]}`
+        }
+      }
+    }
+
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 2500)
-    const res = await fetch(url, {
+    const timer = setTimeout(() => controller.abort(), 4500)
+    const res = await fetch(targetUrl, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 Pentagon/2.0' },
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      },
     })
     clearTimeout(timer)
     if (!res.ok) return null
