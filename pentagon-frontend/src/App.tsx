@@ -1268,9 +1268,15 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
           <div className={isStreaming ? 'streaming-answer' : undefined}>
             <AssistantDetails message={message} />
           </div>
-        ) : (!message.agentSteps?.length ? (
-          <ThinkingIndicator model={message.model_used} />
-        ) : null)}
+        ) : isStreaming ? (
+          !message.agentSteps?.length ? (
+            <ThinkingIndicator model={message.model_used} />
+          ) : null
+        ) : !message.agentSteps?.length ? (
+          <div className="my-2 rounded-xl border border-rose-500/25 bg-rose-500/[0.08] p-3.5 text-small text-rose-300">
+            <span>No response was returned from the model (the request may have timed out or stalled). Please try sending your message again.</span>
+          </div>
+        ) : null}
       {/* Above the answer: while a command is pending there is nothing to read
           yet, so the prompt has to be the thing the eye lands on. */}
       {message.pendingCommand && onDecideCommand ? <CommandApproval

@@ -420,6 +420,15 @@ export function useChatStream(options: UseChatStreamOptions) {
       }, SSE_READ_STALL_MS)
     }
     armStallTimer()
+
+    let firstTokenReceived = false
+    const FIRST_TOKEN_TIMEOUT_MS = 40_000
+    let firstTokenTimer: number | null = window.setTimeout(() => {
+      if (!firstTokenReceived) {
+        stallError = new Error('The model took too long to produce the first token (40s timeout). Please try again or switch to a faster model.')
+        streamAbort.current?.abort()
+      }
+    }, FIRST_TOKEN_TIMEOUT_MS)
     const update = (changes: Partial<ChatMessage>) => setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, ...changes } : item))
     /** Functional variant: appending to an agent timeline needs the previous item, not a patch. */
     const mutate = (fn: (item: ChatMessage) => ChatMessage) => setMessages((current) => current.map((item) => (item.id === assistantId ? fn(item) : item)))
@@ -454,6 +463,11 @@ export function useChatStream(options: UseChatStreamOptions) {
       let payload: Record<string, unknown>
       try { payload = JSON.parse(raw) as Record<string, unknown> } catch { return }
       if (eventName === 'token' && typeof payload.content === 'string') {
+        if (firstTokenTimer !== null) {
+          window.clearTimeout(firstTokenTimer)
+          firstTokenTimer = null
+          firstTokenReceived = true
+        }
         queueText(payload.content)
       } else if (eventName === 'metadata') {
         update({
@@ -612,6 +626,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       throw cause
     } finally {
       if (stallTimer !== null) window.clearTimeout(stallTimer)
+      if (firstTokenTimer !== null) window.clearTimeout(firstTokenTimer)
       flushText()
       streamAbort.current = null
     }

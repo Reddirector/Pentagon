@@ -12,6 +12,7 @@ export const config = {
 }
 
 const DEFAULT_MODELS = [
+  { id: 'meta/llama-3.1-8b-instruct', supports_vision: false, context_window: 131072 },
   { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
   { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
   { id: 'meta/llama-3.2-90b-vision-instruct', supports_vision: true, context_window: 131072 },
@@ -24,7 +25,17 @@ const DEFAULT_MODELS = [
 
 function normalizeModel(model: string): string {
   const trimmed = (model || '').trim()
-  if (!trimmed || trimmed.includes('llama-3.3-70b') || trimmed.includes('deepseek-v4') || trimmed.includes('gemma-3') || trimmed.includes('gemma-4')) {
+  if (
+    !trimmed ||
+    trimmed.includes('llama-3.3-70b') ||
+    trimmed.includes('deepseek-v4') ||
+    trimmed.includes('gemma-3') ||
+    trimmed.includes('gemma-4') ||
+    trimmed.includes('gpt-oss') ||
+    trimmed.includes('e503b15c') ||
+    trimmed.includes('Function \'') ||
+    trimmed.length < 5
+  ) {
     return 'nvidia/llama-3.1-nemotron-70b-instruct'
   }
   return trimmed
@@ -353,6 +364,35 @@ function getNormalizedPath(req: Request): string {
 
   // 3. Fall back to url.pathname
   return url.pathname.replace(/\/+$/, '')
+}
+
+async function fetchNvidiaStreamWithTimeout(
+  apiKey: string,
+  modelName: string,
+  messages: Array<{ role: string; content: unknown }>,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: modelName,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+        stream: true,
+      }),
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export default async function handler(req: Request): Promise<Response> {
@@ -756,13 +796,17 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
         try {
           const parsed = JSON.parse(historyJson) as Array<{ role?: string; content?: string }>
           if (Array.isArray(parsed)) {
-            for (const item of parsed) {
+            // Keep the last 6 messages to prevent context explosion and slow pre-fill inference
+            const recent = parsed.slice(-6)
+            for (const item of recent) {
               if (
                 (item.role === 'user' || item.role === 'assistant') &&
                 typeof item.content === 'string' &&
                 item.content.trim()
               ) {
-                messagesPayload.push({ role: item.role, content: item.content.trim() })
+                const text = item.content.trim()
+                const content = text.length > 1200 ? text.slice(0, 1200) + '... [truncated previous context]' : text
+                messagesPayload.push({ role: item.role, content })
               }
             }
           }
@@ -832,55 +876,88 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
           }, 2000)
 
           try {
-            const nvidiaResponse = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model,
-                messages: messagesPayload,
-                temperature: 0.7,
-                max_tokens: 4096,
-                stream: true,
-              }),
-            })
+          let activeModel = model
+          let nvidiaResponse: Response | null = null
 
-            if (!nvidiaResponse.ok) {
-              let errDetail = `NVIDIA API error: ${nvidiaResponse.status}`
+          // Try primary model with 12s timeout
+          try {
+            nvidiaResponse = await fetchNvidiaStreamWithTimeout(apiKey, activeModel, messagesPayload, 12000)
+            if (!nvidiaResponse.ok && (nvidiaResponse.status === 404 || nvidiaResponse.status >= 500)) {
+              throw new Error(`Status ${nvidiaResponse.status}`)
+            }
+          } catch (primaryErr) {
+            // Fast fallback: if primary model is slow, queued, or errored
+            const fallbackModel = activeModel.includes('vision')
+              ? 'meta/llama-3.2-11b-vision-instruct'
+              : (activeModel === 'meta/llama-3.1-8b-instruct' ? 'nvidia/llama-3.1-nemotron-70b-instruct' : 'meta/llama-3.1-8b-instruct')
+
+            controller.enqueue(
+              encoder.encode(
+                `event: status\ndata: ${JSON.stringify({ message: `Model "${activeModel}" is busy; accelerating with ${fallbackModel}...` })}\n\n`
+              )
+            )
+            try {
+              activeModel = fallbackModel
+              nvidiaResponse = await fetchNvidiaStreamWithTimeout(apiKey, fallbackModel, messagesPayload, 15000)
+            } catch (fallbackErr) {
+              controller.enqueue(
+                encoder.encode(
+                  `event: error\ndata: ${JSON.stringify({ message: 'NVIDIA API request timed out. Please check your API key or try again in a moment.' })}\n\n`
+                )
+              )
+              controller.close()
+              clearInterval(keepAlive)
+              return
+            }
+          }
+
+          if (!nvidiaResponse || !nvidiaResponse.ok) {
+            let errDetail = `NVIDIA API error: ${nvidiaResponse?.status || 500}`
+            try {
+              const errBody = (await nvidiaResponse?.json()) as { message?: string; detail?: string }
+              errDetail = errBody?.detail || errBody?.message || errDetail
+            } catch {
+              // keep status
+            }
+
+            if (errDetail.includes('Not found for account') || errDetail.includes('Function \'')) {
+              errDetail = `NVIDIA Cloud Error: Model "${activeModel}" is not provisioned or active for your NVIDIA account. Please switch to an active model (such as Meta Llama 3.1 8B or Llama 3.1 Nemotron) using the model picker.`
+            }
+
+            controller.enqueue(
+              encoder.encode(`event: error\ndata: ${JSON.stringify({ message: errDetail })}\n\n`)
+            )
+            controller.close()
+            clearInterval(keepAlive)
+            return
+          }
+
+          if (!nvidiaResponse.body) {
+            controller.enqueue(
+              encoder.encode(`event: error\ndata: ${JSON.stringify({ message: 'No response stream from NVIDIA' })}\n\n`)
+            )
+            controller.close()
+            clearInterval(keepAlive)
+            return
+          }
+
+          const nvidiaReader = nvidiaResponse.body.getReader()
+          let buffer = ''
+          let accumulatedText = ''
+          let firstTokenReceived = false
+
+          // Safety watchdog: if after connecting, 18s pass without any token from NVIDIA
+          const firstTokenWatchdog = setTimeout(() => {
+            if (!firstTokenReceived) {
               try {
-                const errBody = (await nvidiaResponse.json()) as { message?: string; detail?: string }
-                errDetail = errBody.detail || errBody.message || errDetail
+                nvidiaReader.cancel()
               } catch {
-                // keep status
+                // ignore
               }
-
-              if (errDetail.includes('Not found for account') || errDetail.includes('Function \'')) {
-                errDetail = `NVIDIA Cloud Error: Model "${model}" is not provisioned or active for your NVIDIA account. Please switch to an active model (such as nvidia/llama-3.1-nemotron-70b-instruct or meta/llama-3.2-11b-vision-instruct) using the model picker, or generate an API key directly from build.nvidia.com under your active organization.`
-              }
-
-              controller.enqueue(
-                encoder.encode(`event: error\ndata: ${JSON.stringify({ message: errDetail })}\n\n`)
-              )
-              controller.close()
-              clearInterval(keepAlive)
-              return
             }
+          }, 18000)
 
-            if (!nvidiaResponse.body) {
-              controller.enqueue(
-                encoder.encode(`event: error\ndata: ${JSON.stringify({ message: 'No response stream from NVIDIA' })}\n\n`)
-              )
-              controller.close()
-              clearInterval(keepAlive)
-              return
-            }
-
-            const nvidiaReader = nvidiaResponse.body.getReader()
-            let buffer = ''
-            let accumulatedText = ''
-
+          try {
             while (true) {
               const { done, value } = await nvidiaReader.read()
               if (done) break
@@ -900,6 +977,10 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
                     const chunk = JSON.parse(dataStr) as { choices?: Array<{ delta?: { content?: string } }> }
                     const content = chunk.choices?.[0]?.delta?.content
                     if (content) {
+                      if (!firstTokenReceived) {
+                        firstTokenReceived = true
+                        clearTimeout(firstTokenWatchdog)
+                      }
                       accumulatedText += content
                       controller.enqueue(encoder.encode(`event: token\ndata: ${JSON.stringify({ content })}\n\n`))
                     }
@@ -909,6 +990,20 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
                 }
               }
             }
+          } finally {
+            clearTimeout(firstTokenWatchdog)
+          }
+
+          if (accumulatedText.trim().length === 0) {
+            controller.enqueue(
+              encoder.encode(
+                `event: error\ndata: ${JSON.stringify({ message: 'NVIDIA API closed without generating tokens. Please try asking again or switch models.' })}\n\n`
+              )
+            )
+            controller.close()
+            clearInterval(keepAlive)
+            return
+          }
 
             // Check for requested deliverables (PDF, HTML, DOCX, CSV)
             let deliverableFormat = ''
