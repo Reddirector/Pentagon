@@ -142,6 +142,10 @@ class ChatState(TypedDict):
     # turn ends instead of bloating every future turn's history.
     skill_instructions: str
     skills_fired: list[str]
+    location: str | None
+    client_context: str | None
+    client_timezone: str | None
+    client_local_time: str | None
 
 
 def _node_trace(
@@ -629,13 +633,60 @@ def build_chat_graph(
         # turn, then any tool transcript from earlier in this loop. Each piece
         # is placed explicitly rather than by slicing off the end, because after
         # a tool call the end of the list is a ToolMessage that must stay.
+        env_lines: list[str] = []
+        user_tz = state.get("client_timezone") or "UTC"
+        user_local_time = state.get("client_local_time") or time.strftime('%a, %d %b %Y %H:%M:%S UTC', time.gmtime())
+        env_lines.append(f"- User Local Time: {user_local_time}")
+        env_lines.append(f"- User Timezone: {user_tz}")
+
+        client_ctx_raw = state.get("client_context")
+        if client_ctx_raw:
+            try:
+                client_ctx = json.loads(client_ctx_raw) if isinstance(client_ctx_raw, str) else client_ctx_raw
+                if isinstance(client_ctx, dict):
+                    if client_ctx.get("platform"):
+                        env_lines.append(f"- User Platform / OS: {client_ctx['platform']}")
+                    if client_ctx.get("language"):
+                        env_lines.append(f"- User Locale: {client_ctx['language']}")
+                    if client_ctx.get("screen_resolution"):
+                        env_lines.append(f"- Display: {client_ctx['screen_resolution']} ({client_ctx.get('color_scheme', 'dark')} mode)")
+            except Exception:
+                pass
+
+        loc_raw = state.get("location")
+        if loc_raw:
+            try:
+                loc_dict = json.loads(loc_raw) if isinstance(loc_raw, str) else loc_raw
+                if isinstance(loc_dict, dict):
+                    loc_parts = []
+                    if loc_dict.get("city"):
+                        loc_parts.append(f"City: {loc_dict['city']}")
+                    if loc_dict.get("region"):
+                        loc_parts.append(f"Region: {loc_dict['region']}")
+                    if loc_dict.get("country"):
+                        loc_parts.append(f"Country: {loc_dict['country']}")
+                    if "latitude" in loc_dict and "longitude" in loc_dict:
+                        loc_parts.append(f"Coordinates: {loc_dict['latitude']}, {loc_dict['longitude']}")
+                    if loc_dict.get("accuracy"):
+                        loc_parts.append(f"Accuracy: ~{round(float(loc_dict['accuracy']))}m")
+                    loc_parts.append(f"Source: {str(loc_dict.get('source', 'gps')).upper()} (High Precision Browser GPS)")
+                    env_lines.append("- User Geolocation:\n  * " + "\n  * ".join(loc_parts))
+            except Exception:
+                pass
+
+        env_block = "\n".join(env_lines)
+
         system_text = (
             "You are Pentagon, an advanced, highly capable AI workspace developed with cutting-edge engineering.\n"
-            f"Current Date and Time: {time.strftime('%a, %d %b %Y %H:%M:%S UTC', time.gmtime())}.\n"
-            "When asked about your identity or name, always state clearly that you are Pentagon. "
-            "Never say you are ChatGPT or OpenAI.\n"
-            "You have real-time awareness of the current date and time. "
-            "When retrieved documents or web results are provided, synthesize them accurately and cite evidence from the source material."
+            f"Current Server Date and Time: {time.strftime('%a, %d %b %Y %H:%M:%S UTC', time.gmtime())}.\n\n"
+            "=== REAL-TIME USER ENVIRONMENT & LOCATION FACTORS ===\n"
+            f"{env_block}\n"
+            "======================================================\n\n"
+            "CRITICAL GROUNDING RULES:\n"
+            "1. Identity: Your name is Pentagon. If asked for your name or identity, state clearly that you are Pentagon. Never say you are ChatGPT or OpenAI.\n"
+            f"2. Temporal & Local Time Grounding: When asked for the current time, date, or day, ALWAYS answer using the user's local time ({user_local_time} in {user_tz}).\n"
+            "3. Geolocation & Spatial Grounding: You are aware of the user's real-time physical location and GPS coordinates above. Ground local queries, weather, or nearby recommendations in their active location.\n"
+            "4. Document Knowledge & Web Results: When retrieved documents or web results are provided, synthesize them accurately and cite evidence from the source material."
         )
         system_message = SystemMessage(content=system_text)
         prompt_messages = [
@@ -1055,6 +1106,10 @@ def initial_chat_state(
     # The user's chosen rung of the approval ladder. Both tool gates read it
     # from the state, so one turn cannot run under two different levels.
     permission_level: object = DEFAULT_PERMISSION_LEVEL,
+    location: str | None = None,
+    client_context: str | None = None,
+    client_timezone: str | None = None,
+    client_local_time: str | None = None,
 ) -> ChatState:
     has_image = image_data_uri is not None
     has_video = video_data_uri is not None
@@ -1118,6 +1173,10 @@ def initial_chat_state(
         "skills_fired": [],
         # No file generated this turn unless the tool says otherwise.
         "generated_file": None,
+        "location": location,
+        "client_context": client_context,
+        "client_timezone": client_timezone,
+        "client_local_time": client_local_time,
     }
 
 

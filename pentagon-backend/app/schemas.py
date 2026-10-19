@@ -84,6 +84,10 @@ class ChatRequest(BaseModel):
     voice: str | None = Field(default=None, max_length=100)
     transcription_duration_ms: float | None = Field(default=None, ge=0)
     transcription_provider: str | None = Field(default=None, max_length=100)
+    location: str | None = None
+    client_context: str | None = None
+    client_timezone: str | None = None
+    client_local_time: str | None = None
 
     @field_validator("message")
     @classmethod

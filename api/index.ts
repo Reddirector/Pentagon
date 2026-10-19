@@ -420,6 +420,10 @@ export default async function handler(req: Request): Promise<Response> {
       let historyJson = ''
       let imageBase64: string | null = null
       let imageMime = 'image/jpeg'
+      let clientContextJson = ''
+      let locationJson = ''
+      let clientTimezone = ''
+      let clientLocalTime = ''
 
       const contentType = req.headers.get('content-type') || ''
       if (contentType.includes('multipart/form-data')) {
@@ -432,6 +436,15 @@ export default async function handler(req: Request): Promise<Response> {
           if (formKey) apiKey = String(formKey).trim()
           conversationId = String(formData.get('conversation_id') || '').trim()
           historyJson = String(formData.get('history') || '').trim()
+
+          const rawClientContext = formData.get('client_context')
+          if (rawClientContext) clientContextJson = String(rawClientContext).trim()
+          const rawLocation = formData.get('location')
+          if (rawLocation) locationJson = String(rawLocation).trim()
+          const rawTz = formData.get('client_timezone')
+          if (rawTz) clientTimezone = String(rawTz).trim()
+          const rawLocalTime = formData.get('client_local_time')
+          if (rawLocalTime) clientLocalTime = String(rawLocalTime).trim()
 
           const imageEntry = formData.get('image')
           if (imageEntry instanceof File && imageEntry.size > 0) {
@@ -453,12 +466,20 @@ export default async function handler(req: Request): Promise<Response> {
             nvidia_key?: string
             conversation_id?: string
             history?: Array<{ role: string; content: string }>
+            client_context?: unknown
+            location?: unknown
+            client_timezone?: string
+            client_local_time?: string
           }
           prompt = String(json.message || '').trim()
           if (json.model) model = String(json.model).trim()
           if (json.nvidia_key) apiKey = String(json.nvidia_key).trim()
           if (json.conversation_id) conversationId = String(json.conversation_id).trim()
           if (json.history) historyJson = JSON.stringify(json.history)
+          if (json.client_context) clientContextJson = typeof json.client_context === 'string' ? json.client_context : JSON.stringify(json.client_context)
+          if (json.location) locationJson = typeof json.location === 'string' ? json.location : JSON.stringify(json.location)
+          if (json.client_timezone) clientTimezone = String(json.client_timezone).trim()
+          if (json.client_local_time) clientLocalTime = String(json.client_local_time).trim()
         } catch {
           // ignore json parse error
         }
@@ -502,7 +523,67 @@ export default async function handler(req: Request): Promise<Response> {
         }
       }
 
-      // 2. Real-time System Prompt with Pentagon Identity & Accurate Clock
+      // 2. Parse Environment Factors & Geolocation (GPS + Edge IP Fallback)
+      let clientContext: Record<string, any> | null = null
+      if (clientContextJson) {
+        try {
+          clientContext = JSON.parse(clientContextJson)
+        } catch {
+          // ignore
+        }
+      }
+      let locationObj: Record<string, any> | null = null
+      if (locationJson) {
+        try {
+          locationObj = JSON.parse(locationJson)
+        } catch {
+          // ignore
+        }
+      }
+      if (!locationObj && clientContext?.location) {
+        locationObj = clientContext.location
+      }
+
+      // Vercel Edge Geolocation Headers
+      const edgeCity = req.headers.get('x-vercel-ip-city')
+      const edgeRegion = req.headers.get('x-vercel-ip-country-region')
+      const edgeCountry = req.headers.get('x-vercel-ip-country')
+      const edgeLat = req.headers.get('x-vercel-ip-latitude')
+      const edgeLon = req.headers.get('x-vercel-ip-longitude')
+      const edgeTz = req.headers.get('x-vercel-ip-timezone')
+
+      let effectiveLocation: {
+        source: 'gps' | 'network' | 'ip'
+        city?: string
+        region?: string
+        country?: string
+        latitude?: number | string
+        longitude?: number | string
+        accuracy_meters?: number
+      } | null = null
+
+      if (locationObj && (locationObj.latitude || locationObj.city)) {
+        effectiveLocation = {
+          source: locationObj.source || 'gps',
+          city: locationObj.city || (edgeCity ? decodeURIComponent(edgeCity) : undefined),
+          region: locationObj.region || edgeRegion || undefined,
+          country: locationObj.country || edgeCountry || undefined,
+          latitude: locationObj.latitude,
+          longitude: locationObj.longitude,
+          accuracy_meters: locationObj.accuracy,
+        }
+      } else if (edgeCity || edgeCountry || edgeLat) {
+        effectiveLocation = {
+          source: 'ip',
+          city: edgeCity ? decodeURIComponent(edgeCity) : undefined,
+          region: edgeRegion || undefined,
+          country: edgeCountry || undefined,
+          latitude: edgeLat || undefined,
+          longitude: edgeLon || undefined,
+        }
+      }
+
+      // 3. Real-time System Prompt with Pentagon Identity & Environment Factors
       const now = new Date()
       const formattedDate = now.toLocaleDateString('en-US', {
         weekday: 'long',
@@ -519,17 +600,60 @@ export default async function handler(req: Request): Promise<Response> {
       })
       const isoTime = now.toISOString()
 
+      const userTimezone = clientTimezone || clientContext?.timezone || edgeTz || 'UTC'
+      const userLocalTime =
+        clientLocalTime ||
+        clientContext?.local_time ||
+        (edgeTz ? new Date().toLocaleString('en-US', { timeZone: edgeTz }) : `${formattedTime} UTC`)
+      const userPlatform = clientContext?.platform || 'Unknown'
+      const userLocale = clientContext?.language || 'en'
+      const userScreen = clientContext?.screen_resolution
+        ? `${clientContext.screen_resolution} (${clientContext.color_scheme || 'dark'} mode)`
+        : ''
+
+      const envFactors: string[] = [
+        `- User Local Time: ${userLocalTime}`,
+        `- User Timezone: ${userTimezone}`,
+        `- User Platform / OS: ${userPlatform}`,
+        `- User Locale / Language: ${userLocale}`,
+      ]
+      if (userScreen) {
+        envFactors.push(`- Display: ${userScreen}`)
+      }
+      if (effectiveLocation) {
+        const locParts: string[] = []
+        if (effectiveLocation.city) locParts.push(`City: ${effectiveLocation.city}`)
+        if (effectiveLocation.region) locParts.push(`State/Region: ${effectiveLocation.region}`)
+        if (effectiveLocation.country) locParts.push(`Country: ${effectiveLocation.country}`)
+        if (effectiveLocation.latitude !== undefined && effectiveLocation.longitude !== undefined) {
+          locParts.push(`Coordinates: ${effectiveLocation.latitude}, ${effectiveLocation.longitude}`)
+        }
+        if (effectiveLocation.accuracy_meters !== undefined) {
+          locParts.push(`Accuracy: ~${Math.round(effectiveLocation.accuracy_meters)}m`)
+        }
+        locParts.push(
+          `Source: ${effectiveLocation.source.toUpperCase()} ${effectiveLocation.source === 'gps' ? '(High Precision Browser GPS)' : '(Edge Network Geolocation)'}`
+        )
+        envFactors.push(`- User Geolocation:\n  * ${locParts.join('\n  * ')}`)
+      }
+
       const systemPrompt = `You are Pentagon, an advanced, highly capable AI workspace developed with cutting-edge engineering.
-Current Date: ${formattedDate}
-Current Time: ${formattedTime} UTC (ISO: ${isoTime})
+Current Server Date: ${formattedDate}
+Current Server Time: ${formattedTime} UTC (ISO: ${isoTime})
+
+=== REAL-TIME USER ENVIRONMENT & LOCATION FACTORS ===
+${envFactors.join('\n')}
+======================================================
 
 CRITICAL GROUNDING RULES:
 1. Identity: Your name is Pentagon. If asked for your name, identity, or creators, always state clearly that you are Pentagon, an advanced AI workspace. NEVER state, suggest, or imply that you are ChatGPT, OpenAI, Claude, or any third-party assistant.
-2. Temporal Grounding: You have real-time awareness of the current date and time. Answer all questions about the current time, date, day, month, or year accurately using the real-time clock provided above.
-3. Document Knowledge & RAG Grounding: When retrieved document excerpts are provided below, synthesize them thoroughly. Cite the source document name and relevant facts from the excerpts. Always answer questions about uploaded files directly and factually based on the retrieved passages.
-4. Formatting & Style: Keep your responses concise, intelligent, articulate, and well-structured using clean GitHub Markdown, bullet points, and code blocks where helpful.`
+2. Temporal & Local Time Grounding: You have real-time awareness of the user's actual local time, date, and timezone provided in the environment factors above. When the user asks for the current time, date, day of week, or questions like "what time is it?", ALWAYS answer using their local time (${userLocalTime} in ${userTimezone}) unless they specifically ask for UTC or another timezone.
+3. Geolocation & Spatial Grounding: You are aware of the user's real-time physical location and GPS coordinates provided above. When asked "Where am I?", "What city/country am I in?", local weather questions, or queries about nearby places/recommendations, ground your answer in their active location (${effectiveLocation ? [effectiveLocation.city, effectiveLocation.region, effectiveLocation.country].filter(Boolean).join(', ') || 'their coordinates' : 'their detected region'}). If high-accuracy GPS is present, treat it as their exact real-time position.
+4. Client Context Grounding: You have awareness of the user's client environment (device OS, platform, screen, locale). Use this context naturally when answering platform-specific questions (e.g. keyboard shortcuts, OS commands, UI styling).
+5. Document Knowledge & RAG Grounding: When retrieved document excerpts are provided below, synthesize them thoroughly. Cite the source document name and relevant facts from the excerpts. Always answer questions about uploaded files directly and factually based on the retrieved passages.
+6. Formatting & Style: Keep your responses concise, intelligent, articulate, and well-structured using clean GitHub Markdown, bullet points, and code blocks where helpful.`
 
-      // 3. Assemble Messages with System Message, Multi-turn History, and Current Prompt
+      // 4. Assemble Messages with System Message, Multi-turn History, and Current Prompt
       const messagesPayload: Array<{ role: string; content: unknown }> = [
         { role: 'system', content: systemPrompt },
       ]
@@ -591,6 +715,15 @@ CRITICAL GROUNDING RULES:
             controller.enqueue(
               encoder.encode(
                 `event: metadata\ndata: ${JSON.stringify({ sources_used: sourcesUsed })}\n\n`
+              )
+            )
+          }
+
+          if (effectiveLocation && (effectiveLocation.city || effectiveLocation.country)) {
+            const locName = [effectiveLocation.city, effectiveLocation.region, effectiveLocation.country].filter(Boolean).join(', ')
+            controller.enqueue(
+              encoder.encode(
+                `event: status\ndata: ${JSON.stringify({ message: `Location grounded: ${locName} (${effectiveLocation.source.toUpperCase()})` })}\n\n`
               )
             )
           }

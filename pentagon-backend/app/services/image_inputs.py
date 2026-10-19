@@ -193,6 +193,10 @@ async def parse_chat_submission(
             "voice",
             "transcription_duration_ms",
             "transcription_provider",
+            "location",
+            "client_context",
+            "client_timezone",
+            "client_local_time",
         ):
             value = form.get(field)
             if value is not None:

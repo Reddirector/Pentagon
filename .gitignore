@@ -19,6 +19,7 @@ release/
 .vite/
 # Standalone Electron binary downloaded for local smoke tests (~283 MB)
 pentagon-frontend/electron-download/
+.freebuff/
 
 # Local databases and generated data
 *.db

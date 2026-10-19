@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   Key,
   LockKeyhole,
+  MapPin,
   Menu,
   Mic,
   Paperclip,
@@ -23,6 +24,7 @@ import {
   X,
 } from 'lucide-react'
 import { apiRequest, clearStoredNvidiaKey, getLocalUserId, getStoredNvidiaKey } from './api'
+import { getCachedLocation, requestGpsLocation, clearLocation, type UserLocation } from './lib/deviceContext'
 import { KeyActivationFlow } from './components/KeyActivationFlow'
 import { useCommandSettings } from './hooks/useCommandSettings'
 import { useAutonomy } from './hooks/useAutonomy'
@@ -176,6 +178,32 @@ function App() {
   })
   const [viewMode, setViewMode] = useState<'chat' | 'workflows'>('chat')
   const [canRetry, setCanRetry] = useState(false)
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(() => getCachedLocation())
+  const [locating, setLocating] = useState(false)
+
+  const handleToggleLocation = useCallback(async () => {
+    if (userLocation) {
+      clearLocation()
+      setUserLocation(null)
+      setNotice('GPS location turned off. Pentagon will use network-based estimate if needed.')
+      return
+    }
+    setLocating(true)
+    try {
+      const loc = await requestGpsLocation()
+      if (loc) {
+        setUserLocation(loc)
+        const place = [loc.city, loc.region, loc.country].filter(Boolean).join(', ')
+        setNotice(`GPS location active: ${place || `${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)}`}`)
+      } else {
+        setError('Location permission was denied or unavailable.')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to obtain GPS location')
+    } finally {
+      setLocating(false)
+    }
+  }, [userLocation])
 
   // Saving a level sends the current `enabled` alongside it, because the one
   // endpoint owns both fields. The response replaces local state wholesale so
@@ -1107,6 +1135,39 @@ function App() {
                 <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log" multiple hidden onChange={(event) => void chat.handleAttachmentChange(event)} />
                 <button type="button" onClick={() => fileInput.current?.click()} disabled={!active || streaming || uploading} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-micro text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, document, or spreadsheet"><Paperclip size={14} /><span className="max-sm:hidden">Attach</span></button>
                 <button type="button" onClick={() => void chat.toggleRecording()} disabled={!active || streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
+                <button
+                  type="button"
+                  onClick={() => void handleToggleLocation()}
+                  disabled={!active || locating}
+                  className={`flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 py-1 text-micro transition ${
+                    userLocation
+                      ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                      : locating
+                      ? 'bg-white/[0.06] text-zinc-300'
+                      : 'text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200'
+                  } disabled:opacity-40`}
+                  title={
+                    userLocation
+                      ? `GPS Active: ${[userLocation.city, userLocation.country].filter(Boolean).join(', ') || `${userLocation.latitude.toFixed(2)}, ${userLocation.longitude.toFixed(2)}`} (Click to disable)`
+                      : locating
+                      ? 'Acquiring GPS location…'
+                      : 'Enable GPS location for accurate local answers and nearby factors'
+                  }
+                  aria-label="Toggle GPS location"
+                >
+                  {locating ? (
+                    <LoaderCircle size={13} className="animate-spin text-emerald-400" />
+                  ) : (
+                    <MapPin size={13} className={userLocation ? 'text-emerald-400 fill-emerald-400/20' : ''} />
+                  )}
+                  <span className="max-sm:hidden">
+                    {locating
+                      ? 'Locating…'
+                      : userLocation
+                      ? userLocation.city || 'GPS On'
+                      : 'Location'}
+                  </span>
+                </button>
               </div>
               {streaming
                 ? <button type="button" onClick={chat.stopStreaming} className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-zinc-200 transition-[background-color,transform] duration-200 ease-out hover:bg-white/[0.1] active:scale-95" aria-label="Stop generating" title="Stop generating"><Square size={13} fill="currentColor" /></button>

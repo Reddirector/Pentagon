@@ -14,6 +14,7 @@ import type {
   Verification,
 } from './types/app'
 import type { DocumentInfo } from '../types'
+import { getClientEnvironmentContext } from '../lib/deviceContext'
 
 /** How often streamed text is committed to the message list. Each commit re-parses
     the answer through react-markdown, so this trades a little latency for a
@@ -153,6 +154,19 @@ export function useChatStream(options: UseChatStreamOptions) {
       if (options.documents && options.documents.length > 0) {
         form.set('documents_meta', JSON.stringify(options.documents))
       }
+
+      // Attach real-time environment factors & GPS location
+      try {
+        const clientCtx = getClientEnvironmentContext()
+        form.set('client_context', JSON.stringify(clientCtx))
+        if (clientCtx.location) {
+          form.set('location', JSON.stringify(clientCtx.location))
+        }
+        form.set('client_timezone', clientCtx.timezone)
+        form.set('client_local_time', clientCtx.local_time)
+      } catch {
+        // ignore client context collection error
+      }
       // Web search is not a user toggle: omitting the field lets the backend
       // router decide when a question actually needs live results.
       if (transcriptInfo && !agentMode) form.set('respond_with_audio', 'true')
@@ -231,6 +245,17 @@ export function useChatStream(options: UseChatStreamOptions) {
     }
     if (options.documents && options.documents.length > 0) {
       form.set('documents_meta', JSON.stringify(options.documents))
+    }
+    try {
+      const clientCtx = getClientEnvironmentContext()
+      form.set('client_context', JSON.stringify(clientCtx))
+      if (clientCtx.location) {
+        form.set('location', JSON.stringify(clientCtx.location))
+      }
+      form.set('client_timezone', clientCtx.timezone)
+      form.set('client_local_time', clientCtx.local_time)
+    } catch {
+      // ignore
     }
     try {
       await streamResponse(form, last.assistantId)

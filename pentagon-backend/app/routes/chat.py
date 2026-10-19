@@ -281,6 +281,10 @@ async def chat(
             context_model=conversation.active_model,
             command_tool_enabled=command_tool_enabled,
             permission_level=permission_level,
+            location=payload.location,
+            client_context=payload.client_context,
+            client_timezone=payload.client_timezone,
+            client_local_time=payload.client_local_time,
         )
     except BaseException:
         await saver_cm.__aexit__(None, None, None)
