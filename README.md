@@ -1,5 +1,10 @@
 # Pentagon
 
+[![Live Web App](https://img.shields.io/badge/Vercel-Live%20App-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://pentagon-bice.vercel.app)
+[![GitHub Release](https://img.shields.io/badge/Release-v0.1.0-emerald?style=for-the-badge&logo=github)](https://github.com/Reddirector/Pentagon/releases/tag/v0.1.0)
+[![Platforms](https://img.shields.io/badge/Platforms-Android%20%7C%20iOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Web-blue?style=for-the-badge)](https://github.com/Reddirector/Pentagon/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+
 A personal AI workspace. Bring your own NVIDIA API key, talk to any model on
 NVIDIA NIM, and ground the answers in your own documents, the live web, images,
 video and voice.
@@ -8,20 +13,42 @@ Everything runs on your machine: keys are encrypted at rest, documents are
 chunked and embedded locally or against your own key, and nothing is sent to a
 hosted service you did not choose.
 
-> The backend is FastAPI + LangGraph; Supabase remains optional.
+> **Production Web App:** [https://pentagon-bice.vercel.app](https://pentagon-bice.vercel.app)  
+> **Backend:** FastAPI + LangGraph  
+> **Cross-Platform:** Android, iOS, Windows, Linux, and Web
+
+---
+
+## Downloads & Releases (v0.1.0)
+
+Pre-built binaries and installers for all platforms are available on the [GitHub Releases page](https://github.com/Reddirector/Pentagon/releases/tag/v0.1.0):
+
+| Platform | Package / File | Size | Instructions |
+|---|---|---|---|
+| **Android** | [`Pentagon-0.1.0-android.apk`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0-android.apk) | `5.7 MB` | Sideload or `adb install Pentagon-0.1.0-android.apk` (Android 8.0+) |
+| **Windows** | [`Pentagon-0.1.0-win-x64.zip`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0-win-x64.zip) | `156 MB` | Extract ZIP and run `Pentagon.exe` (Windows 10/11 64-bit) |
+| **Linux (AppImage)** | [`Pentagon-0.1.0-x86_64.AppImage`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0-x86_64.AppImage) | `130 MB` | `chmod +x Pentagon-0.1.0-x86_64.AppImage && ./Pentagon-0.1.0-x86_64.AppImage` |
+| **Linux (Debian/Ubuntu)** | [`Pentagon-0.1.0-amd64.deb`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0-amd64.deb) | `102 MB` | `sudo dpkg -i Pentagon-0.1.0-amd64.deb` |
+| **iOS** | [`Pentagon-0.1.0-ios-project.zip`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0-ios-project.zip) | `1.7 MB` | Extract and open `ios/App/App.xcworkspace` in Xcode (macOS) |
+| **Universal ISO** | [`Pentagon-0.1.0.iso`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0.iso) | `136 MB` | Mountable cross-platform disc image with standalone binaries and scripts |
+| **Web App** | [pentagon-bice.vercel.app](https://pentagon-bice.vercel.app) | Live | Instant access from any desktop or mobile browser |
+
+Verify downloads using the official [checksums.sha256](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/checksums.sha256).
 
 ---
 
 ## Contents
 
+- [Downloads & Releases](#downloads--releases-v010)
 - [What it does](#what-it-does)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [Architecture](#architecture)
+- [Desktop app (Windows & Linux)](#desktop-app)
+- [Mobile apps (Android & iOS)](#mobile-apps-ios-and-android)
 - [How retrieval survives API changes](#how-retrieval-survives-api-changes)
 - [HTTP API](#http-api)
 - [Testing](#testing)
-- [Desktop app](#desktop-app)
 - [Troubleshooting](#troubleshooting)
 - [Documentation](#documentation)
 - [License](#license)

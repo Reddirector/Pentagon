@@ -2,8 +2,10 @@
   "name": "pentagon-frontend",
   "version": "0.1.0",
   "description": "React and Electron frontend for the Pentagon backend",
+  "homepage": "https://pentagon-bice.vercel.app",
   "author": {
     "name": "Reddirector",
+    "email": "contact@pentagon.chat",
     "url": "https://github.com/Reddirector/Pentagon"
   },
   "license": "MIT",
@@ -78,22 +80,26 @@
       "node_modules/**/*"
     ],
     "linux": {
-      "artifactName": "Pentagon",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "target": [
-        "AppImage"
+        "AppImage",
+        "deb"
       ],
       "category": "Utility",
       "syncDesktopName": true,
       "icon": "public/pentagon-logo.png"
     },
     "mac": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ]
     },
     "win": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "target": [
-        "nsis"
+        "zip"
       ]
     }
   },
