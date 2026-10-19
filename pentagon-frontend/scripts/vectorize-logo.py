@@ -437,22 +437,30 @@ def main() -> int:
         return failed
 
     logo_box = f"0 0 {width} {height}"
+    crown_indices = {0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11}
+    crown_loops = [loop for i, loop in enumerate(loops) if i in crown_indices]
+    globe_loops = [loop for i, loop in enumerate(loops) if i not in crown_indices]
+    crown_path = to_path(crown_loops)
+    globe_path = to_path(globe_loops)
+
     module = f'''// GENERATED FILE - do not edit by hand.
 // Produced by `npm run vectorize` (scripts/vectorize-logo.py) from
 // public/pentagon-logo.png.
 //
-// The logo used to be an <img> pointing at those PNGs. Browsers treat an <img>
-// as a picture and will happily start a native image drag from it, so the mark
-// could be dragged into the composer and dropped as a message attachment. An
-// inline <svg> has no such affordance, and scaling cleanly is the reason the
-// raster was dropped rather than the drag suppressed.
+// The logo is a pure SVG vector mark, structured into semantic groups
+// (celestial crown and 3D wireframe globe) ready for CSS keyframe animations.
 //
-// fill-rule is evenodd, and it is only correct because of how this path was
-// built: the strokes were rasterised into a union mask first, so the loops below
-// are disjoint or nested and never merely overlapping. Tracing the strokes
-// directly would make evenodd punch a hole at every crossing.
+// fill-rule is evenodd, which is correct because strokes were rasterised
+// into a union mask first so loops are disjoint or nested without overlapping.
 
 export const LOGO_VIEWBOX = '{logo_box}'
+
+export const LOGO_CROWN_PATH =
+  '{crown_path}'
+
+export const LOGO_GLOBE_PATH =
+  '{globe_path}'
+
 export const LOGO_PATH =
   '{path}'
 '''

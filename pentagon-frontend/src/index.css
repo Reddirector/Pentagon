@@ -293,3 +293,54 @@ textarea { field-sizing: content; }
 .markdown-content > :last-child { margin-bottom: 0; }
 .markdown-content .katex-display { overflow-x: auto; overflow-y: hidden; padding: .75rem 0; color: #e4e4e7; }
 .markdown-content .katex { font-size: 1.02em; }
+
+/* Pentagon Brand Mark Keyframes & Animations */
+@keyframes logo-crown-float {
+  0%, 100% {
+    transform: translateY(0px);
+    filter: brightness(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.025);
+    filter: brightness(1.28);
+  }
+}
+
+@keyframes logo-globe-breathe {
+  0%, 100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.015);
+    filter: brightness(1.15);
+  }
+}
+
+.logo-crown {
+  transform-origin: 264px 50px;
+  animation: logo-crown-float 4.5s ease-in-out infinite;
+  will-change: transform, filter;
+}
+
+.logo-globe {
+  transform-origin: 264px 280px;
+  animation: logo-globe-breathe 6.5s ease-in-out infinite;
+  will-change: transform, filter;
+}
+
+.logo-animated:hover .logo-crown {
+  animation-duration: 2.2s;
+}
+
+.logo-animated:hover .logo-globe {
+  animation-duration: 3.2s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-crown,
+  .logo-globe {
+    animation: none !important;
+  }
+}
+
