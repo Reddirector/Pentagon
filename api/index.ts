@@ -30,6 +30,196 @@ function normalizeModel(model: string): string {
   return trimmed
 }
 
+interface StoredChunk {
+  chunk_id: string
+  content: string
+  index: number
+}
+
+interface StoredDocument {
+  document_id: string
+  conversation_id: string
+  user_id: string
+  filename: string
+  text: string
+  chunks: StoredChunk[]
+  chunks_stored: number
+  created_at: string
+}
+
+// In-memory document storage per conversation (persisted per edge worker instance)
+const globalDocumentsMap = new Map<string, StoredDocument[]>()
+
+function splitIntoChunks(text: string, chunkSize = 750, overlap = 120): StoredChunk[] {
+  const clean = text.replace(/\r\n/g, '\n').trim()
+  if (!clean) return []
+  if (clean.length <= chunkSize) {
+    return [{ chunk_id: crypto.randomUUID(), content: clean, index: 0 }]
+  }
+
+  const chunks: StoredChunk[] = []
+  let start = 0
+  let index = 0
+  while (start < clean.length) {
+    let end = start + chunkSize
+    if (end < clean.length) {
+      const lastNewline = clean.lastIndexOf('\n', end)
+      const lastSpace = clean.lastIndexOf(' ', end)
+      if (lastNewline > start + chunkSize * 0.5) {
+        end = lastNewline
+      } else if (lastSpace > start + chunkSize * 0.5) {
+        end = lastSpace
+      }
+    }
+    const content = clean.slice(start, end).trim()
+    if (content) {
+      chunks.push({ chunk_id: crypto.randomUUID(), content, index: index++ })
+    }
+    start = end - overlap
+    if (start >= clean.length || end >= clean.length) break
+  }
+  return chunks
+}
+
+const STOP_WORDS = new Set([
+  'the', 'is', 'at', 'which', 'on', 'and', 'a', 'an', 'in', 'to', 'for', 'of', 'or', 'by', 'with', 'as', 'it', 'this', 'that', 'from', 'be', 'are', 'was', 'were', 'what', 'when', 'where', 'how', 'why', 'who', 'tell', 'me', 'can', 'you', 'please', 'about', 'some', 'any', 'my', 'your'
+])
+
+function tokenizeQuery(text: string): string[] {
+  return (text.toLowerCase().match(/\b[a-z0-9_]{2,}\b/g) || []).filter(
+    (w) => !STOP_WORDS.has(w)
+  )
+}
+
+function retrieveRelevantChunks(
+  query: string,
+  docs: StoredDocument[],
+  maxChunks = 6
+): Array<{ doc: StoredDocument; chunk: StoredChunk; score: number }> {
+  const tokens = tokenizeQuery(query)
+  const allScored: Array<{ doc: StoredDocument; chunk: StoredChunk; score: number }> = []
+
+  let totalChunksAcrossDocs = 0
+  for (const doc of docs) {
+    totalChunksAcrossDocs += doc.chunks.length
+    for (const chunk of doc.chunks) {
+      const lower = chunk.content.toLowerCase()
+      let score = 0
+      for (const token of tokens) {
+        if (lower.includes(token)) {
+          const count = lower.split(token).length - 1
+          score += 1 + Math.log(1 + count)
+        }
+      }
+      allScored.push({ doc, chunk, score })
+    }
+  }
+
+  // If the total chunks are small (<= 8), include all of them so nothing is missed
+  if (totalChunksAcrossDocs <= 8) {
+    return allScored
+  }
+
+  // Sort descending by relevance score
+  allScored.sort((a, b) => b.score - a.score)
+
+  const positive = allScored.filter((item) => item.score > 0)
+  if (positive.length > 0) {
+    return positive.slice(0, maxChunks)
+  }
+
+  return allScored.slice(0, maxChunks)
+}
+
+async function extractTextFromUpload(file: File, fallbackText?: string): Promise<string> {
+  if (fallbackText && fallbackText.trim()) {
+    return fallbackText.trim()
+  }
+  const filename = file.name || 'document.txt'
+  const ext = filename.split('.').pop()?.toLowerCase() || ''
+
+  // 1. Text-based files
+  if (
+    [
+      'txt', 'md', 'markdown', 'mdown', 'json', 'jsonl', 'csv', 'tsv',
+      'yaml', 'yml', 'toml', 'ini', 'conf', 'env', 'html', 'htm', 'xml',
+      'rst', 'py', 'js', 'jsx', 'ts', 'tsx', 'sh', 'bash', 'sql', 'css',
+      'scss', 'c', 'cpp', 'h', 'hpp', 'go', 'rs', 'java', 'rb', 'php',
+      'diff', 'patch', 'log'
+    ].includes(ext)
+  ) {
+    try {
+      return (await file.text()).trim()
+    } catch {
+      // ignore
+    }
+  }
+
+  // 2. PDF file text extraction
+  if (ext === 'pdf') {
+    try {
+      const buffer = await file.arrayBuffer()
+      const bytes = new Uint8Array(buffer)
+      const latinText = new TextDecoder('latin1').decode(bytes)
+      let extracted = ''
+
+      const btMatches = latinText.matchAll(/BT[\s\S]*?ET/g)
+      for (const m of btMatches) {
+        const block = m[0]
+        const tjMatches = block.matchAll(/\(([^)]+)\)\s*(?:Tj|'|\")/g)
+        for (const tj of tjMatches) {
+          extracted += tj[1] + ' '
+        }
+      }
+
+      const streamMatches = latinText.matchAll(/stream[\r\n]+([\s\S]*?)[\r\n]+endstream/g)
+      for (const sm of streamMatches) {
+        try {
+          const streamRaw = sm[1]
+          const streamBytes = new Uint8Array(streamRaw.length)
+          for (let i = 0; i < streamRaw.length; i++) streamBytes[i] = streamRaw.charCodeAt(i)
+          if (typeof DecompressionStream !== 'undefined') {
+            const ds = new DecompressionStream('deflate')
+            const writer = ds.writable.getWriter()
+            writer.write(streamBytes)
+            writer.close()
+            const resp = new Response(ds.readable)
+            const decompressed = await resp.text()
+            const innerBt = decompressed.matchAll(/BT[\s\S]*?ET/g)
+            for (const m of innerBt) {
+              const tjMatches = m[0].matchAll(/\(([^)]+)\)\s*(?:Tj|'|\")/g)
+              for (const tj of tjMatches) {
+                extracted += tj[1] + ' '
+              }
+            }
+          }
+        } catch {
+          // not a deflate stream
+        }
+      }
+
+      const cleaned = extracted.replace(/\s+/g, ' ').trim()
+      if (cleaned.length > 20) {
+        return cleaned
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    const raw = await file.text()
+    if (raw && !raw.includes('\x00\x00\x00')) {
+      return raw.trim()
+    }
+  } catch {
+    // ignore
+  }
+
+  return `[Attached document: ${filename} (${Math.round(file.size / 1024)} KB)]`
+}
+
+
 function corsHeaders(extra: Record<string, string> = {}) {
   return {
     'Access-Control-Allow-Origin': '*',
@@ -226,6 +416,8 @@ export default async function handler(req: Request): Promise<Response> {
       let prompt = ''
       let model = 'nvidia/llama-3.1-nemotron-70b-instruct'
       let apiKey = extractKey(req)
+      let conversationId = ''
+      let historyJson = ''
       let imageBase64: string | null = null
       let imageMime = 'image/jpeg'
 
@@ -238,6 +430,8 @@ export default async function handler(req: Request): Promise<Response> {
           if (reqModel) model = String(reqModel).trim()
           const formKey = formData.get('nvidia_key') || formData.get('api_key')
           if (formKey) apiKey = String(formKey).trim()
+          conversationId = String(formData.get('conversation_id') || '').trim()
+          historyJson = String(formData.get('history') || '').trim()
 
           const imageEntry = formData.get('image')
           if (imageEntry instanceof File && imageEntry.size > 0) {
@@ -253,10 +447,18 @@ export default async function handler(req: Request): Promise<Response> {
         }
       } else {
         try {
-          const json = (await req.json()) as { message?: string; model?: string; nvidia_key?: string }
+          const json = (await req.json()) as {
+            message?: string
+            model?: string
+            nvidia_key?: string
+            conversation_id?: string
+            history?: Array<{ role: string; content: string }>
+          }
           prompt = String(json.message || '').trim()
           if (json.model) model = String(json.model).trim()
           if (json.nvidia_key) apiKey = String(json.nvidia_key).trim()
+          if (json.conversation_id) conversationId = String(json.conversation_id).trim()
+          if (json.history) historyJson = JSON.stringify(json.history)
         } catch {
           // ignore json parse error
         }
@@ -273,16 +475,99 @@ export default async function handler(req: Request): Promise<Response> {
         model = 'meta/llama-3.2-11b-vision-instruct'
       }
 
-      // Build message payload
+      // 1. RAG: Retrieve matching document chunks for this conversation
+      const convDocs = conversationId ? (globalDocumentsMap.get(conversationId) || []) : []
+      let documentContextBlock = ''
+      let sourcesUsed: { documents: Array<{ document_id: string; filename: string; chunk_ids: string[] }> } | null = null
+
+      if (convDocs.length > 0) {
+        const queryText = prompt || 'What are the key facts and data in these documents?'
+        const retrieved = retrieveRelevantChunks(queryText, convDocs, 6)
+
+        if (retrieved.length > 0) {
+          const passages = retrieved.map(
+            (item) => `[Source: ${item.doc.filename} | Chunk ${item.chunk.index + 1}]\n${item.chunk.content}`
+          )
+          documentContextBlock = `=== RETRIEVED KNOWLEDGE BASE DOCUMENTS (RAG) ===\nThe following passages were retrieved from the user's uploaded files in this workspace thread:\n\n${passages.join('\n\n')}\n===============================================`
+
+          const docSourcesMap = new Map<string, { document_id: string; filename: string; chunk_ids: string[] }>()
+          for (const item of retrieved) {
+            const id = item.doc.document_id
+            if (!docSourcesMap.has(id)) {
+              docSourcesMap.set(id, { document_id: id, filename: item.doc.filename, chunk_ids: [] })
+            }
+            docSourcesMap.get(id)!.chunk_ids.push(item.chunk.chunk_id)
+          }
+          sourcesUsed = { documents: Array.from(docSourcesMap.values()) }
+        }
+      }
+
+      // 2. Real-time System Prompt with Pentagon Identity & Accurate Clock
+      const now = new Date()
+      const formattedDate = now.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })
+      const formattedTime = now.toLocaleTimeString('en-US', {
+        timeZone: 'UTC',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+      })
+      const isoTime = now.toISOString()
+
+      const systemPrompt = `You are Pentagon, an advanced, highly capable AI workspace developed with cutting-edge engineering.
+Current Date: ${formattedDate}
+Current Time: ${formattedTime} UTC (ISO: ${isoTime})
+
+CRITICAL GROUNDING RULES:
+1. Identity: Your name is Pentagon. If asked for your name, identity, or creators, always state clearly that you are Pentagon, an advanced AI workspace. NEVER state, suggest, or imply that you are ChatGPT, OpenAI, Claude, or any third-party assistant.
+2. Temporal Grounding: You have real-time awareness of the current date and time. Answer all questions about the current time, date, day, month, or year accurately using the real-time clock provided above.
+3. Document Knowledge & RAG Grounding: When retrieved document excerpts are provided below, synthesize them thoroughly. Cite the source document name and relevant facts from the excerpts. Always answer questions about uploaded files directly and factually based on the retrieved passages.
+4. Formatting & Style: Keep your responses concise, intelligent, articulate, and well-structured using clean GitHub Markdown, bullet points, and code blocks where helpful.`
+
+      // 3. Assemble Messages with System Message, Multi-turn History, and Current Prompt
+      const messagesPayload: Array<{ role: string; content: unknown }> = [
+        { role: 'system', content: systemPrompt },
+      ]
+
+      if (historyJson) {
+        try {
+          const parsed = JSON.parse(historyJson) as Array<{ role?: string; content?: string }>
+          if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+              if (
+                (item.role === 'user' || item.role === 'assistant') &&
+                typeof item.content === 'string' &&
+                item.content.trim()
+              ) {
+                messagesPayload.push({ role: item.role, content: item.content.trim() })
+              }
+            }
+          }
+        } catch {
+          // ignore malformed history
+        }
+      }
+
+      const finalUserContent = documentContextBlock
+        ? `${documentContextBlock}\n\nUser Question:\n${prompt || 'Please analyze the documents above.'}`
+        : prompt || 'Hello'
+
       const userMessage = imageBase64
         ? {
             role: 'user',
             content: [
-              { type: 'text', text: prompt || 'Analyze this image.' },
+              { type: 'text', text: finalUserContent },
               { type: 'image_url', image_url: { url: `data:${imageMime};base64,${imageBase64}` } },
             ],
           }
-        : { role: 'user', content: prompt || 'Hello' }
+        : { role: 'user', content: finalUserContent }
+
+      messagesPayload.push(userMessage)
 
       const encoder = new TextEncoder()
       const decoder = new TextDecoder()
@@ -295,7 +580,22 @@ export default async function handler(req: Request): Promise<Response> {
             encoder.encode(`event: status\ndata: ${JSON.stringify({ message: 'Connected' })}\n\n`)
           )
 
-          // 2. Keep-alive heartbeat interval every 2 seconds to keep connection active while NVIDIA generates
+          // 2. If RAG sources were retrieved, inform the user and emit sources metadata immediately
+          if (sourcesUsed && sourcesUsed.documents.length > 0) {
+            const count = sourcesUsed.documents.reduce((acc, d) => acc + d.chunk_ids.length, 0)
+            controller.enqueue(
+              encoder.encode(
+                `event: status\ndata: ${JSON.stringify({ message: `Retrieved ${count} passages from knowledge base` })}\n\n`
+              )
+            )
+            controller.enqueue(
+              encoder.encode(
+                `event: metadata\ndata: ${JSON.stringify({ sources_used: sourcesUsed })}\n\n`
+              )
+            )
+          }
+
+          // 3. Keep-alive heartbeat interval every 2 seconds to keep connection active while NVIDIA generates
           const keepAlive = setInterval(() => {
             try {
               controller.enqueue(encoder.encode(': ping\n\n'))
@@ -313,7 +613,7 @@ export default async function handler(req: Request): Promise<Response> {
               },
               body: JSON.stringify({
                 model,
-                messages: [userMessage],
+                messages: messagesPayload,
                 temperature: 0.7,
                 max_tokens: 4096,
                 stream: true,
@@ -552,16 +852,80 @@ export default async function handler(req: Request): Promise<Response> {
       return jsonResponse({ ok: true })
     }
 
+    // 8. Documents & RAG endpoints
     if (path === '/api/documents' && method === 'GET') {
-      return jsonResponse([])
+      const url = new URL(req.url)
+      const convId = url.searchParams.get('conversation_id') || ''
+      const docs = convId ? (globalDocumentsMap.get(convId) || []) : Array.from(globalDocumentsMap.values()).flat()
+      return jsonResponse(
+        docs.map((d) => ({
+          document_id: d.document_id,
+          filename: d.filename,
+          chunks_stored: d.chunks_stored,
+          created_at: d.created_at,
+        }))
+      )
     }
 
     if (path === '/api/documents/upload' && method === 'POST') {
-      return jsonResponse({
-        id: crypto.randomUUID(),
-        filename: 'document',
-        created_at: new Date().toISOString(),
-      })
+      try {
+        const formData = await req.formData()
+        const userId = String(formData.get('user_id') || '').trim() || 'default'
+        const conversationId = String(formData.get('conversation_id') || '').trim() || 'default'
+        const fileEntry = formData.get('file')
+        const fallbackText = String(formData.get('file_text') || '').trim()
+
+        if (!(fileEntry instanceof File)) {
+          return jsonResponse({ detail: 'No file was uploaded.' }, 400)
+        }
+
+        const filename = fileEntry.name || 'document.txt'
+        const text = await extractTextFromUpload(fileEntry, fallbackText)
+        const chunks = splitIntoChunks(text)
+
+        const docId = crypto.randomUUID()
+        const now = new Date().toISOString()
+        const storedDoc: StoredDocument = {
+          document_id: docId,
+          conversation_id: conversationId,
+          user_id: userId,
+          filename,
+          text,
+          chunks,
+          chunks_stored: chunks.length,
+          created_at: now,
+        }
+
+        const existing = globalDocumentsMap.get(conversationId) || []
+        const filtered = existing.filter((d) => d.filename !== filename)
+        globalDocumentsMap.set(conversationId, [...filtered, storedDoc])
+
+        return jsonResponse(
+          {
+            document_id: docId,
+            filename,
+            chunks_stored: chunks.length,
+            created_at: now,
+          },
+          201
+        )
+      } catch (err) {
+        return jsonResponse(
+          { detail: err instanceof Error ? err.message : 'Document upload failed.' },
+          500
+        )
+      }
+    }
+
+    if (path.startsWith('/api/documents/') && method === 'DELETE') {
+      const docId = path.split('/').pop() || ''
+      for (const [convId, docs] of globalDocumentsMap.entries()) {
+        const filtered = docs.filter((d) => d.document_id !== docId)
+        if (filtered.length !== docs.length) {
+          globalDocumentsMap.set(convId, filtered)
+        }
+      }
+      return jsonResponse({ ok: true })
     }
 
     if (path === '/api/audit-log' && method === 'GET') {

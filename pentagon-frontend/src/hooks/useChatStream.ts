@@ -13,6 +13,7 @@ import type {
   TranscriptInfo,
   Verification,
 } from './types/app'
+import type { DocumentInfo } from '../types'
 
 /** How often streamed text is committed to the message list. Each commit re-parses
     the answer through react-markdown, so this trades a little latency for a
@@ -44,6 +45,7 @@ export interface UseChatStreamOptions {
   setQueuedDocuments: React.Dispatch<React.SetStateAction<File[]>>
   transcriptInfo: TranscriptInfo | null
   setTranscriptInfo: (info: TranscriptInfo | null) => void
+  messages: ChatMessage[]
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>
   setActive: React.Dispatch<React.SetStateAction<ConversationDetail | Conversation | null>>
   setStreaming: (next: boolean) => void
@@ -63,6 +65,7 @@ export interface UseChatStreamOptions {
   refreshBadges: () => Promise<void>
   uploadDocument: (file: File, conversationId: string) => Promise<void>
   acceptFiles: (files: File[]) => Promise<void>
+  documents?: DocumentInfo[]
   onAudioUrl: (url: string) => void
   onApprovalResolved?: (conversationId: string) => void
 }
@@ -78,7 +81,7 @@ export function useChatStream(options: UseChatStreamOptions) {
   const {
     userId, agentMode, selectedModel, streaming, transcribing, uploading,
     draft, setDraft, media, setMedia, queuedDocuments, setQueuedDocuments,
-    transcriptInfo, setTranscriptInfo, setMessages, setActive,
+    transcriptInfo, setTranscriptInfo, messages, setMessages, setActive,
     setStreaming, setStoppedReply, setNotice, setError, setCanRetry,
     setDeciding, deciding, setRecording, setTranscribing, recording,
     followConversation, streamAbort,
@@ -136,6 +139,20 @@ export function useChatStream(options: UseChatStreamOptions) {
       form.set('message', question)
       const savedNvidiaKey = getStoredNvidiaKey()
       if (savedNvidiaKey) form.set('nvidia_key', savedNvidiaKey)
+
+      // Send recent conversation history for multi-turn grounding
+      const previousTurns = messages
+        .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content)
+        .map((m) => ({ role: m.role, content: m.content }))
+        .slice(-10)
+      if (previousTurns.length > 0) {
+        form.set('history', JSON.stringify(previousTurns))
+      }
+
+      // Attach document metadata for RAG retrieval
+      if (options.documents && options.documents.length > 0) {
+        form.set('documents_meta', JSON.stringify(options.documents))
+      }
       // Web search is not a user toggle: omitting the field lets the backend
       // router decide when a question actually needs live results.
       if (transcriptInfo && !agentMode) form.set('respond_with_audio', 'true')
@@ -202,6 +219,19 @@ export function useChatStream(options: UseChatStreamOptions) {
     form.set('message', last.question)
     // Regenerate: the question is already the thread's last row.
     form.set('regenerate', 'true')
+    const savedNvidiaKey = getStoredNvidiaKey()
+    if (savedNvidiaKey) form.set('nvidia_key', savedNvidiaKey)
+
+    const previousTurns = messages
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content && m.id !== last.assistantId)
+      .map((m) => ({ role: m.role, content: m.content }))
+      .slice(-10)
+    if (previousTurns.length > 0) {
+      form.set('history', JSON.stringify(previousTurns))
+    }
+    if (options.documents && options.documents.length > 0) {
+      form.set('documents_meta', JSON.stringify(options.documents))
+    }
     try {
       await streamResponse(form, last.assistantId)
       const list = await options.refreshThreads()

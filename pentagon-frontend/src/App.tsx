@@ -249,6 +249,7 @@ function App() {
     setQueuedDocuments,
     transcriptInfo,
     setTranscriptInfo,
+    messages,
     setMessages,
     setActive,
     setStreaming,
@@ -268,6 +269,7 @@ function App() {
     refreshBadges,
     uploadDocument,
     acceptFiles,
+    documents,
     onAudioUrl: (url) => {
       audioUrls.current.add(url)
     },
@@ -663,9 +665,28 @@ function App() {
   }
 
   async function loadDocuments(conversationId: string) {
-    const result = await apiRequest<DocumentInfo[]>(`/api/documents?user_id=${encodeURIComponent(userId)}&conversation_id=${encodeURIComponent(conversationId)}`)
-    setDocuments(result)
-    return result
+    try {
+      const result = await apiRequest<DocumentInfo[]>(`/api/documents?user_id=${encodeURIComponent(userId)}&conversation_id=${encodeURIComponent(conversationId)}`)
+      if (Array.isArray(result) && result.length > 0) {
+        setDocuments(result)
+        try { sessionStorage.setItem(`pentagon_docs_${conversationId}`, JSON.stringify(result)) } catch {}
+        return result
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const cached = sessionStorage.getItem(`pentagon_docs_${conversationId}`)
+      if (cached) {
+        const parsed = JSON.parse(cached) as DocumentInfo[]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setDocuments(parsed)
+          return parsed
+        }
+      }
+    } catch {}
+    setDocuments([])
+    return []
   }
 
   async function uploadDocument(file: File, conversationId: string) {
@@ -673,8 +694,23 @@ function App() {
     form.set('user_id', userId)
     form.set('conversation_id', conversationId)
     form.set('file', file)
+    try {
+      if (file.size < 5 * 1024 * 1024) {
+        const text = await file.text()
+        if (text && !text.includes('\x00\x00\x00')) {
+          form.set('file_text', text)
+        }
+      }
+    } catch {
+      // binary file, ignore text pre-extraction
+    }
     const result = await apiRequest<DocumentInfo>('/api/documents/upload', { method: 'POST', body: form })
-    await loadDocuments(conversationId)
+    const list = await loadDocuments(conversationId)
+    if (!list.some((d) => d.document_id === result.document_id)) {
+      const merged = [...list, result]
+      setDocuments(merged)
+      try { sessionStorage.setItem(`pentagon_docs_${conversationId}`, JSON.stringify(merged)) } catch {}
+    }
     setNotice(`${result.filename} added to this thread.`)
   }
 

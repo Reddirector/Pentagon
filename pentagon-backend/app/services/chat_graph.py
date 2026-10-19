@@ -9,7 +9,7 @@ import time
 from typing import Annotated, Any, TypedDict
 from uuid import uuid4
 
-from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
@@ -629,7 +629,17 @@ def build_chat_graph(
         # turn, then any tool transcript from earlier in this loop. Each piece
         # is placed explicitly rather than by slicing off the end, because after
         # a tool call the end of the list is a ToolMessage that must stay.
+        system_text = (
+            "You are Pentagon, an advanced, highly capable AI workspace developed with cutting-edge engineering.\n"
+            f"Current Date and Time: {time.strftime('%a, %d %b %Y %H:%M:%S UTC', time.gmtime())}.\n"
+            "When asked about your identity or name, always state clearly that you are Pentagon. "
+            "Never say you are ChatGPT or OpenAI.\n"
+            "You have real-time awareness of the current date and time. "
+            "When retrieved documents or web results are provided, synthesize them accurately and cite evidence from the source material."
+        )
+        system_message = SystemMessage(content=system_text)
         prompt_messages = [
+            system_message,
             *state["messages"],
             context_message,
             *state.get("tool_messages", []),
