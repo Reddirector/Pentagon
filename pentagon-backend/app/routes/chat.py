@@ -925,6 +925,8 @@ async def _stream_turn(
                 )
             elif status_code in (401, 403):
                 error_message = "NVIDIA rejected the stored API key. Save a valid key and try again."
+            elif "not found for account" in str(exc).lower() or "function '" in str(exc).lower():
+                error_message = f"NVIDIA Cloud Error: Model '{model}' is not active or provisioned for your account. Please select another model (e.g. Llama 3.1 Nemotron or Llama 3.2 Vision) using the model picker."
             else:
                 error_message = "The NVIDIA chat request failed. Please try again."
             yield _sse(

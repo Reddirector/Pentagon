@@ -2,8 +2,8 @@
  * The Advanced tab's Appearance and Model sections: pure preference widgets
  * reading the shared preferences store.
  */
-import { useSyncExternalStore } from 'react'
-import { MoonStar, Sun, Waves } from 'lucide-react'
+import { useState, useSyncExternalStore } from 'react'
+import { MoonStar, Search, Sun, Waves } from 'lucide-react'
 import {
   APPEARANCES,
   DENSITIES,
@@ -140,12 +140,29 @@ export function DefaultModelSection({
   serverDefaultModel: string
 }) {
   const prefs = useSyncExternalStore(subscribePreferences, getPreferences)
+  const [search, setSearch] = useState('')
+
+  const filtered = search.trim()
+    ? models.filter((m) => m.id.toLowerCase().includes(search.trim().toLowerCase()))
+    : models
+
   return (
     <Section
       title="Default model"
       hint="Used for new threads. An existing thread keeps the model it was started with."
     >
       <div className="space-y-2.5">
+        <div className="relative">
+          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search default models..."
+            className="h-8 w-full rounded-lg border border-white/[0.08] bg-white/[0.02] pl-8 pr-3 text-caption text-zinc-200 placeholder:text-zinc-600 focus:border-emerald-500/40 focus:outline-none"
+          />
+        </div>
+
         <select
           value={prefs.defaultModel || ''}
           onChange={(event) => setDefaultModel(event.target.value)}
@@ -155,14 +172,14 @@ export function DefaultModelSection({
           <option value="" className="bg-black text-white">
             Server default{serverDefaultModel ? ` (${serverDefaultModel})` : ''}
           </option>
-          {models.map((model) => (
+          {filtered.map((model) => (
             <option key={model.id} value={model.id} className="bg-black text-white">
               {model.id}
             </option>
           ))}
         </select>
         <p className="text-small leading-[1.6] text-zinc-600">
-          {models.length} model{models.length === 1 ? '' : 's'} available on this server. Reasoning models can take
+          {filtered.length} of {models.length} model{models.length === 1 ? '' : 's'} available on this server. Reasoning models can take
           a couple of minutes before the first token.
         </p>
       </div>

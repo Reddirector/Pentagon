@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   ArrowRight,
@@ -11,8 +11,10 @@ import {
   ImageIcon,
   KeyRound,
   LoaderCircle,
+  Search,
   ShieldCheck,
   Sparkles,
+  X,
 } from 'lucide-react'
 import { apiRequest, setStoredNvidiaKey } from '../api'
 import type { ModelInfo } from '../types'
@@ -54,6 +56,18 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
   const [error, setError] = useState('')
   const [discoveredModels, setDiscoveredModels] = useState<ModelInfo[]>([])
   const [selectedModel, setSelectedModel] = useState<string>('')
+  const [modelSearch, setModelSearch] = useState('')
+
+  const filteredDiscoveredModels = useMemo(() => {
+    const q = modelSearch.trim().toLowerCase()
+    if (!q) return discoveredModels
+    return discoveredModels.filter((model) => {
+      const id = model.id.toLowerCase()
+      const clean = cleanModelName(model.id).toLowerCase()
+      const family = getModelFamily(model.id).label.toLowerCase()
+      return id.includes(q) || clean.includes(q) || family.includes(q)
+    })
+  }, [discoveredModels, modelSearch])
 
   // Live input status calculation
   const trimmed = keyInput.trim()
@@ -345,64 +359,113 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
               Choose your starting model. You can switch between any of them anytime in chat.
             </p>
 
+            {/* Search Bar for Models */}
+            <div className="relative mt-3.5 w-full">
+              <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <input
+                type="text"
+                value={modelSearch}
+                onChange={(e) => setModelSearch(e.target.value)}
+                placeholder="Search models (e.g. nemotron, vision, deepseek, 70b)..."
+                className="h-10 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] pl-9 pr-8 text-small text-zinc-100 placeholder:text-zinc-500 transition focus:border-emerald-500/50 focus:bg-white/[0.05] focus:outline-none focus:ring-1 focus:ring-emerald-500/30"
+              />
+              {modelSearch && (
+                <button
+                  type="button"
+                  onClick={() => setModelSearch('')}
+                  aria-label="Clear search"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-400 hover:bg-white/10 hover:text-white"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            <div className="mt-2 flex items-center justify-between px-1 text-micro text-zinc-500">
+              <span>{filteredDiscoveredModels.length} of {discoveredModels.length} models available</span>
+              {modelSearch && (
+                <button
+                  type="button"
+                  onClick={() => setModelSearch('')}
+                  className="text-emerald-400 hover:underline"
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
+
             {/* Discovered Models List */}
-            <div className="mt-4 max-h-[260px] w-full space-y-2 overflow-y-auto pr-1 text-left custom-scrollbar">
-              {discoveredModels.map((model) => {
-                const isSelected = model.id === selectedModel
-                const family = getModelFamily(model.id)
-                const isReasoning = model.is_reasoning || model.id.includes('r1')
-                const isVision = model.supports_vision || model.id.includes('vision')
-
-                return (
+            <div className="mt-2.5 max-h-[260px] w-full space-y-2 overflow-y-auto pr-1 text-left custom-scrollbar">
+              {filteredDiscoveredModels.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Cpu size={24} className="mb-2 text-zinc-600" />
+                  <p className="text-small text-zinc-400">No models match "{modelSearch}"</p>
                   <button
-                    key={model.id}
                     type="button"
-                    onClick={() => setSelectedModel(model.id)}
-                    className={`group flex w-full items-center justify-between rounded-2xl border p-3 text-left transition ${
-                      isSelected
-                        ? 'border-emerald-500/50 bg-emerald-500/[0.08] shadow-[0_0_20px_rgba(16,185,129,0.12)] ring-1 ring-emerald-500/30'
-                        : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16] hover:bg-white/[0.04]'
-                    }`}
+                    onClick={() => setModelSearch('')}
+                    className="mt-2 text-caption text-emerald-400 hover:underline"
                   >
-                    <div className="min-w-0 flex-1 pr-2">
-                      <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${family.tone}`}>
-                          {family.label}
-                        </span>
-                        <span className="truncate text-small font-medium text-zinc-100">
-                          {cleanModelName(model.id)}
-                        </span>
-                      </div>
-
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-micro text-zinc-500">
-                        {isVision && (
-                          <span className="flex items-center gap-1 rounded bg-white/[0.04] px-1.5 py-0.5 text-zinc-300">
-                            <ImageIcon size={10} className="text-emerald-400" />
-                            <span>Vision</span>
-                          </span>
-                        )}
-                        {isReasoning && (
-                          <span className="flex items-center gap-1 rounded bg-white/[0.04] px-1.5 py-0.5 text-cyan-300">
-                            <Brain size={10} className="text-cyan-400" />
-                            <span>Reasoning</span>
-                          </span>
-                        )}
-                        <span className="rounded bg-white/[0.04] px-1.5 py-0.5 text-zinc-400">
-                          128K ctx
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className={`grid size-6 shrink-0 place-items-center rounded-full border transition ${
-                      isSelected
-                        ? 'border-emerald-400 bg-emerald-400 text-black'
-                        : 'border-white/[0.15] bg-transparent text-transparent group-hover:border-white/[0.3]'
-                    }`}>
-                      <Check size={13} strokeWidth={2.8} />
-                    </div>
+                    Clear search filter
                   </button>
-                )
-              })}
+                </div>
+              ) : (
+                filteredDiscoveredModels.map((model) => {
+                  const isSelected = model.id === selectedModel
+                  const family = getModelFamily(model.id)
+                  const isReasoning = model.is_reasoning || model.id.includes('r1')
+                  const isVision = model.supports_vision || model.id.includes('vision')
+
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => setSelectedModel(model.id)}
+                      className={`group flex w-full items-center justify-between rounded-2xl border p-3 text-left transition ${
+                        isSelected
+                          ? 'border-emerald-500/50 bg-emerald-500/[0.08] shadow-[0_0_20px_rgba(16,185,129,0.12)] ring-1 ring-emerald-500/30'
+                          : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16] hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1 pr-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${family.tone}`}>
+                            {family.label}
+                          </span>
+                          <span className="truncate text-small font-medium text-zinc-100">
+                            {cleanModelName(model.id)}
+                          </span>
+                        </div>
+
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-micro text-zinc-500">
+                          {isVision && (
+                            <span className="flex items-center gap-1 rounded bg-white/[0.04] px-1.5 py-0.5 text-zinc-300">
+                              <ImageIcon size={10} className="text-emerald-400" />
+                              <span>Vision</span>
+                            </span>
+                          )}
+                          {isReasoning && (
+                            <span className="flex items-center gap-1 rounded bg-white/[0.04] px-1.5 py-0.5 text-cyan-300">
+                              <Brain size={10} className="text-cyan-400" />
+                              <span>Reasoning</span>
+                            </span>
+                          )}
+                          <span className="rounded bg-white/[0.04] px-1.5 py-0.5 text-zinc-400">
+                            128K ctx
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className={`grid size-6 shrink-0 place-items-center rounded-full border transition ${
+                        isSelected
+                          ? 'border-emerald-400 bg-emerald-400 text-black'
+                          : 'border-white/[0.15] bg-transparent text-transparent group-hover:border-white/[0.3]'
+                      }`}>
+                        <Check size={13} strokeWidth={2.8} />
+                      </div>
+                    </button>
+                  )
+                })
+              )}
             </div>
 
             {/* Launch Action */}

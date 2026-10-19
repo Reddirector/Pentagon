@@ -524,7 +524,11 @@ export function useChatStream(options: UseChatStreamOptions) {
           agentQuestion: null,
         }))
       } else if (eventName === 'error') {
-        throw new Error(String(payload.message || 'The model request failed.'))
+        const raw = String(payload.message || 'The model request failed.')
+        if (raw.includes('Not found for account') || raw.includes('Function \'')) {
+          throw new Error('NVIDIA Cloud Error: The requested model is not available or not provisioned for your NVIDIA account. Please switch to an active model (such as Llama 3.1 Nemotron or Llama 3.2 Vision) using the model selector.')
+        }
+        throw new Error(raw)
       }
     }
     try {

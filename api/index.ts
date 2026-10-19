@@ -24,7 +24,7 @@ const DEFAULT_MODELS = [
 
 function normalizeModel(model: string): string {
   const trimmed = (model || '').trim()
-  if (!trimmed || trimmed.includes('llama-3.3-70b')) {
+  if (!trimmed || trimmed.includes('llama-3.3-70b') || trimmed.includes('deepseek-v4') || trimmed.includes('gemma-3') || trimmed.includes('gemma-4')) {
     return 'nvidia/llama-3.1-nemotron-70b-instruct'
   }
   return trimmed
@@ -65,10 +65,10 @@ function extractKey(req: Request, bodyKey?: string): string {
 function parseNvidiaModels(raw: unknown) {
   const data = raw as { data?: Array<{ id: string }> }
   if (!Array.isArray(data?.data) || data.data.length === 0) {
-    return { models: DEFAULT_MODELS, default_model: 'meta/llama-3.3-70b-instruct' }
+    return { models: DEFAULT_MODELS, default_model: 'nvidia/llama-3.1-nemotron-70b-instruct' }
   }
 
-  // Filter out pure embeddings, rerankers, speech models
+  // Filter out pure embeddings, rerankers, speech models, and deprecated IDs
   const chatCandidates = data.data
     .filter((m) => {
       const id = (m.id || '').toLowerCase()
@@ -97,7 +97,7 @@ function parseNvidiaModels(raw: unknown) {
     })
 
   // Prioritize flagship models at the top
-  const priorityKeywords = ['llama-3.3-70b', 'deepseek-r1', 'nemotron-70b', 'llama-3.2-11b', 'mistral-large', 'qwen2.5-72b']
+  const priorityKeywords = ['nemotron-70b', 'llama-3.2-11b', 'deepseek-r1', 'llama-3.2-90b', 'mistral-large', 'qwen2.5-72b']
   chatCandidates.sort((a, b) => {
     const aPri = priorityKeywords.findIndex((k) => a.id.toLowerCase().includes(k))
     const bPri = priorityKeywords.findIndex((k) => b.id.toLowerCase().includes(k))
@@ -108,7 +108,7 @@ function parseNvidiaModels(raw: unknown) {
   })
 
   const models = chatCandidates.length > 0 ? chatCandidates : DEFAULT_MODELS
-  const defaultModel = models.find((m) => m.id.includes('llama-3.3-70b'))?.id || models[0].id
+  const defaultModel = models.find((m) => m.id.includes('nemotron-70b'))?.id || models.find((m) => m.id.includes('llama-3.2-11b'))?.id || models[0].id
 
   return { models, default_model: defaultModel }
 }
@@ -187,7 +187,7 @@ export default async function handler(req: Request): Promise<Response> {
             valid: true,
             reason: 'Key verified',
             models: DEFAULT_MODELS,
-            default_model: 'meta/llama-3.3-70b-instruct',
+            default_model: 'nvidia/llama-3.1-nemotron-70b-instruct',
           })
         }
         return jsonResponse({ valid: false, reason: err instanceof Error ? err.message : 'Validation error' })
@@ -328,6 +328,11 @@ export default async function handler(req: Request): Promise<Response> {
               } catch {
                 // keep status
               }
+
+              if (errDetail.includes('Not found for account') || errDetail.includes('Function \'')) {
+                errDetail = `NVIDIA Cloud Error: Model "${model}" is not provisioned or active for your NVIDIA account. Please switch to an active model (such as nvidia/llama-3.1-nemotron-70b-instruct or meta/llama-3.2-11b-vision-instruct) using the model picker, or generate an API key directly from build.nvidia.com under your active organization.`
+              }
+
               controller.enqueue(
                 encoder.encode(`event: error\ndata: ${JSON.stringify({ message: errDetail })}\n\n`)
               )
@@ -469,7 +474,7 @@ export default async function handler(req: Request): Promise<Response> {
         title: 'Thread',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        active_model: 'meta/llama-3.3-70b-instruct',
+        active_model: 'nvidia/llama-3.1-nemotron-70b-instruct',
         messages: [],
       })
     }

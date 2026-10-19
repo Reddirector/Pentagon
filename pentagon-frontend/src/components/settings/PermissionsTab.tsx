@@ -10,6 +10,7 @@ import {
   subscribePreferences,
 } from '../../lib/preferences'
 import type { AutonomySettings, ModelInfo } from '../../types'
+import { Search } from 'lucide-react'
 import { PermissionPanel } from '../PermissionPanel'
 import { applyAutonomyPreset, putAutonomySetting } from '../../api'
 import { Section, selectClass } from './shared'
@@ -65,6 +66,11 @@ export function PermissionsTab({
     }
   }
 
+  const [modelSearch, setModelSearch] = useState('')
+  const filteredModels = modelSearch.trim()
+    ? models.filter((m) => m.id.toLowerCase().includes(modelSearch.trim().toLowerCase()))
+    : models
+
   return (
     <>
       <Section
@@ -72,6 +78,17 @@ export function PermissionsTab({
         hint="Used for new threads. An existing thread keeps the model it was started with."
       >
         <div className="space-y-2.5">
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <input
+              type="text"
+              value={modelSearch}
+              onChange={(e) => setModelSearch(e.target.value)}
+              placeholder="Search default models..."
+              className="h-8 w-full rounded-lg border border-white/[0.08] bg-white/[0.02] pl-8 pr-3 text-caption text-zinc-200 placeholder:text-zinc-600 focus:border-emerald-500/40 focus:outline-none"
+            />
+          </div>
+
           <select
             value={prefs.defaultModel || ''}
             onChange={(event) => setDefaultModel(event.target.value)}
@@ -81,14 +98,14 @@ export function PermissionsTab({
             <option value="" className="bg-black text-white">
               Server default{serverDefaultModel ? ` (${serverDefaultModel})` : ''}
             </option>
-            {models.map((model) => (
+            {filteredModels.map((model) => (
               <option key={model.id} value={model.id} className="bg-black text-white">
                 {model.id}
               </option>
             ))}
           </select>
           <p className="text-small leading-[1.6] text-zinc-600">
-            {models.length} model{models.length === 1 ? '' : 's'} available on this server. Reasoning models can take
+            {filteredModels.length} of {models.length} model{models.length === 1 ? '' : 's'} available on this server. Reasoning models can take
             a couple of minutes before the first token.
           </p>
         </div>
