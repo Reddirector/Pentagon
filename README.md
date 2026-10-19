@@ -25,7 +25,7 @@ Pre-built binaries and installers for all platforms are available on the [GitHub
 
 | Platform | Package / File | Size | Instructions |
 |---|---|---|---|
-| **Android** | [`Pentagon-0.1.0-android.apk`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0-android.apk) | `5.7 MB` | Sideload or `adb install Pentagon-0.1.0-android.apk` (Android 8.0+) |
+| **Android** | [`Pentagon-0.1.0-android.apk`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0-android.apk) | `5.9 MB` | Sideload or `adb install Pentagon-0.1.0-android.apk` (Android 8.0+) |
 | **Windows** | [`Pentagon-0.1.0-win-x64.zip`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0-win-x64.zip) | `156 MB` | Extract ZIP and run `Pentagon.exe` (Windows 10/11 64-bit) |
 | **Linux (AppImage)** | [`Pentagon-0.1.0-x86_64.AppImage`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0-x86_64.AppImage) | `130 MB` | `chmod +x Pentagon-0.1.0-x86_64.AppImage && ./Pentagon-0.1.0-x86_64.AppImage` |
 | **Linux (Debian/Ubuntu)** | [`Pentagon-0.1.0-amd64.deb`](https://github.com/Reddirector/Pentagon/releases/download/v0.1.0/Pentagon-0.1.0-amd64.deb) | `102 MB` | `sudo dpkg -i Pentagon-0.1.0-amd64.deb` |
@@ -69,6 +69,8 @@ Verify downloads using the official [checksums.sha256](https://github.com/Reddir
 | **Voice** | Speech-to-text and text-to-speech, with local fallbacks |
 | **Bring your own key** | Stored per user, Fernet-encrypted, validated before saving |
 | **Appearance** | Monochrome themes, contrast, text size, density, ambient background |
+| **Mobile-first responsive** | Dynamic Island & notch safe areas, adaptive bottom composer, and touch-optimized layout |
+| **Tool permissions & autonomy** | Autonomy presets (Cautious, Balanced, Autonomous) with 4-tier risk category segmented controls |
 | **Resizable sidebar** | Drag the edge to resize; arrow keys work too, double-click resets |
 | **Collapsible sidebar** | Folds to an icon rail with ⌘B / Ctrl+B, and remembers the choice |
 | **Offline-friendly retrieval** | Embeddings fall back to a local model, so RAG survives key changes |
