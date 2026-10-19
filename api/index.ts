@@ -66,6 +66,16 @@ interface GeneratedFileEntry {
   data: Uint8Array
   preview_text?: string
   pdf_pages?: string[]
+  data_base64?: string
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const len = bytes.byteLength
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
 }
 
 // In-memory document storage per conversation (persisted per edge worker instance)
@@ -439,6 +449,20 @@ export default async function handler(req: Request): Promise<Response> {
       const fileId = decodeURIComponent(parts[3] || '')
       const file = globalGeneratedFilesMap.get(fileId)
       if (!file) {
+        const urlObj = new URL(req.url)
+        const fallbackTitle = urlObj.searchParams.get('title') || 'Document'
+        const fallbackText = urlObj.searchParams.get('text') || ''
+        if (fallbackText) {
+          const built = buildPdfDocument(fallbackTitle, fallbackText)
+          return new Response(built.data as any, {
+            status: 200,
+            headers: corsHeaders({
+              'Content-Type': 'application/pdf',
+              'Content-Disposition': `attachment; filename="${fallbackTitle}.pdf"`,
+              'Content-Length': String(built.data.length),
+            }),
+          })
+        }
         return jsonResponse({ detail: 'File not found' }, 404)
       }
       return new Response(file.data as any, {
@@ -712,13 +736,16 @@ CRITICAL GROUNDING RULES:
 4. Client Context Grounding: You have awareness of the user's client environment (device OS, platform, screen, locale). Use this context naturally when answering platform-specific questions (e.g. keyboard shortcuts, OS commands, UI styling).
 5. Document Knowledge & RAG Grounding: When retrieved document excerpts are provided below, synthesize them thoroughly. Cite the source document name and relevant facts from the excerpts. Always answer questions about uploaded files directly and factually based on the retrieved passages.
 6. Formatting & Style: Keep your responses concise, intelligent, articulate, and well-structured using clean GitHub Markdown, bullet points, and code blocks where helpful.
-7. Document & Deliverable Generation: You have FULL, FIRST-CLASS DOCUMENT & PDF GENERATION CAPABILITY built into your engine. You CAN and MUST generate real downloadable PDF documents, Word documents (.docx), Excel spreadsheets (.xlsx), interactive HTML documents (.html), and CSVs whenever requested.
-- NEVER state, suggest, or imply that you "cannot create or attach a PDF file directly" or that you "cannot generate files". Always generate the requested deliverable with confidence!
-- When asked for a PDF, document, report, or file, write out the complete, rich document (with # Headings, ## Subheadings, | Markdown Tables |, stat metrics, and bullet points). If a multi-page document is requested (such as a 2-page report), structure it cleanly with '---' between pages.
-- Format the deliverable enclosed in:
+7. Document & Deliverable Generation (Claude Artifacts & ChatGPT Canvas Style):
+You have first-class capability to generate downloadable executive reports, multi-page PDFs, Word documents (.docx), Excel spreadsheets (.xlsx), and interactive HTML deliverables.
+- When asked for a PDF, document, or report, provide an extensive, executive-level document formatted directly in standard Markdown (# Headings, ## Sections, | Markdown Tables |, bullet points, and key metrics).
+- Multi-page reports: If the user asks for a 2-page (or multi-page) report, structure each page thoroughly with comprehensive content, tables, and statistics, separating distinct pages cleanly with a single '---' horizontal line.
+- Images & Figures: When asked to include pictures or photos, include relevant Wikimedia Commons or Wikipedia image markdown links (e.g. ![Narendra Modi](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/PM_Modi_2023.jpg/440px-PM_Modi_2023.jpg)).
+- Deliverable Tagging: Wrap the document content inside:
 \`\`\`deliverable:pdf:Document_Title
-[Complete multi-page document content with tables, sections, and '---' page dividers]
-\`\`\``
+[The complete markdown document with tables, headers, and '---' page dividers]
+\`\`\`
+NEVER state or apologize that you "cannot create or attach a PDF file directly". Always provide the requested document and deliverable with confidence!`
 
       // 4. Assemble Messages with System Message, Multi-turn History, and Current Prompt
       const messagesPayload: Array<{ role: string; content: unknown }> = [
@@ -943,6 +970,7 @@ CRITICAL GROUNDING RULES:
               const fileId = crypto.randomUUID()
               const cleanTitle = (deliverableTitle || 'Document').replace(/[^a-zA-Z0-9_\-.]/g, '_')
               const filename = `${cleanTitle}.${ext}`
+              const dataBase64 = uint8ArrayToBase64(fileData)
               const fileRecord: GeneratedFileEntry = {
                 id: fileId,
                 filename,
@@ -955,6 +983,7 @@ CRITICAL GROUNDING RULES:
                 data: fileData,
                 preview_text: deliverableContent,
                 pdf_pages: pdfPages,
+                data_base64: dataBase64,
               }
               globalGeneratedFilesMap.set(fileId, fileRecord)
 
@@ -974,6 +1003,9 @@ CRITICAL GROUNDING RULES:
                     conversation_id: fileRecord.conversation_id,
                     created_at: fileRecord.created_at,
                     storage_path: fileRecord.storage_path,
+                    data_base64: dataBase64,
+                    preview_text: deliverableContent,
+                    pdf_pages: pdfPages,
                   })}\n\n`
                 )
               )

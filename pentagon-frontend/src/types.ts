@@ -293,6 +293,9 @@ export type GeneratedFileInfo = {
   conversation_id: string
   created_at: string | null
   storage_path: string
+  data_base64?: string
+  preview_text?: string
+  pdf_pages?: string[]
 }
 
 export type WorkflowNodeType =

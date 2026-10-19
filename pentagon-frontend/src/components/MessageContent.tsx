@@ -39,7 +39,34 @@ import {
 } from 'lucide-react'
 
 import { downloadGeneratedFile, fetchFilePreview, getFileBlobUrl, type FilePreviewData } from '../api'
+import { buildClientPdfBlobUrl } from '../lib/pdfGenerator'
 import type { ChatMessage, ExecutionTrace, GeneratedFileInfo, SourcesUsed, TraceEntry } from '../types'
+
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const byteChars = atob(base64)
+  const byteNumbers = new Uint8Array(byteChars.length)
+  for (let i = 0; i < byteChars.length; i++) {
+    byteNumbers[i] = byteChars.charCodeAt(i)
+  }
+  return new Blob([byteNumbers], { type: mimeType })
+}
+
+function triggerBlobDownload(blobUrl: string, filename: string) {
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+function sanitizeMarkdownContent(raw: string): string {
+  if (!raw) return ''
+  let cleaned = raw.replace(/```deliverable:[^\n]*\r?\n([\s\S]*?)```/gi, '$1')
+  cleaned = cleaned.replace(/```deliverable:[^\n]*\r?\n/gi, '')
+  cleaned = cleaned.replace(/^[ \t]*DELIVERABLE:[^\r\n]+(?:\r?\n|$)/gim, '')
+  return cleaned
+}
 
 
 
@@ -277,9 +304,14 @@ function safeExternalUrl(value: string | undefined): string | null {
 }
 
 export function MarkdownAnswer({ content }: { content: string }) {
-  return <div className="markdown-content min-w-0 break-words text-title leading-[1.68] text-[#d8d9dc]">
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={markdownComponents}>{content}</ReactMarkdown>
-  </div>
+  const sanitized = useMemo(() => sanitizeMarkdownContent(content), [content])
+  return (
+    <div className="markdown-content min-w-0 break-words text-title leading-[1.68] text-[#d8d9dc]">
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={markdownComponents}>
+        {sanitized}
+      </ReactMarkdown>
+    </div>
+  )
 }
 
 const TRACE_TITLES: Record<string, string> = {
@@ -1241,7 +1273,7 @@ function ImageFilePreview({
   )
 }
 
-function GeneratedFileCard({ file }: { file: GeneratedFileInfo }) {
+function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; messageContent?: string }) {
   const [downloading, setDownloading] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
@@ -1267,58 +1299,138 @@ function GeneratedFileCard({ file }: { file: GeneratedFileInfo }) {
     }
   }, [pdfBlobUrl])
 
-  async function loadPreview() {
-    try {
-      setPreviewLoading(true)
-      setPreviewError(null)
-      const [data, blob] = await Promise.all([
-        fetchFilePreview(file.id),
-        fmt === 'pdf' ? getFileBlobUrl(file.id).catch(() => null) : Promise.resolve(null),
-      ])
-      setPreviewData(data)
-      if (blob) setPdfBlobUrl(blob)
-    } catch (err) {
-      setPreviewError(err instanceof Error ? err.message : 'Could not load preview')
-    } finally {
-      setPreviewLoading(false)
-    }
-  }
-
   useEffect(() => {
     let cancelled = false
-    const timer = window.setTimeout(async () => {
+
+    async function initDeliverable() {
       try {
         setPreviewLoading(true)
         setPreviewError(null)
+
+        // Path A: Client-side self-contained data (Base64) - ZERO network dependency (Claude/ChatGPT style)
+        if (file.data_base64) {
+          const mime = file.media_type || (fmt === 'pdf' ? 'application/pdf' : 'application/octet-stream')
+          const blob = base64ToBlob(file.data_base64, mime)
+          const bUrl = URL.createObjectURL(blob)
+          if (!cancelled) {
+            if (fmt === 'pdf') setPdfBlobUrl(bUrl)
+            const text = file.preview_text || messageContent || ''
+            const pages = file.pdf_pages && file.pdf_pages.length > 0 
+              ? file.pdf_pages 
+              : (text ? text.split(/\n\s*---\s*\n/) : [])
+            setPreviewData({
+              id: file.id,
+              filename: file.filename,
+              format: file.format,
+              media_type: file.media_type,
+              size: file.size,
+              preview: isImage ? 'image' : 'bytes',
+              text,
+              pdf_pages: pages,
+              page_count: pages.length || 1,
+              image_data_url: isImage ? `data:${mime};base64,${file.data_base64}` : undefined,
+            })
+            setPreviewLoading(false)
+          }
+          return
+        }
+
+        // Path B: Pure client-side PDF/doc compilation from preview text or message content
+        const sourceText = file.preview_text || messageContent
+        if (fmt === 'pdf' && sourceText && sourceText.trim().length > 20) {
+          const docTitle = file.filename.replace(/\.pdf$/i, '').replace(/_/g, ' ')
+          const built = buildClientPdfBlobUrl(docTitle, sourceText)
+          if (!cancelled) {
+            setPdfBlobUrl(built.blobUrl)
+            setPreviewData({
+              id: file.id,
+              filename: file.filename,
+              format: 'pdf',
+              media_type: 'application/pdf',
+              size: built.bytes.length,
+              preview: 'bytes',
+              text: sourceText,
+              pdf_pages: built.pagesText.length > 0 ? built.pagesText : [sourceText],
+              page_count: built.pageCount,
+            })
+            setPreviewLoading(false)
+          }
+          return
+        }
+
+        // Path C: Fallback to server endpoint
         const [data, blob] = await Promise.all([
-          fetchFilePreview(file.id),
+          fetchFilePreview(file.id).catch(() => null),
           fmt === 'pdf' ? getFileBlobUrl(file.id).catch(() => null) : Promise.resolve(null),
         ])
+
         if (!cancelled) {
-          setPreviewData(data)
-          if (blob) setPdfBlobUrl(blob)
+          if (data) {
+            setPreviewData(data)
+            if (blob) setPdfBlobUrl(blob)
+          } else if (sourceText) {
+            // Serverless isolate didn't have file in memory: compile on client side!
+            const docTitle = file.filename.replace(/\.pdf$/i, '').replace(/_/g, ' ')
+            const built = buildClientPdfBlobUrl(docTitle, sourceText)
+            setPdfBlobUrl(built.blobUrl)
+            setPreviewData({
+              id: file.id,
+              filename: file.filename,
+              format: file.format,
+              media_type: 'application/pdf',
+              size: built.bytes.length,
+              preview: 'bytes',
+              text: sourceText,
+              pdf_pages: built.pagesText,
+              page_count: built.pageCount,
+            })
+          } else {
+            setPreviewError('File preview currently unavailable')
+          }
+          setPreviewLoading(false)
         }
       } catch (err) {
         if (!cancelled) {
           setPreviewError(err instanceof Error ? err.message : 'Could not load preview')
-        }
-      } finally {
-        if (!cancelled) {
           setPreviewLoading(false)
         }
       }
-    }, 0)
+    }
+
+    initDeliverable()
 
     return () => {
       cancelled = true
-      window.clearTimeout(timer)
     }
-  }, [file.id, fmt])
+  }, [file.id, file.data_base64, file.preview_text, fmt, messageContent])
 
   async function handleDownload() {
     if (downloading) return
     try {
       setDownloading(true)
+      // 1. Instant download from local PDF blob URL
+      if (pdfBlobUrl) {
+        triggerBlobDownload(pdfBlobUrl, file.filename)
+        return
+      }
+      // 2. Instant download from base64
+      if (file.data_base64) {
+        const mime = file.media_type || (fmt === 'pdf' ? 'application/pdf' : 'application/octet-stream')
+        const blob = base64ToBlob(file.data_base64, mime)
+        const url = URL.createObjectURL(blob)
+        triggerBlobDownload(url, file.filename)
+        setTimeout(() => URL.revokeObjectURL(url), 2000)
+        return
+      }
+      // 3. Instant client PDF build
+      const sourceText = file.preview_text || messageContent
+      if (fmt === 'pdf' && sourceText) {
+        const docTitle = file.filename.replace(/\.pdf$/i, '').replace(/_/g, ' ')
+        const built = buildClientPdfBlobUrl(docTitle, sourceText)
+        triggerBlobDownload(built.blobUrl, file.filename)
+        return
+      }
+      // 4. Fallback to API download
       await downloadGeneratedFile(file.id, file.filename)
     } catch (err) {
       console.error('Download failed:', err)
@@ -1333,16 +1445,10 @@ function GeneratedFileCard({ file }: { file: GeneratedFileInfo }) {
       return
     }
     setPreviewOpen(true)
-    if (!previewData && !previewLoading) {
-      await loadPreview()
-    }
   }
 
   async function openFullscreen() {
     setFullscreen(true)
-    if (!previewData && !previewLoading) {
-      await loadPreview()
-    }
   }
 
   function renderPreviewBody() {
@@ -1548,7 +1654,7 @@ function GeneratedFileCard({ file }: { file: GeneratedFileInfo }) {
   )
 }
 
-function GeneratedFilesList({ files }: { files: GeneratedFileInfo[] }) {
+function GeneratedFilesList({ files, messageContent }: { files: GeneratedFileInfo[]; messageContent?: string }) {
   if (!files || files.length === 0) return null
   return (
     <div className="mt-4 space-y-2.5">
@@ -1558,7 +1664,7 @@ function GeneratedFilesList({ files }: { files: GeneratedFileInfo[] }) {
       </div>
       <div className="grid gap-2.5">
         {files.map((file) => (
-          <GeneratedFileCard key={file.id} file={file} />
+          <GeneratedFileCard key={file.id} file={file} messageContent={messageContent} />
         ))}
       </div>
     </div>
@@ -1572,7 +1678,7 @@ export function AssistantDetails({ message }: { message: ChatMessage }) {
     {message.execution_trace && <TracePanel trace={message.execution_trace} />}
     {message.content && <MarkdownAnswer content={message.content} />}
     {message.generatedFiles && message.generatedFiles.length > 0 && (
-      <GeneratedFilesList files={message.generatedFiles} />
+      <GeneratedFilesList files={message.generatedFiles} messageContent={message.content} />
     )}
     {message.sources_used && <SourcesButton sources={message.sources_used} />}
     {message.audioUrl && <audio className="panel-enter mt-4 h-9 w-full max-w-sm" controls preload="metadata" src={message.audioUrl} aria-label="Assistant audio reply" />}
