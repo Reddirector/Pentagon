@@ -392,6 +392,45 @@ textarea { field-sizing: content; }
   will-change: opacity;
 }
 
+/* Dual-circle orbital animation:
+   Outer circle stays completely still.
+   Inner circle rotates from left to right (clockwise 0deg -> 360deg):
+   Fast rotation on loading (~1.2s), slow orbit otherwise (~22s).
+*/
+@keyframes logo-inner-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.logo-outer-circle {
+  transform: none !important;
+  animation: none !important;
+}
+
+.logo-orbit-slow {
+  transform-origin: 255px 79px;
+  animation: logo-inner-rotate 22s linear infinite;
+  will-change: transform;
+}
+
+.logo-loading-fast {
+  transform-origin: 255px 79px;
+  animation: logo-inner-rotate 1.2s linear infinite !important;
+  will-change: transform;
+}
+
+.animate-spin-slow {
+  animation: logo-inner-rotate 20s linear infinite;
+}
+
+.animate-spin-fast {
+  animation: logo-inner-rotate 1.2s linear infinite;
+}
+
 .logo-animated:hover .logo-crown {
   animation-duration: 2.2s;
 }
@@ -414,7 +453,11 @@ textarea { field-sizing: content; }
   .logo-star,
   .logo-sparkles,
   .logo-globe,
-  .logo-facets {
+  .logo-facets,
+  .logo-orbit-slow,
+  .logo-loading-fast,
+  .animate-spin-slow,
+  .animate-spin-fast {
     animation: none !important;
   }
 }

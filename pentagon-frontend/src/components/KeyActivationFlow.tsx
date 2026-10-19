@@ -191,7 +191,11 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
 
           <div className="relative flex size-24 items-center justify-center rounded-3xl border border-white/[0.12] bg-[#090a0d]/90 shadow-[0_24px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl ring-1 ring-white/[0.06]">
             <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-white/[0.08] to-transparent" />
-            <LogomarkBadge size={60} className="transition duration-500 hover:scale-105" />
+            <LogomarkBadge
+              size={60}
+              loading={step === 'validating' || step === 'discovering'}
+              className="transition duration-500 hover:scale-105"
+            />
           </div>
         </div>
 

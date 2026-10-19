@@ -802,7 +802,7 @@ function App() {
       <div className="grid h-full min-h-dvh place-items-center bg-[#000000]">
         <div className="relative flex items-center justify-center">
           <div className="absolute size-28 rounded-full bg-emerald-400/[0.15] blur-2xl animate-pulse" />
-          <LogomarkBadge size={54} />
+          <LogomarkBadge size={54} loading={true} />
         </div>
       </div>
     )
@@ -1252,7 +1252,7 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
   return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
     {!user && (
       <div className="mt-0.5 grid size-7 shrink-0 place-items-center">
-        <Logomark size={20} className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.35)]" />
+        <Logomark size={20} loading={deciding || isStreaming} className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.35)]" />
       </div>
     )}
     <div className={`min-w-0 ${user ? 'max-w-[78%]' : 'w-full max-w-[calc(100%-40px)]'}`}>

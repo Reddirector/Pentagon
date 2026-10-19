@@ -12,21 +12,25 @@ import {
  * Pentagon Brand Mark: Pure Mathematical SVG Vector.
  * Vectorized with subpixel precision from the official Pentagon brand mark.
  * Structurally split into semantic layers:
- *   - Celestial Crown: Compass Star, Orbit Halo Ring, Crescent Moon, Radiant Sparkles
+ *   - Celestial Crown: Compass Star, Stationary Outer Halo, Rotating Inner Orbit, Crescent Moon, Radiant Sparkles
  *   - 3D Space Globe: Polyhedral Wireframe Struts, Bevels, Translucent Glass Facets
  *
- * Fully modular and equipped with dedicated CSS hooks for custom keyframe animations.
+ * Equipped with dual-circle orbital rotation:
+ *   - Outer circle remains still.
+ *   - Inner circle rotates from left to right (clockwise): Fast on loading, Slow otherwise.
  */
 export function Logomark({
   size = 20,
   className = '',
   opacity = 1,
   animated = true,
+  loading = false,
 }: {
   size?: number
   className?: string
   opacity?: number
   animated?: boolean
+  loading?: boolean
 }) {
   return (
     <svg
@@ -36,7 +40,7 @@ export function Logomark({
       role="presentation"
       aria-hidden="true"
       focusable="false"
-      className={`logo-mark shrink-0 select-none ${animated ? 'logo-animated' : ''} ${className}`}
+      className={`logo-mark shrink-0 select-none ${animated ? 'logo-animated' : ''} ${loading ? 'logo-loading' : ''} ${className}`}
       style={{ opacity }}
     >
       <defs>
@@ -73,15 +77,42 @@ export function Logomark({
       {/* 3. Celestial Crown (Star, Halo Orbit, Moon, Sparkles) */}
       <g className={animated ? 'logo-crown' : ''}>
         {/* Soft aura glow centered on compass star (255, 79) */}
-        <circle cx="255" cy="79" r="54" fill="url(#pentagon-star-glow)" />
+        <circle cx="255" cy="79" r="56" fill="url(#pentagon-star-glow)" />
 
-        {/* Orbit Ring / Celestial Halo */}
-        <g className={animated ? 'logo-orbit' : ''}>
+        {/* Outer Circle: Remains completely STILL */}
+        <circle
+          cx="255"
+          cy="79"
+          r="54"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeOpacity={0.24}
+          className="logo-outer-circle"
+        />
+
+        {/* Inner Circle: Rotates from left to right (clockwise) */}
+        {/* Fast on loading animation (~1.2s), slow otherwise (~22s) */}
+        <g
+          className={`logo-inner-circle ${animated ? 'logo-orbit' : ''} ${
+            loading ? 'logo-loading-fast' : 'logo-orbit-slow'
+          }`}
+        >
+          <circle
+            cx="255"
+            cy="79"
+            r="46.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeOpacity={0.65}
+            strokeDasharray="26 8 12 6"
+          />
           <path
             d={LOGO_ORBIT_PATH}
             fill="currentColor"
             fillRule="evenodd"
-            opacity={0.55}
+            opacity={0.6}
           />
         </g>
 
@@ -125,23 +156,56 @@ export function LogomarkBadge({
   label,
   opacity = 1,
   animated = true,
+  loading = false,
+  withRings,
 }: {
   size?: number
   className?: string
   label?: string
   opacity?: number
   animated?: boolean
+  loading?: boolean
+  withRings?: boolean
 }) {
+  // Show orbital frame rings if explicitly requested, when loading, or for centerpiece badges (size >= 48)
+  const showRings = withRings ?? (size >= 48 || loading)
+
   return (
     <span
-      className={`grid shrink-0 place-items-center group ${className}`}
+      className={`relative grid shrink-0 place-items-center group ${className}`}
       style={{ width: size, height: size }}
     >
+      {showRings && (
+        <>
+          {/* Outer Circle: Remains completely STILL */}
+          <span
+            className="absolute inset-0 rounded-full border border-white/[0.12] pointer-events-none"
+            aria-hidden="true"
+          />
+
+          {/* Inner Circle: Rotates from left to right (clockwise) */}
+          {/* Fast rotation on loading (~1.2s), slow orbit otherwise (~20s) */}
+          <span
+            className={`absolute inset-[3px] rounded-full pointer-events-none ${
+              loading
+                ? 'border-[1.5px] border-emerald-400 border-t-transparent shadow-[0_0_12px_rgba(52,211,153,0.35)] animate-spin-fast'
+                : 'border border-dashed border-white/20 border-t-emerald-400/60 animate-spin-slow'
+            }`}
+            aria-hidden="true"
+          />
+        </>
+      )}
+
       <Logomark
-        size={size}
+        size={showRings ? Math.round(size * 0.74) : size}
         opacity={opacity}
         animated={animated}
-        className="text-zinc-100 drop-shadow-[0_0_12px_rgba(255,255,255,0.22)] transition-all duration-300 group-hover:drop-shadow-[0_0_18px_rgba(255,255,255,0.45)] group-hover:scale-105"
+        loading={loading}
+        className={`${
+          loading
+            ? 'text-emerald-400 drop-shadow-[0_0_14px_rgba(52,211,153,0.45)]'
+            : 'text-zinc-100 drop-shadow-[0_0_12px_rgba(255,255,255,0.22)] group-hover:drop-shadow-[0_0_18px_rgba(255,255,255,0.45)]'
+        } transition-all duration-300 group-hover:scale-105`}
       />
       {label ? <span className="sr-only">{label}</span> : null}
     </span>
