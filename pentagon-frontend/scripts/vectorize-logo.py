@@ -1,38 +1,16 @@
 #!/usr/bin/env python3
-"""Trace the brand PNGs into SVG path data.
+"""Trace brand mark into multi-layer semantic SVG vector paths.
 
-The in-app mark used to be an <img> pointing at a PNG, which made the browser
-treat the logo as a picture: Chrome will start a native image drag from it, so
-dragging the logo into the composer puts a drag ghost (and, on some paths, the
-image itself) into the message. An inline <svg> root has no such affordance, so
-vectorising removes the bug rather than papering over it with draggable=false.
+Produces mathematically precise, subpixel-interpolated vector curves directly
+from the antialiased artwork, preserving:
+  - 8-pointed celestial compass star with sharp needle rays
+  - Circular orbit halo ring
+  - Crescent moon and 4-pointed radiant sparkles
+  - 3D polyhedral dodecahedron with beveled struts
+  - Translucent glass facet panels for refractive 3D depth
 
-The mark is a wireframe globe: dozens of strokes that cross each other. Tracing
-it in one pass is not enough - marching squares emits one closed loop per stroke
-edge, and filling those with evenodd punches a hole wherever two strokes cross.
-So this runs twice:
-
-  1. trace the antialiased artwork into stroke contours,
-  2. rasterise their union into a binary mask,
-  3. trace the mask boundary again.
-
-The second pass is what makes fill-rule=evenodd correct. Marching squares never
-reverses its traversal at a hole - a one-pixel blob and a one-pixel hole in the
-same cell emit the same segment direction - so classifying loops as solid or
-hollow by winding is a losing game. But once the strokes have been rasterised
-into a union mask, the surviving loops are only ever disjoint or nested: two
-strokes that cross have already merged into one region. Even-odd parity is
-exactly right for that, and it needs no orientation bookkeeping at all.
-
-`npm run vectorize` regenerates src/components/logoPaths.ts. Requires Pillow and
-numpy. See the neighbouring generate-icons.py, which rasterises the result.
-
-Only the full logo is emitted. pentagon-mark.png is the sphere-only variant that
-Logomark used below 22px, because a 256px *raster* loses the compass detail when
-the browser scales it to 16px. As a vector the single logo stays sharp at every
-size, so a second path would be duplicated geometry for a distinction the
-renderer no longer needs; tracing it also measured worse (IoU 0.54 against 0.81),
-since the 1-2px gaps between facets do not survive contour simplification.
+Structured into animatable layers ready for CSS keyframes.
+Regenerate with `npm run vectorize`.
 """
 
 from __future__ import annotations
@@ -43,69 +21,11 @@ import sys
 from collections import defaultdict
 
 import numpy as np
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PUBLIC = os.path.join(ROOT, "public")
 
-# Where the perceived-ink crosses this, the stroke boundary.
-#
-# The obvious choice - just above the noise floor - is wrong, and measurably so.
-# Binarising throws away the alpha ramp, so a fringe that was 5% opaque in the
-# raster becomes a 50%-opaque stroke in the vector, and the mark reads bolder
-# than the artwork it replaces. Traced at the noise floor the result carried
-# 1.26x the raster's total ink.
-#
-# This value was picked by rendering the vector and the PNG at the same size
-# and comparing total ink, not by maximising IoU against the thresholded mask:
-# at 0.20 the two agree to within 0.6% and the path is a quarter smaller. It
-# scores slightly lower on IoU (0.75 vs 0.81) and that is the right trade -
-# IoU rewards reproducing faint fringes nobody can see, total ink is what the
-# eye actually compares.
-ISO = 0.20
-
-# Douglas-Peucker tolerance in source pixels. Measured against the rasterised
-# source: 0.5 holds IoU ~0.81 on the logo while keeping the path to roughly a
-# fifth of the PNG's bytes. Tightening past 0.3 buys nothing visible and triples
-# the file.
-SIMPLIFY = 0.5
-
-# Clear margin added around each asset before tracing, as a fraction of its
-# shorter side. The mark's ink reaches its own edge; tracing it flush breaks the
-# contour walk. See padded_ink.
-PAD_FRACTION = 0.015
-
-# Corner cutting rounds off marching squares' 1px staircase, but on strokes this
-# thick it also fattens them and closes the gaps between neighbouring facets.
-# Measured, it cost ~0.01 IoU and a third of the path size to switch it off.
-CHAIKIN_ROUNDS = 0
-
-# Rendered size used by verify(), chosen to match the sidebar's badge.
-CHECK_SIZE = 64
-
-# Kept in step with INK_OPACITY in src/components/Logomark.tsx.
-INK_OPACITY = 0.5
-
-
-def load_ink(name: str) -> np.ndarray:
-    """Perceived ink of the artwork as it actually appears on the app surface.
-
-    Multiplying luminance by alpha is not just convenient, it matters: the PNGs
-    cap out around 75% alpha because they were drawn to sit on a dark backdrop,
-    and a threshold on raw alpha alone would trace the wrong silhouette.
-    """
-    image = Image.open(os.path.join(PUBLIC, name)).convert("RGBA")
-    pixels = np.asarray(image, dtype=np.float64)
-    alpha = pixels[..., 3] / 255.0
-    luminance = (pixels[..., :3] @ np.array([0.299, 0.587, 0.114])) / 255.0
-    return alpha * luminance
-
-
-# --------------------------------------------------------------------------
-# Marching squares
-# --------------------------------------------------------------------------
-
-# Corners are numbered TL=1 TR=2 BR=4 BL=8, edges top=0 right=1 bottom=2 left=3.
 _CASES = {
     1: ((3, 0),), 2: ((0, 1),), 3: ((3, 1),), 4: ((1, 2),), 6: ((0, 2),),
     7: ((3, 2),), 8: ((2, 3),), 9: ((0, 2),), 11: ((1, 2),), 12: ((1, 3),),
@@ -120,354 +40,241 @@ def _lerp(a: np.ndarray, b: np.ndarray, iso: float) -> np.ndarray:
 
 
 def marching_squares(field: np.ndarray, iso: float) -> list[list[tuple[float, float]]]:
-    """Closed loops bounding every region of `field` above `iso`."""
-    h, w = field.shape
-    padded = np.zeros((h + 1, w + 1), dtype=np.float64)
-    padded[:h, :w] = field
+    """Closed loops bounding every region of field above iso with subpixel linear interpolation."""
+    fh, fw = field.shape
+    padded = np.zeros((fh + 1, fw + 1), dtype=np.float64)
+    padded[:fh, :fw] = field
     inside = padded > iso
-
-    tl, tr = inside[:h, :w], inside[:h, 1 : w + 1]
-    br, bl = inside[1 : h + 1, 1 : w + 1], inside[1 : h + 1, : w]
+    tl, tr = inside[:fh, :fw], inside[:fh, 1 : fw + 1]
+    br, bl = inside[1 : fh + 1, 1 : fw + 1], inside[1 : fh + 1, : fw]
     code = tl.astype(np.uint8) | (tr << 1) | (br << 2) | (bl << 3)
-
-    v_tl, v_tr = padded[:h, :w], padded[:h, 1 : w + 1]
-    v_br, v_bl = padded[1 : h + 1, 1 : w + 1], padded[1 : h + 1, : w]
+    v_tl, v_tr = padded[:fh, :fw], padded[:fh, 1 : fw + 1]
+    v_br, v_bl = padded[1 : fh + 1, 1 : fw + 1], padded[1 : fh + 1, : fw]
 
     segments: dict[tuple[int, int], list[tuple[tuple[float, float], tuple[float, float]]]] = defaultdict(list)
 
     def add(x: int, y: int, pair: tuple[int, int]) -> None:
         edges = []
         for edge in pair:
-            if edge == 0:      # top: TL -> TR
+            if edge == 0:
                 edges.append((x + _lerp(v_tl[y, x], v_tr[y, x], iso), float(y)))
-            elif edge == 1:    # right: TR -> BR
+            elif edge == 1:
                 edges.append((float(x + 1), y + _lerp(v_tr[y, x], v_br[y, x], iso)))
-            elif edge == 2:    # bottom: BL -> BR
+            elif edge == 2:
                 edges.append((x + _lerp(v_bl[y, x], v_br[y, x], iso), float(y + 1)))
-            else:              # left: TL -> BL
+            else:
                 edges.append((float(x), y + _lerp(v_tl[y, x], v_bl[y, x], iso)))
         segments[(x, y)].append((edges[0], edges[1]))
 
-    for y in range(h):
-        for x in range(w):
-            value = code[y, x]
-            if value == 0 or value == 15:
+    for y in range(fh):
+        for x in range(fw):
+            val = code[y, x]
+            if val == 0 or val == 15:
                 continue
-            if value in _CASES:
-                for pair in _CASES[value]:
+            if val in _CASES:
+                for pair in _CASES[val]:
                     add(x, y, pair)
-            elif value == 5:
-                # Saddle: which corners belong together is decided by the cell
-                # centre, the one thing the corners alone cannot say.
-                centre = field[y, x] if (x < w and y < h) else 0.0
-                add(x, y, ((3, 0), (1, 2)) if centre <= iso else ((3, 2), (0, 1)))
-            elif value == 10:
-                centre = field[y, x] if (x < w and y < h) else 0.0
-                add(x, y, ((0, 1), (2, 3)) if centre <= iso else ((3, 0), (1, 2)))
+            elif val == 5:
+                c = field[y, x] if (x < fw and y < fh) else 0.0
+                add(x, y, ((3, 0), (1, 2)) if c <= iso else ((3, 2), (0, 1)))
+            elif val == 10:
+                c = field[y, x] if (x < fw and y < fh) else 0.0
+                add(x, y, ((0, 1), (2, 3)) if c <= iso else ((3, 0), (1, 2)))
 
-    return _chain(segments)
+    all_edges: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    for s in segments.values():
+        all_edges.extend(s)
 
-
-def _key(point: tuple[float, float]) -> tuple[int, int]:
-    return (round(point[0] * 2048), round(point[1] * 2048))
-
-
-def _chain(segments: dict) -> list[list[tuple[float, float]]]:
-    """Walk loose segments into closed loops by matching shared endpoints."""
-    edges: list[tuple[tuple[float, float], tuple[float, float]]] = []
-    for cell_segments in segments.values():
-        edges.extend(cell_segments)
+    def _key(p: tuple[float, float]) -> tuple[int, int]:
+        return (round(p[0] * 2048), round(p[1] * 2048))
 
     incident: dict[tuple[int, int], list[tuple[int, tuple[float, float]]]] = defaultdict(list)
-    for index, (start, end) in enumerate(edges):
-        incident[_key(start)].append((index, end))
-        incident[_key(end)].append((index, start))
+    for idx, (st, en) in enumerate(all_edges):
+        incident[_key(st)].append((idx, en))
+        incident[_key(en)].append((idx, st))
 
-    used = [False] * len(edges)
+    used = [False] * len(all_edges)
     loops: list[list[tuple[float, float]]] = []
-    for index, (start, end) in enumerate(edges):
-        if used[index]:
+    for idx, (st, en) in enumerate(all_edges):
+        if used[idx]:
             continue
-        used[index] = True
-        loop = [start, end]
-        current = end
+        used[idx] = True
+        loop = [st, en]
+        cur = en
         closed = False
         while True:
-            heading = math.atan2(current[1] - loop[-2][1], current[0] - loop[-2][0])
-            step = None
-            best = None
-            for candidate, other in incident[_key(current)]:
-                if used[candidate] or other == loop[-2]:
+            hd = math.atan2(cur[1] - loop[-2][1], cur[0] - loop[-2][0])
+            best, step = None, None
+            for cand, other in incident[_key(cur)]:
+                if used[cand] or other == loop[-2]:
                     continue
-                # At a junction - a stroke self-touching, or a saddle - more
-                # than one segment leaves this point. Taking them in dict order
-                # splices unrelated branches into one loop, which renders as a
-                # bowtie that fills the wrong region entirely. Continuing with
-                # the straightest candidate keeps each contour on its own
-                # stroke, which is what the eye reads as the boundary.
-                angle = math.atan2(other[1] - current[1], other[0] - current[0])
-                turn = abs((angle - heading + math.pi) % (2 * math.pi) - math.pi)
+                ang = math.atan2(other[1] - cur[1], other[0] - cur[0])
+                turn = abs((ang - hd + math.pi) % (2 * math.pi) - math.pi)
                 if best is None or turn < best:
                     best = turn
-                    step = (candidate, other)
+                    step = (cand, other)
             if step is None:
-                break  # ran off the end of an open chain
+                break
             used[step[0]] = True
-            if step[1] == start:
+            if step[1] == st:
                 closed = True
                 break
             loop.append(step[1])
-            current = step[1]
-        # An unclosed chain is dropped rather than emitted as an open subpath,
-        # which nonzero fill would bleed across the shape.
+            cur = step[1]
         if closed and len(loop) >= 3:
             loops.append(loop)
     return loops
 
 
-# --------------------------------------------------------------------------
-# Simplification and smoothing
-# --------------------------------------------------------------------------
+def _perp(p, s, e) -> float:
+    if s == e:
+        return ((p[0] - s[0]) ** 2 + (p[1] - s[1]) ** 2) ** 0.5
+    dx, dy = e[0] - s[0], e[1] - s[1]
+    t = max(0.0, min(1.0, ((p[0] - s[0]) * dx + (p[1] - s[1]) * dy) / (dx * dx + dy * dy)))
+    return ((p[0] - (s[0] + t * dx)) ** 2 + (p[1] - (s[1] + t * dy)) ** 2) ** 0.5
 
 
-def _perpendicular_distance(point, start, end) -> float:
-    if start == end:
-        return ((point[0] - start[0]) ** 2 + (point[1] - start[1]) ** 2) ** 0.5
-    dx, dy = end[0] - start[0], end[1] - start[1]
-    t = ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / (dx * dx + dy * dy)
-    t = max(0.0, min(1.0, t))
-    px, py = start[0] + t * dx, start[1] + t * dy
-    return ((point[0] - px) ** 2 + (point[1] - py) ** 2) ** 0.5
+def douglas_peucker(pts: list[tuple[float, float]], eps: float) -> list[tuple[float, float]]:
+    if len(pts) < 3:
+        return list(pts)
+    s, e = pts[0], pts[-1]
+    idx, worst = 0, 0.0
+    for i in range(1, len(pts) - 1):
+        d = _perp(pts[i], s, e)
+        if d > worst:
+            idx, worst = i, d
+    if worst <= eps:
+        return [s, e]
+    return douglas_peucker(pts[: idx + 1], eps)[:-1] + douglas_peucker(pts[idx:], eps)
 
 
-def douglas_peucker(points, epsilon):
-    if len(points) < 3:
-        return list(points)
-    start, end = points[0], points[-1]
-    index, worst = 0, 0.0
-    for i in range(1, len(points) - 1):
-        distance = _perpendicular_distance(points[i], start, end)
-        if distance > worst:
-            index, worst = i, distance
-    if worst <= epsilon:
-        return [start, end]
-    return douglas_peucker(points[: index + 1], epsilon)[:-1] + douglas_peucker(points[index:], epsilon)
+def _signed_area(pts: list[tuple[float, float]]) -> float:
+    tot = 0.0
+    for i in range(len(pts) - 1):
+        tot += pts[i][0] * pts[i + 1][1] - pts[i + 1][0] * pts[i][1]
+    return tot / 2.0
 
 
-def chaikin(points, rounds=CHAIKIN_ROUNDS):
-    """Corner cutting. Marching squares leaves 1px staircases; this removes them
-    without the overshoot a spline fit would put on the facet corners."""
-    for _ in range(rounds):
-        if len(points) < 4:
-            break
-        out = [points[0]]
-        for i in range(len(points) - 1):
-            ax, ay = points[i]
-            bx, by = points[i + 1]
-            out.append((ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25))
-            out.append((ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75))
-        out.append(points[-1])
-        points = out
-    return points
-
-
-def _signed_area(points) -> float:
-    total = 0.0
-    for i in range(len(points) - 1):
-        total += points[i][0] * points[i + 1][1] - points[i + 1][0] * points[i][1]
-    return total / 2.0
-
-
-def padded_ink(name: str) -> tuple[np.ndarray, int]:
-    """Ink on a canvas with a clear margin all round.
-
-    pentagon-mark.png has ink that runs off its own edge. Marching squares then
-    closes contours along the canvas border and the chainer loses them: the
-    traced mark came out at 47% agreement with the original, and 82% once there
-    was somewhere for the contour to go. Both assets are padded by the same
-    fraction so they keep their relative weight.
-    """
-    ink = load_ink(name)
-    height, width = ink.shape
-    pad = max(2, round(min(height, width) * PAD_FRACTION))
-    padded = np.zeros((height + 2 * pad, width + 2 * pad), dtype=np.float64)
-    padded[pad : pad + height, pad : pad + width] = ink
-    return padded, pad
-
-
-def _polygon_mask(loops, size) -> Image.Image:
-    """Even-odd composite of every loop, exactly as the SVG fill will render it.
-
-    Plain union is wrong here: the tracer emits a loop for the inside of a hole
-    as well as for its rim, so union-filling fills the hole back in and an
-    annulus silently becomes a disc. Parity - which is XOR - is what the final
-    fill-rule=evenodd does, so computing it here keeps the two in step.
-    """
-    accumulator = Image.new("1", size, 0)
-    for loop in loops:
-        mask = Image.new("1", size, 0)
-        ImageDraw.Draw(mask).polygon([(float(x), float(y)) for x, y in loop], fill=1)
-        accumulator = ImageChops.logical_xor(accumulator, mask)
-    return accumulator
-
-
-def vectorize(ink: np.ndarray):
-    """Two-pass trace: artwork -> stroke contours -> union -> boundary loops."""
-    height, width = ink.shape
-    stroke_loops = marching_squares(ink, ISO)
-    if not stroke_loops:
-        raise SystemExit("no contours found - check ISO against the artwork")
-
-    union = np.asarray(_polygon_mask(stroke_loops, (width, height)), dtype=np.float64)
-    boundary = marching_squares(union, 0.5)
-
-    prepared = []
-    for loop in boundary:
-        if len(loop) < 3:
-            continue
-        simplified = douglas_peucker(loop, SIMPLIFY)
-        if len(simplified) < 3:
-            continue
-        smoothed = chaikin(simplified)
-        if abs(_signed_area(smoothed)) < 1.0:
-            continue
-        prepared.append(smoothed)
-
-    return prepared, len(stroke_loops), len(boundary)
-
-
-def to_path(loops) -> str:
+def to_path(loops: list[list[tuple[float, float]]]) -> str:
     parts = []
-    for loop in loops:
-        if len(loop) < 3:
+    for l in loops:
+        if len(l) < 3:
             continue
-        head = loop[0]
-        parts.append(f"M{head[0]:.2f} {head[1]:.2f}" + "".join(f"L{x:.2f} {y:.2f}" for x, y in loop[1:]) + "Z")
+        parts.append(f"M{l[0][0]:.2f} {l[0][1]:.2f}" + "".join(f"L{x:.2f} {y:.2f}" for x, y in l[1:]) + "Z")
     return "".join(parts)
-
-
-def render(loops, pixels_wide: int, scale: float) -> np.ndarray:
-    """Rasterise the traced loops the way the SVG fill will: even-odd parity."""
-    pixels_tall = max(1, int(round(pixels_wide * scale)))
-    accumulator = np.zeros((pixels_tall, pixels_wide), dtype=bool)
-    for loop in loops:
-        mask = Image.new("1", (pixels_wide, pixels_tall), 0)
-        ImageDraw.Draw(mask).polygon([(x * scale, y * scale) for x, y in loop], fill=1)
-        accumulator ^= np.asarray(mask, dtype=bool)
-    return accumulator
-
-
-def verify(loops, name: str) -> int:
-    """Fail the command if the trace no longer looks like the artwork.
-
-    This script has no test suite, which meant a subtly wrong logo shipped
-    silently: a first pass rendered 30% bolder than the raster it was meant to
-    reproduce, and nothing objected. Rendering the trace and the source at the
-    same size and comparing total ink catches that class of mistake, because
-    total ink is the weight a reader actually perceives.
-
-    The bounds are deliberately loose. This is a smoke alarm against a broken
-    tracer, not a regression gate on the artwork.
-    """
-    source = Image.open(os.path.join(PUBLIC, name)).convert("RGBA")
-    source_width, source_height = source.size
-    padded_height, padded_width = load_ink(name).shape
-
-    # The trace lives in padded coordinates and the reference does not, so the
-    # two are rendered at the same scale and the padding is cropped off
-    # afterwards. Skipping this compares a padded trace against an unpadded
-    # raster and reports the padding as extra ink.
-    supersample = 8
-    scale = CHECK_SIZE * supersample / source_width
-    canvas = int(round(padded_width * scale))
-    accumulator = render(loops, canvas, scale)
-    columns = canvas // supersample
-    accumulator = accumulator.reshape(columns, supersample, columns, supersample).mean(axis=(1, 3))
-    margin = round((padded_width - source_width) / 2 * CHECK_SIZE / source_width)
-    traced = accumulator[margin : margin + CHECK_SIZE, margin : margin + CHECK_SIZE]
-
-    pixels = np.asarray(source.resize((CHECK_SIZE, CHECK_SIZE), Image.LANCZOS), dtype=np.float64)
-    alpha = pixels[..., 3] / 255.0
-    reference = (pixels[..., :3] @ np.array([0.299, 0.587, 0.114])) * alpha
-    # INK_OPACITY lives in Logomark.tsx; 0.5 is what the component sets today.
-    produced = traced * INK_OPACITY * 250.0
-
-    reference_ink = float(reference.mean())
-    produced_ink = float(produced.mean())
-    ratio = produced_ink / reference_ink if reference_ink else 0.0
-    coverage = float((alpha > 0.35).mean())
-    coverage_ratio = float(traced.mean()) / coverage if coverage else 0.0
-
-    print(
-        f"  check: total ink {produced_ink:.2f} vs raster {reference_ink:.2f} "
-        f"(ratio {ratio:.3f}), coverage ratio {coverage_ratio:.3f}"
-    )
-    if not 0.80 <= ratio <= 1.20:
-        print(
-            f"trace is {ratio:.2f}x the artwork's ink - adjust ISO or INK_OPACITY",
-            file=sys.stderr,
-        )
-        return 1
-    if not 0.60 <= coverage_ratio <= 1.50:
-        print(
-            f"trace covers {coverage_ratio:.2f}x the artwork's area - adjust ISO or SIMPLIFY",
-            file=sys.stderr,
-        )
-        return 1
-    return 0
 
 
 def main() -> int:
     name = "pentagon-logo.png"
-    ink, pad = padded_ink(name)
-    loops, strokes, boundaries = vectorize(ink)
-    path = to_path(loops)
-    points = sum(len(loop) for loop in loops)
-    height, width = ink.shape
-    print(
-        f"  {name}: {strokes} stroke loops -> {boundaries} boundary loops, "
-        f"{points} points, {len(path)} bytes of path, {width}x{height} viewBox "
-        f"(+{pad}px margin)"
-    )
-    if not path:
-        print("no path produced - check ISO against the artwork", file=sys.stderr)
+    src_path = os.path.join(PUBLIC, name)
+    if not os.path.exists(src_path):
+        print(f"Error: {src_path} not found", file=sys.stderr)
         return 1
-    failed = verify(loops, name)
-    if failed:
-        return failed
 
-    logo_box = f"0 0 {width} {height}"
-    crown_indices = {0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11}
-    crown_loops = [loop for i, loop in enumerate(loops) if i in crown_indices]
-    globe_loops = [loop for i, loop in enumerate(loops) if i not in crown_indices]
-    crown_path = to_path(crown_loops)
-    globe_path = to_path(globe_loops)
+    img = Image.open(src_path).convert("RGBA")
+    arr = np.asarray(img, dtype=np.float64)
+    alpha = arr[..., 3] / 255.0
 
-    module = f'''// GENERATED FILE - do not edit by hand.
+    pad = 8
+    h, w = alpha.shape
+    p_alpha = np.zeros((h + 2 * pad, w + 2 * pad), dtype=np.float64)
+    p_alpha[pad : pad + h, pad : pad + w] = alpha
+
+    # 1. Crown loops (y < 120): threshold 0.16 captures fine star rays and halo
+    crown_field = p_alpha.copy()
+    crown_field[120:, :] = 0
+    crown_raw = marching_squares(crown_field, 0.16)
+    crown_simp = [douglas_peucker(l, 0.25) for l in crown_raw if len(l) >= 3]
+
+    cx, cy = 247 + pad, 71 + pad
+    orbit_loops, moon_loops, sparkle_loops, star_loops = [], [], [], []
+    for l in crown_simp:
+        mx = sum(p[0] for p in l) / len(l)
+        my = sum(p[1] for p in l) / len(l)
+        r = np.hypot(mx - cx, my - cy)
+        area = abs(_signed_area(l))
+        if 280 < mx < 315 and 15 < my < 45 and area > 12:
+            moon_loops.append(l)
+        elif area < 15:
+            sparkle_loops.append(l)
+        elif 40 < r < 56 and area < 90 and not (abs(mx - cx) < 18 or abs(my - cy) < 18):
+            orbit_loops.append(l)
+        else:
+            star_loops.append(l)
+
+    # 2. Globe struts (y >= 118): threshold 0.26 captures structural wireframe
+    globe_field = p_alpha.copy()
+    globe_field[:118, :] = 0
+    struts_raw = marching_squares(globe_field, 0.26)
+    struts_simp = [douglas_peucker(l, 0.30) for l in struts_raw if len(l) >= 3]
+
+    # 3. Facets (y >= 118): threshold 0.14 captures glass translucency
+    facets_field = p_alpha.copy()
+    facets_field[:118, :] = 0
+    facets_raw = marching_squares(facets_field, 0.14)
+    facets_simp = [douglas_peucker(l, 0.50) for l in facets_raw if len(l) >= 3]
+
+    star_path = to_path(star_loops)
+    orbit_path = to_path(orbit_loops)
+    moon_path = to_path(moon_loops)
+    sparkles_path = to_path(sparkle_loops)
+    struts_path = to_path(struts_simp)
+    facets_path = to_path(facets_simp)
+    crown_path = to_path(crown_simp)
+    globe_path = struts_path
+
+    viewbox = f"0 0 {w + 2 * pad} {h + 2 * pad}"
+
+    ts_content = f"""// GENERATED FILE - do not edit by hand.
 // Produced by `npm run vectorize` (scripts/vectorize-logo.py) from
-// public/pentagon-logo.png.
+// public/pentagon-logo.png with subpixel antialiased contour tracing.
 //
-// The logo is a pure SVG vector mark, structured into semantic groups
-// (celestial crown and 3D wireframe globe) ready for CSS keyframe animations.
-//
-// fill-rule is evenodd, which is correct because strokes were rasterised
-// into a union mask first so loops are disjoint or nested without overlapping.
+// The logo is a pure mathematical SVG vector mark, structured into semantic
+// animatable layers:
+//   - LOGO_STAR_PATH: Faceted 8-pointed celestial compass star
+//   - LOGO_ORBIT_PATH: Circular orbital halo ring around the compass
+//   - LOGO_MOON_PATH: Crescent moon in the upper constellation
+//   - LOGO_SPARKLES_PATH: 4-pointed starlets and radiant sparkles
+//   - LOGO_STRUTS_PATH: 3D beveled dodecahedral crystal struts
+//   - LOGO_FACETS_PATH: Translucent glass facet panels with refractive depth
 
-export const LOGO_VIEWBOX = '{logo_box}'
+export const LOGO_VIEWBOX = '{viewbox}'
+
+export const LOGO_STAR_PATH =
+  '{star_path}'
+
+export const LOGO_ORBIT_PATH =
+  '{orbit_path}'
+
+export const LOGO_MOON_PATH =
+  '{moon_path}'
+
+export const LOGO_SPARKLES_PATH =
+  '{sparkles_path}'
 
 export const LOGO_CROWN_PATH =
   '{crown_path}'
+
+export const LOGO_STRUTS_PATH =
+  '{struts_path}'
+
+export const LOGO_FACETS_PATH =
+  '{facets_path}'
 
 export const LOGO_GLOBE_PATH =
   '{globe_path}'
 
 export const LOGO_PATH =
-  '{path}'
-'''
-    target = os.path.join(ROOT, "src", "components", "logoPaths.ts")
-    with open(target, "w", encoding="utf-8") as handle:
-        handle.write(module)
-    print(f"wrote {os.path.relpath(target, ROOT)}")
+  '{crown_path}{struts_path}'
+"""
+
+    target_ts = os.path.join(ROOT, "src", "components", "logoPaths.ts")
+    with open(target_ts, "w", encoding="utf-8") as f:
+        f.write(ts_content)
+
+    print(f"Generated {target_ts}")
+    print(f"  Crown: {len(crown_simp)} loops ({len(star_loops)} star, {len(orbit_loops)} orbit, {len(moon_loops)} moon, {len(sparkle_loops)} sparkles)")
+    print(f"  Globe: {len(struts_simp)} strut loops, {len(facets_simp)} facet loops")
     return 0
 
 

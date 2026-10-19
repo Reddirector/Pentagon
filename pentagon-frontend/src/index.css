@@ -301,8 +301,40 @@ textarea { field-sizing: content; }
     filter: brightness(1);
   }
   50% {
-    transform: translateY(-4px) scale(1.025);
-    filter: brightness(1.28);
+    transform: translateY(-3.5px) scale(1.02);
+    filter: brightness(1.22);
+  }
+}
+
+@keyframes logo-orbit-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes logo-star-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.88;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.45));
+  }
+}
+
+@keyframes logo-sparkle-twinkle {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
   }
 }
 
@@ -312,34 +344,77 @@ textarea { field-sizing: content; }
     filter: brightness(1);
   }
   50% {
-    transform: scale(1.015);
-    filter: brightness(1.15);
+    transform: scale(1.012);
+    filter: brightness(1.12);
+  }
+}
+
+@keyframes logo-facets-refract {
+  0%, 100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
 .logo-crown {
-  transform-origin: 264px 50px;
-  animation: logo-crown-float 4.5s ease-in-out infinite;
+  transform-origin: 255px 79px;
+  animation: logo-crown-float 5s ease-in-out infinite;
   will-change: transform, filter;
 }
 
+.logo-orbit {
+  transform-origin: 255px 79px;
+  animation: logo-orbit-spin 28s linear infinite;
+  will-change: transform;
+}
+
+.logo-star {
+  transform-origin: 255px 79px;
+  animation: logo-star-pulse 3.8s ease-in-out infinite;
+  will-change: transform, opacity, filter;
+}
+
+.logo-sparkles {
+  animation: logo-sparkle-twinkle 3s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
 .logo-globe {
-  transform-origin: 264px 280px;
+  transform-origin: 255px 300px;
   animation: logo-globe-breathe 6.5s ease-in-out infinite;
   will-change: transform, filter;
+}
+
+.logo-facets {
+  animation: logo-facets-refract 6.5s ease-in-out infinite;
+  will-change: opacity;
 }
 
 .logo-animated:hover .logo-crown {
   animation-duration: 2.2s;
 }
 
+.logo-animated:hover .logo-orbit {
+  animation-duration: 9s;
+}
+
 .logo-animated:hover .logo-globe {
-  animation-duration: 3.2s;
+  animation-duration: 3s;
+}
+
+.logo-animated:hover .logo-star {
+  animation-duration: 1.8s;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .logo-crown,
-  .logo-globe {
+  .logo-orbit,
+  .logo-star,
+  .logo-sparkles,
+  .logo-globe,
+  .logo-facets {
     animation: none !important;
   }
 }
