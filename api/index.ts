@@ -12,7 +12,7 @@ export const config = {
 }
 
 const DEFAULT_MODELS = [
-  { id: 'meta/llama-3.1-8b-instruct', supports_vision: false, context_window: 131072 },
+  { id: 'meta/llama-3.2-3b-instruct', supports_vision: false, context_window: 131072 },
   { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
   { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
   { id: 'meta/llama-3.2-90b-vision-instruct', supports_vision: true, context_window: 131072 },
@@ -27,16 +27,16 @@ function normalizeModel(model: string): string {
   const trimmed = (model || '').trim()
   if (
     !trimmed ||
-    trimmed.includes('llama-3.3-70b') ||
-    trimmed.includes('deepseek-v4') ||
-    trimmed.includes('gemma-3') ||
-    trimmed.includes('gemma-4') ||
-    trimmed.includes('gpt-oss') ||
     trimmed.includes('e503b15c') ||
     trimmed.includes('Function \'') ||
-    trimmed.length < 5
+    trimmed.includes('Not found for account') ||
+    trimmed.length < 3
   ) {
-    return 'nvidia/llama-3.1-nemotron-70b-instruct'
+    return 'meta/llama-3.2-11b-vision-instruct'
+  }
+  // If user has cached EOL Llama 3.1 8B, upgrade to active Llama 3.2 3B
+  if (trimmed === 'meta/llama-3.1-8b-instruct' || trimmed.includes('llama-3.1-8b')) {
+    return 'meta/llama-3.2-3b-instruct'
   }
   return trimmed
 }
@@ -889,7 +889,7 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
             // Fast fallback: if primary model is slow, queued, or errored
             const fallbackModel = activeModel.includes('vision')
               ? 'meta/llama-3.2-11b-vision-instruct'
-              : (activeModel === 'meta/llama-3.1-8b-instruct' ? 'nvidia/llama-3.1-nemotron-70b-instruct' : 'meta/llama-3.1-8b-instruct')
+              : (activeModel === 'meta/llama-3.2-3b-instruct' ? 'meta/llama-3.2-11b-vision-instruct' : 'meta/llama-3.2-3b-instruct')
 
             controller.enqueue(
               encoder.encode(
@@ -921,7 +921,7 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
             }
 
             if (errDetail.includes('Not found for account') || errDetail.includes('Function \'')) {
-              errDetail = `NVIDIA Cloud Error: Model "${activeModel}" is not provisioned or active for your NVIDIA account. Please switch to an active model (such as Meta Llama 3.1 8B or Llama 3.1 Nemotron) using the model picker.`
+              errDetail = `NVIDIA Cloud Error: Model "${activeModel}" is not provisioned or active for your NVIDIA account. Please switch to an active model (such as Meta Llama 3.2 or Nemotron) using the model picker.`
             }
 
             controller.enqueue(
