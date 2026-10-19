@@ -38,6 +38,15 @@ function cleanModelName(id: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+const FALLBACK_NVIDIA_MODELS: ModelInfo[] = [
+  { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
+  { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
+  { id: 'meta/llama-3.2-90b-vision-instruct', supports_vision: true, context_window: 131072 },
+  { id: 'deepseek-ai/deepseek-r1', supports_vision: false, is_reasoning: true, context_window: 65536 },
+  { id: 'mistralai/mistral-large-2-instruct', supports_vision: false, context_window: 131072 },
+  { id: 'qwen/qwen2.5-72b-instruct', supports_vision: false, context_window: 32768 },
+]
+
 function getModelFamily(id: string): { label: string; tone: string } {
   const lower = id.toLowerCase()
   if (lower.includes('nemotron')) return { label: 'Nemotron', tone: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' }
@@ -135,15 +144,13 @@ export function KeyActivationFlow({ userId, initialKey = '', onComplete }: KeyAc
           // fallback
         }
       }
-
-      // Smooth pacing transition for discovery experience
-      await new Promise((resolve) => setTimeout(resolve, 850))
-
-      if (models.length > 0) {
-        setDiscoveredModels(models)
-        setSelectedModel(defModel || models[0].id)
+      if (!models.length) {
+        models = FALLBACK_NVIDIA_MODELS
+        defModel = FALLBACK_NVIDIA_MODELS[0].id
       }
 
+      setDiscoveredModels(models)
+      setSelectedModel(defModel || models[0].id)
       setStep('models_ready')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not validate with server')
