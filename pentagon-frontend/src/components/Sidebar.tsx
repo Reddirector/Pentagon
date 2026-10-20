@@ -404,7 +404,7 @@ export function Sidebar({
                 <button
                   onClick={() => onSelect(conversation.id)}
                   title={conversation.title || 'New thread'}
-                  className={`block w-full truncate rounded-lg py-2.5 pl-2.5 pr-14 text-left text-small transition-[background-color,color,box-shadow] duration-200 ease-out ${activeId === conversation.id ? 'bg-emerald-300/[0.09] font-medium text-emerald-100 shadow-[inset_2px_0_0_#ffffff]' : 'text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200'}`}
+                  className={`block w-full truncate rounded-lg py-2.5 pl-2.5 pr-14 text-left text-small transition duration-150 ease-out hover:translate-x-0.5 ${activeId === conversation.id ? 'bg-emerald-300/[0.09] font-medium text-emerald-100 shadow-[inset_2.5px_0_0_#34d399]' : 'text-zinc-400 hover:bg-white/[0.045] hover:text-zinc-200'}`}
                 >
                   {conversation.title || 'New thread'}
                 </button>

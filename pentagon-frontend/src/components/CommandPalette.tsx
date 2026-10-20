@@ -71,7 +71,7 @@ export function CommandPalette({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/55 px-3 pt-[calc(1.5rem+env(safe-area-inset-top))] sm:px-4 sm:pt-[14vh] backdrop-blur-sm"
+      className="modal-backdrop-enter fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-3 pt-[calc(1.5rem+env(safe-area-inset-top))] sm:px-4 sm:pt-[14vh] backdrop-blur-md"
       onClick={onClose}
       role="presentation"
     >
@@ -79,7 +79,7 @@ export function CommandPalette({
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="panel-enter w-full max-w-[520px] overflow-hidden rounded-2xl border border-white/[0.1] bg-[#101010]/97 shadow-[0_40px_120px_rgba(0,0,0,.6)] focus-within:border-emerald-300/25"
+        className="modal-card-enter w-full max-w-[520px] overflow-hidden rounded-2xl border border-white/[0.12] bg-[#101010]/95 shadow-[0_40px_120px_rgba(0,0,0,.7)] backdrop-blur-2xl focus-within:border-emerald-300/35 transition-colors duration-200"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center gap-2.5 border-b border-white/[0.07] px-4">
@@ -131,10 +131,10 @@ export function CommandPalette({
                   type="button"
                   onMouseEnter={() => setHighlight(index)}
                   onClick={() => runCommand(command)}
-                  className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-body transition ${
+                  className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-body transition-all duration-150 ${
                     index === activeIndex
-                      ? 'bg-emerald-300/[0.09] text-zinc-100'
-                      : 'text-zinc-400 hover:bg-white/[0.04]'
+                      ? 'bg-emerald-400/[0.12] text-white translate-x-1 shadow-[inset_2px_0_0_#34d399]'
+                      : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
                   }`}
                 >
                   <Icon size={14} className="shrink-0 text-zinc-500" />

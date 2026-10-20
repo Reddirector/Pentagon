@@ -121,14 +121,139 @@ textarea { field-sizing: content; }
 ::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: rgba(161, 161, 170, .22); background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(161, 161, 170, .38); background-clip: padding-box; }
 
-@keyframes message-enter {
-  from { opacity: 0; transform: translateY(8px) scale(.995); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes user-message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) translateX(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) translateX(0) scale(1);
+  }
 }
 
-@keyframes panel-enter {
-  from { opacity: 0; transform: translateY(5px) scale(.99); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes assistant-message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes popover-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes modal-backdrop-enter {
+  from {
+    opacity: 0;
+    backdrop-filter: blur(0px);
+  }
+  to {
+    opacity: 1;
+    backdrop-filter: blur(8px);
+  }
+}
+
+@keyframes modal-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes drawer-enter {
+  from {
+    opacity: 0.6;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes tab-content-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes flow-step-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes thinking-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes synaptic-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.4;
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.4);
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0.95;
+    box-shadow: 0 0 12px 3px rgba(52, 211, 153, 0.35);
+  }
+}
+
+@keyframes badge-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.75);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes card-glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(52, 211, 153, 0.08);
+    border-color: rgba(255, 255, 255, 0.09);
+  }
+  50% {
+    box-shadow: 0 0 45px rgba(52, 211, 153, 0.22);
+    border-color: rgba(52, 211, 153, 0.35);
+  }
 }
 
 @keyframes answer-enter {
@@ -141,9 +266,58 @@ textarea { field-sizing: content; }
   49%, 100% { opacity: 0; }
 }
 
-.message-enter { animation: message-enter 240ms var(--ease-ui) both; }
-.panel-enter { transform-origin: top right; animation: panel-enter 170ms var(--ease-ui) both; }
-.empty-state-enter { animation: panel-enter 260ms var(--ease-ui) both; }
+/* Animation Classes */
+.message-enter { animation: assistant-message-enter 260ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) both; }
+.user-message-enter { animation: user-message-enter 240ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) both; }
+.assistant-message-enter { animation: assistant-message-enter 280ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) both; }
+
+.popover-enter {
+  transform-origin: top left;
+  animation: popover-enter 220ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.modal-backdrop-enter {
+  animation: modal-backdrop-enter 250ms ease-out both;
+}
+
+.modal-card-enter {
+  animation: modal-card-enter 280ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.drawer-enter {
+  animation: drawer-enter 260ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.tab-content-enter {
+  animation: tab-content-enter 200ms ease-out both;
+}
+
+.flow-step-enter {
+  animation: flow-step-enter 300ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.thinking-shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.4) 0%, rgba(52,211,153,0.95) 50%, rgba(255,255,255,0.4) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinking-shimmer 2.2s linear infinite;
+}
+
+.synaptic-dot {
+  animation: synaptic-pulse 2s ease-in-out infinite;
+}
+
+.badge-pop {
+  animation: badge-pop 240ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.card-glow-pulse {
+  animation: card-glow-pulse 4s ease-in-out infinite;
+}
+
+.panel-enter { transform-origin: top right; animation: popover-enter 200ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) both; }
+.empty-state-enter { animation: modal-card-enter 320ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)) both; }
 .streaming-answer { animation: answer-enter 160ms ease-out both; }
 .streaming-answer .markdown-content::after {
   content: "";
@@ -160,9 +334,26 @@ textarea { field-sizing: content; }
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
-  transition: grid-template-rows 240ms var(--ease-ui), opacity 180ms ease-out;
+  transition: grid-template-rows 240ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)), opacity 180ms ease-out;
 }
 .trace-panel-body-open { grid-template-rows: 1fr; opacity: 1; }
+
+/* Stagger animations for lists */
+.stagger-1 { animation-delay: 40ms; }
+.stagger-2 { animation-delay: 80ms; }
+.stagger-3 { animation-delay: 120ms; }
+.stagger-4 { animation-delay: 160ms; }
+.stagger-5 { animation-delay: 200ms; }
+
+/* Interactive Hover Lift */
+.hover-lift {
+  transition: transform 200ms var(--ease-spring, cubic-bezier(0.16, 1, 0.3, 1)), box-shadow 200ms ease-out, border-color 200ms ease-out;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -6px rgba(0, 0, 0, 0.5), 0 0 16px rgba(52, 211, 153, 0.15);
+  border-color: rgba(52, 211, 153, 0.3);
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

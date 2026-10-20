@@ -153,8 +153,8 @@ export function ModelSelector({
 
         <ChevronDown
           size={13}
-          className={`shrink-0 text-zinc-400 transition-transform duration-150 ${
-            open ? 'rotate-180 text-zinc-200' : ''
+          className={`shrink-0 text-zinc-400 transition-transform duration-200 ease-out ${
+            open ? 'rotate-180 text-zinc-100' : ''
           }`}
         />
       </button>
@@ -164,7 +164,7 @@ export function ModelSelector({
         <div
           role="listbox"
           aria-label="Select AI model"
-          className="fixed sm:absolute inset-x-3 sm:inset-x-auto sm:left-0 top-[64px] sm:top-[calc(100%+8px)] z-50 flex max-h-[75vh] w-auto sm:w-[min(92vw,440px)] flex-col rounded-2xl border border-white/[0.12] bg-[#0c0c0c]/95 p-2 shadow-[0_24px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl ring-1 ring-white/[0.05] animate-in fade-in zoom-in-95"
+          className="popover-enter fixed sm:absolute inset-x-3 sm:inset-x-auto sm:left-0 top-[64px] sm:top-[calc(100%+8px)] z-50 flex max-h-[75vh] w-auto sm:w-[min(92vw,440px)] flex-col rounded-2xl border border-white/[0.12] bg-[#0c0c0c]/95 p-2 shadow-[0_24px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl ring-1 ring-white/[0.05]"
         >
           {/* Header & Search */}
           <div className="border-b border-white/[0.07] p-2 pb-2.5">
@@ -211,10 +211,10 @@ export function ModelSelector({
                       close()
                       if (!isSelected) onSelectModel(model.id)
                     }}
-                    className={`group flex w-full items-start gap-2.5 rounded-xl p-2.5 text-left transition ${
+                    className={`group flex w-full items-start gap-2.5 rounded-xl p-2.5 text-left transition-all duration-150 active:scale-[0.99] ${
                       isSelected
-                        ? 'border border-emerald-500/25 bg-emerald-500/[0.1] text-white'
-                        : 'border border-transparent text-zinc-300 hover:border-white/[0.06] hover:bg-white/[0.04] hover:text-white'
+                        ? 'border border-emerald-500/25 bg-emerald-500/[0.1] text-white shadow-[0_0_12px_rgba(52,211,153,0.1)]'
+                        : 'border border-transparent text-zinc-300 hover:border-white/[0.08] hover:bg-white/[0.05] hover:text-white'
                     }`}
                   >
                     <div

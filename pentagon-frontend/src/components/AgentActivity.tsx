@@ -285,7 +285,7 @@ export function AgentActivity({
           </button>
 
           {(toolsOpen || hasRunning) && (
-            <div className="border-t border-white/[0.05] p-2.5 bg-black/20">
+            <div className="tab-content-enter border-t border-white/[0.05] p-2.5 bg-black/20">
               <ol className="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
                 {steps.map((step) => {
                   const Icon = TOOL_CONFIG[step.tool]?.icon || Wrench

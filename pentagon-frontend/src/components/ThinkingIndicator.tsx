@@ -26,15 +26,27 @@ export function ThinkingIndicator({ model, label = 'Thinking' }: { model: string
   const slow = elapsed >= 20
 
   return (
-    <div className="flex items-center gap-2.5 py-1 text-small text-zinc-500" aria-live="polite">
+    <div
+      className="inline-flex items-center gap-2.5 rounded-full border border-emerald-500/20 bg-[#090e13]/80 px-3.5 py-1.5 text-small text-zinc-400 backdrop-blur-md shadow-[0_0_20px_rgba(52,211,153,0.12)] transition-all duration-300"
+      aria-live="polite"
+    >
       <span className="flex shrink-0 items-center justify-center" aria-hidden="true">
-        <Logomark size={17} loading={true} className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.45)]" />
+        <Logomark size={16} loading={true} className="text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.6)]" />
       </span>
-      <span className="text-zinc-400 font-medium">{label}</span>
-      <span className="tabular-nums text-zinc-600">{formatElapsed(elapsed)}</span>
+      <span className="thinking-shimmer font-semibold tracking-wide text-xs">
+        {label}
+      </span>
+      <div className="flex items-center gap-1 px-0.5" aria-hidden="true">
+        <span className="size-1.5 rounded-full bg-emerald-400 synaptic-dot" style={{ animationDelay: '0s' }} />
+        <span className="size-1.5 rounded-full bg-emerald-400 synaptic-dot" style={{ animationDelay: '0.35s' }} />
+        <span className="size-1.5 rounded-full bg-emerald-400 synaptic-dot" style={{ animationDelay: '0.7s' }} />
+      </div>
+      <span className="tabular-nums font-mono text-[11px] text-emerald-400/80 bg-emerald-400/10 px-1.5 py-0.5 rounded-md">
+        {formatElapsed(elapsed)}
+      </span>
       {slow ? (
-        <span className="truncate text-zinc-600">
-          · reasoning models can take a few minutes on the first token
+        <span className="truncate text-zinc-500 text-[11px] max-w-[200px] sm:max-w-none">
+          · deep reasoning in progress
         </span>
       ) : null}
       <span className="sr-only">{model} is working on your request.</span>

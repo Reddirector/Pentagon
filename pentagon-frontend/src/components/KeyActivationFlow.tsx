@@ -596,7 +596,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
         {/* STEP 1: ENTER API KEY (STRICT BYOK - BRING YOUR OWN KEY)            */}
         {/* =================================================================== */}
         {step === 'key_input' && (
-          <div className="w-full text-center">
+          <div className="flow-step-enter w-full text-center">
             <h1 className="text-hero font-semibold tracking-tight text-white">Connect AI Engine</h1>
             <p className="mt-1.5 text-small text-zinc-400">
               Bring Your Own Key (BYOK) — Enter your personal NVIDIA NIM key to connect enterprise inference models.
@@ -682,7 +682,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
         {/* VALIDATING / DISCOVERING SPINNER STATES                            */}
         {/* =================================================================== */}
         {step === 'validating' && (
-          <div className="flex w-full flex-col items-center py-4 text-center">
+          <div className="flow-step-enter flex w-full flex-col items-center py-4 text-center">
             <h2 className="text-body font-semibold text-white">Validating Authorization</h2>
             <p className="mt-1 text-small text-zinc-400">Verifying credentials with NVIDIA NIM neural endpoints...</p>
             <div className="mt-5 h-1 w-48 overflow-hidden rounded-full bg-white/[0.08]">
@@ -692,7 +692,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
         )}
 
         {step === 'discovering' && (
-          <div className="flex w-full flex-col items-center py-4 text-center">
+          <div className="flow-step-enter flex w-full flex-col items-center py-4 text-center">
             <h2 className="text-body font-semibold text-white">Discovering Neural Models</h2>
             <p className="mt-1 text-small text-zinc-400">Inspecting available chat, vision, and reasoning clusters...</p>
 
@@ -722,7 +722,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
         {/* STEP 2: SELECT DEFAULT MODEL                                       */}
         {/* =================================================================== */}
         {step === 'model_select' && (
-          <div className="w-full text-center">
+          <div className="flow-step-enter w-full text-center">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-caption text-emerald-300">
               <ShieldCheck size={14} className="text-emerald-400" />
               <span>{discoveredModels.length} Models Verified</span>
@@ -794,10 +794,10 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
                       key={model.id}
                       type="button"
                       onClick={() => setSelectedModel(model.id)}
-                      className={`group flex w-full items-center justify-between rounded-2xl border p-3 text-left transition ${
+                      className={`group flex w-full items-center justify-between rounded-2xl border p-3 text-left transition-all duration-200 active:scale-[0.99] ${
                         isSelected
-                          ? 'border-emerald-500/50 bg-emerald-500/[0.08] shadow-[0_0_20px_rgba(16,185,129,0.12)] ring-1 ring-emerald-500/30'
-                          : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16] hover:bg-white/[0.04]'
+                          ? 'border-emerald-500/50 bg-emerald-500/[0.08] shadow-[0_0_20px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/30'
+                          : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.18] hover:bg-white/[0.045] hover:translate-x-0.5'
                       }`}
                     >
                       <div className="min-w-0 flex-1 pr-2">
@@ -830,9 +830,9 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
                       </div>
 
                       <div
-                        className={`grid size-6 shrink-0 place-items-center rounded-full border transition ${
+                        className={`grid size-6 shrink-0 place-items-center rounded-full border transition-all duration-200 ${
                           isSelected
-                            ? 'border-emerald-400 bg-emerald-400 text-black'
+                            ? 'border-emerald-400 bg-emerald-400 text-black badge-pop shadow-[0_0_10px_rgba(52,211,153,0.5)]'
                             : 'border-white/[0.15] bg-transparent text-transparent group-hover:border-white/[0.3]'
                         }`}
                       >
@@ -849,7 +849,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
               <button
                 type="button"
                 onClick={handleModelSelected}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 font-medium text-black shadow-[0_0_24px_rgba(52,211,153,0.3)] transition hover:bg-emerald-300 active:scale-95"
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 font-medium text-black shadow-[0_0_24px_rgba(52,211,153,0.3)] transition-all duration-200 hover:bg-emerald-300 hover:shadow-[0_0_30px_rgba(52,211,153,0.5)] active:scale-95"
               >
                 <span>Continue to Account Setup</span>
                 <ArrowRight size={16} />
@@ -871,7 +871,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
         {/* STEP 3: ACCOUNT & PROFILE SETUP (AUTHENTICATED SIGN IN / SIGN UP)   */}
         {/* =================================================================== */}
         {step === 'account_setup' && (
-          <div className="w-full text-center">
+          <div className="flow-step-enter w-full text-center">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-caption text-emerald-300">
               <Sparkles size={13} className="text-emerald-400" />
               <span>Step 3 · Identity &amp; Security</span>

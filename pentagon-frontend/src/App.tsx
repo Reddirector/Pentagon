@@ -1101,7 +1101,7 @@ function App() {
                           ensureDraftThread()
                           setDraft(card.prompt)
                         }}
-                        className="group flex flex-col items-start rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 sm:p-3.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-emerald-400/30 hover:bg-emerald-400/[0.04] hover:shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+                        className="group hover-lift flex flex-col items-start rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 sm:p-3.5 text-left transition duration-200 hover:border-emerald-400/35 hover:bg-emerald-400/[0.04] hover:shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
                       >
                         <div className="mb-2 flex w-full items-center justify-between">
                           <div className="grid size-7 sm:size-8 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-emerald-400 transition group-hover:border-emerald-400/30 group-hover:bg-emerald-400/10">
@@ -1155,7 +1155,7 @@ function App() {
           <div aria-hidden="true" className="pointer-events-none -mt-10 sm:-mt-12 h-10 sm:h-12 bg-gradient-to-t from-[#000000] via-[#000000]/70 to-transparent" />
           {media && <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-micro text-zinc-300"><span className="text-emerald-200">{isVideo(media) ? <Video size={13} /> : <ImageIcon size={13} />}</span><span className="min-w-0 flex-1 truncate">{media.name}</span><span className="text-zinc-600">{isVideo(media) ? 'Video' : 'Image'}</span><button onClick={() => setMedia(null)} aria-label="Remove attachment" className="text-zinc-500 hover:text-white"><X size={13} /></button></div>}
           {queuedDocuments.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{queuedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className="panel-enter inline-flex max-w-full items-center gap-1.5 rounded-lg border border-sky-300/10 bg-sky-300/[0.045] px-2 py-1.5 text-caption text-sky-100/80"><FileText size={11} /><span className="max-w-[180px] truncate">{file.name}</span><span className="text-sky-100/40">queued</span><button onClick={() => setQueuedDocuments((items) => items.filter((_, current) => current !== index))} aria-label={`Remove ${file.name}`}><X size={11} /></button></span>)}</div>}
-          <form onSubmit={(event) => void chat.handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#0f0f0f] p-1.5 sm:p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition-[border-color,box-shadow] duration-200 ease-out focus-within:border-emerald-300/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,.045),0_20px_90px_rgba(0,0,0,.28)]">
+          <form onSubmit={(event) => void chat.handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#0f0f0f] p-1.5 sm:p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition duration-200 ease-out focus-within:border-emerald-400/35 focus-within:shadow-[0_0_0_3px_rgba(52,211,153,.08),0_20px_90px_rgba(0,0,0,.28)]">
             <textarea
               value={draft}
               onChange={(event) => {
@@ -1263,7 +1263,7 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
       .map((s) => s[0].toUpperCase())
       .join('') || 'U'
   const user = message.role === 'user'
-  return <article data-assistant-message={user ? undefined : ''} className={`message-enter group flex w-full gap-3 ${user ? 'justify-end' : 'justify-start'}`}>
+  return <article data-assistant-message={user ? undefined : ''} className={`group flex w-full gap-3 ${user ? 'user-message-enter justify-end' : 'assistant-message-enter justify-start'}`}>
     {!user && (
       <div className="mt-0.5 grid size-7 shrink-0 place-items-center">
         <Logomark size={20} loading={deciding || isStreaming} className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.35)]" />

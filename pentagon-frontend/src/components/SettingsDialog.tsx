@@ -73,7 +73,7 @@ export function SettingsDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-0 pt-0 backdrop-blur-sm sm:px-4 sm:pt-[8vh] sm:pb-[4vh]"
+      className="modal-backdrop-enter fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-0 pt-0 backdrop-blur-sm sm:px-4 sm:pt-[8vh] sm:pb-[4vh]"
       onClick={onClose}
       role="presentation"
     >
@@ -83,7 +83,7 @@ export function SettingsDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        className="panel-enter flex h-full max-h-full w-full max-w-[720px] flex-col overflow-hidden border-white/[0.1] bg-[var(--surface-panel)] shadow-[0_40px_120px_rgba(0,0,0,.6)] outline-none sm:h-auto sm:max-h-full sm:rounded-2xl sm:border"
+        className="modal-card-enter flex h-full max-h-full w-full max-w-[720px] flex-col overflow-hidden border-white/[0.1] bg-[var(--surface-panel)] shadow-[0_40px_120px_rgba(0,0,0,.6)] outline-none sm:h-auto sm:max-h-full sm:rounded-2xl sm:border"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-white/[0.07] px-4 py-3 sm:py-4 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:pt-4 sm:px-6">
@@ -92,7 +92,7 @@ export function SettingsDialog({
             type="button"
             onClick={onClose}
             aria-label="Close settings"
-            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200"
+            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 active:scale-95"
           >
             <X size={16} />
           </button>
@@ -106,47 +106,51 @@ export function SettingsDialog({
               role="tab"
               aria-selected={topTab === name}
               onClick={() => setUserTab(name)}
-              className={`relative shrink-0 px-3 py-2.5 text-small-lg font-medium transition ${
+              className={`relative shrink-0 px-3 py-2.5 text-small-lg font-medium transition duration-150 active:scale-95 ${
                 topTab === name ? 'text-zinc-100' : 'text-zinc-600 hover:text-zinc-300'
               }`}
             >
               {name}
-              {topTab === name && <span className="absolute inset-x-2 -bottom-px h-px bg-white" />}
+              {topTab === name && (
+                <span className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-gradient-to-r from-emerald-400 to-white shadow-[0_0_8px_rgba(52,211,153,0.6)] animate-in fade-in" />
+              )}
             </button>
           ))}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
-          {topTab === 'Account' && <AccountTab userId={userId} onKeySaved={onKeySaved} />}
-          {topTab === 'Permissions' && (
-            <PermissionsTab
-              userId={userId}
-              models={models}
-              serverDefaultModel={serverDefaultModel}
-              autonomySettings={autonomySettings}
-              onAutonomySettingChange={onAutonomySettingChange}
-              onAutonomyPresetChange={onAutonomyPresetChange}
-            />
-          )}
-          {topTab === 'Advanced' && (
-            <AdvancedTab
-              userId={userId}
-              models={models}
-              serverDefaultModel={serverDefaultModel}
-              documents={documents}
-              threads={threads}
-              threadCount={threadCount}
-              onDocumentDeleted={onDocumentDeleted}
-              onRenameThread={onRenameThread}
-              onDeleteThread={onDeleteThread}
-              commandSettings={commandSettings}
-              onCommandSettingsChange={onCommandSettingsChange}
-              autonomySettings={autonomySettings}
-              onAutonomySettingChange={onAutonomySettingChange}
-              onAutonomyPresetChange={onAutonomyPresetChange}
-              initialSection={initialSection}
-            />
-          )}
+          <div key={topTab} className="tab-content-enter">
+            {topTab === 'Account' && <AccountTab userId={userId} onKeySaved={onKeySaved} />}
+            {topTab === 'Permissions' && (
+              <PermissionsTab
+                userId={userId}
+                models={models}
+                serverDefaultModel={serverDefaultModel}
+                autonomySettings={autonomySettings}
+                onAutonomySettingChange={onAutonomySettingChange}
+                onAutonomyPresetChange={onAutonomyPresetChange}
+              />
+            )}
+            {topTab === 'Advanced' && (
+              <AdvancedTab
+                userId={userId}
+                models={models}
+                serverDefaultModel={serverDefaultModel}
+                documents={documents}
+                threads={threads}
+                threadCount={threadCount}
+                onDocumentDeleted={onDocumentDeleted}
+                onRenameThread={onRenameThread}
+                onDeleteThread={onDeleteThread}
+                commandSettings={commandSettings}
+                onCommandSettingsChange={onCommandSettingsChange}
+                autonomySettings={autonomySettings}
+                onAutonomySettingChange={onAutonomySettingChange}
+                onAutonomyPresetChange={onAutonomyPresetChange}
+                initialSection={initialSection}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>
