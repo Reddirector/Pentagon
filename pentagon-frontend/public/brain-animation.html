@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pentagon — Autonomous Multimodal AI Brain</title>
+  <link rel="icon" type="image/png" href="pentagon-mark.png">
+  <style>
+    :root {
+      --primary: #34d399;
+      --primary-glow: rgba(52, 211, 153, 0.45);
+      --bg-void: #06080d;
+      --card-bg: radial-gradient(circle at 50% 36%, #0f192b 0%, #06090e 68%, #030508 100%);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg-void);
+      color: #f3f4f6;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow-x: hidden;
+    }
+    .container {
+      max-width: 640px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 28px;
+    }
+    .header {
+      text-align: center;
+    }
+    .title {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #ffffff 40%, #a7f3d0 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: #9ca3af;
+      max-width: 460px;
+      line-height: 1.5;
+    }
+    .badge-wrap {
+      position: relative;
+      width: 380px;
+      height: 380px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .canvas-bg {
+      position: absolute;
+      inset: -40px;
+      pointer-events: none;
+    }
+    .brain-card {
+      position: relative;
+      width: 360px;
+      height: 360px;
+      border-radius: 44px;
+      background: var(--card-bg);
+      border: 1px solid rgba(52, 211, 153, 0.25);
+      box-shadow: 0 0 60px rgba(5, 150, 105, 0.2), inset 0 0 35px rgba(16, 185, 129, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .brain-card:hover {
+      transform: scale(1.02);
+      box-shadow: 0 0 80px rgba(5, 150, 105, 0.32), inset 0 0 45px rgba(16, 185, 129, 0.12);
+    }
+    .controls {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      backdrop-filter: blur(12px);
+    }
+    .control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      font-size: 13px;
+      color: #d1d5db;
+    }
+    input[type="range"] {
+      flex: 1;
+      accent-color: #34d399;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
+      outline: none;
+    }
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      width: 100%;
+      margin-top: 4px;
+    }
+    .btn {
+      flex: 1;
+      padding: 12px 18px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 13px;
+      text-align: center;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: #10b981;
+      color: #022c22;
+      border: 1px solid #34d399;
+    }
+    .btn-primary:hover {
+      background: #34d399;
+      box-shadow: 0 0 20px rgba(52, 211, 153, 0.4);
+      transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: #e5e7eb;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="title">Pentagon AI Brain</h1>
+      <p class="subtitle">Autonomous Multimodal AI Workspace — 80+ NVIDIA NIM models, local document RAG, vision, web search, voice & zero-trust BYOK key security.</p>
+    </div>
+
+    <div class="badge-wrap">
+      <canvas id="particles" class="canvas-bg" width="460" height="460"></canvas>
+      <div class="brain-card" id="card">
+        <img id="brain-svg" src="pentagon-brain-animated.svg" width="310" height="310" alt="Pentagon AI Brain" />
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="control-row">
+        <span>Animation Speed</span>
+        <input type="range" id="speed" min="0.2" max="3" step="0.1" value="1">
+        <span id="speed-val" style="min-width: 36px; text-align: right; color: #34d399;">1.0x</span>
+      </div>
+
+      <div class="btn-group">
+        <a href="https://pentagon-bice.vercel.app" class="btn btn-primary" target="_blank">
+          🚀 Open Live App
+        </a>
+        <a href="https://github.com/Reddirector/Pentagon" class="btn btn-secondary" target="_blank">
+          ★ GitHub Repository
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Particle canvas background
+    const canvas = document.getElementById('particles');
+    const ctx = canvas.getContext('2d');
+    const particles = Array.from({ length: 38 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: Math.random() * 1.5 + 0.5,
+      alpha: Math.random() * 0.7 + 0.2,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3
+    }));
+
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0) p.x = canvas.width;
+        if (p.x > canvas.width) p.x = 0;
+        if (p.y < 0) p.y = canvas.height;
+        if (p.y > canvas.height) p.y = 0;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(167, 243, 208, ${p.alpha})`;
+        ctx.fill();
+      });
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    // Speed slider
+    const speedSlider = document.getElementById('speed');
+    const speedVal = document.getElementById('speed-val');
+    speedSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      speedVal.textContent = val.toFixed(1) + 'x';
+    });
+  </script>
+</body>
+</html>

@@ -1,9 +1,31 @@
-# Pentagon
+<p align="center">
+  <a href="https://pentagon-bice.vercel.app">
+    <img src="docs/assets/pentagon-brain-animated.gif" alt="Pentagon AI Brain" width="220" />
+  </a>
+</p>
 
-[![Live Web App](https://img.shields.io/badge/Vercel-Live%20App-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://pentagon-bice.vercel.app)
-[![GitHub Release](https://img.shields.io/badge/Release-v0.1.0-emerald?style=for-the-badge&logo=github)](https://github.com/Reddirector/Pentagon/releases/tag/v0.1.0)
-[![Platforms](https://img.shields.io/badge/Platforms-Android%20%7C%20iOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Web-blue?style=for-the-badge)](https://github.com/Reddirector/Pentagon/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+<h1 align="center">Pentagon</h1>
+
+<p align="center">
+  <b>Autonomous Multimodal AI Workspace</b><br>
+  <i>Powered by 80+ NVIDIA NIM models, local document RAG, vision, web search, voice, and BYOK key isolation.</i>
+</p>
+
+<p align="center">
+  <a href="https://pentagon-bice.vercel.app"><img src="https://img.shields.io/badge/Vercel-Live%20App-000000?style=for-the-badge&logo=vercel&logoColor=white" alt="Live App" /></a>
+  <a href="https://github.com/Reddirector/Pentagon/releases/tag/v0.1.0"><img src="https://img.shields.io/badge/Release-v0.1.0-emerald?style=for-the-badge&logo=github" alt="Release" /></a>
+  <a href="https://github.com/Reddirector/Pentagon/releases"><img src="https://img.shields.io/badge/Platforms-Android%20%7C%20iOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Web-blue?style=for-the-badge" alt="Platforms" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License: MIT" /></a>
+</p>
+
+<p align="center">
+  🧠 <b><a href="https://pentagon-bice.vercel.app">Launch Web App</a></b> &nbsp;|&nbsp;
+  🌌 <b><a href="https://pentagon-bice.vercel.app/brain-animation.html">Interactive Brain Animation</a></b> &nbsp;|&nbsp;
+  📐 <b><a href="https://github.com/Reddirector/Pentagon/blob/main/docs/assets/pentagon-brain-animated.svg">Raw Vector SVG</a></b> &nbsp;|&nbsp;
+  📦 <b><a href="https://github.com/Reddirector/Pentagon/releases/tag/v0.1.0">Download Binaries</a></b>
+</p>
+
+---
 
 A personal AI workspace. Bring your own NVIDIA API key, talk to any model on
 NVIDIA NIM, and ground the answers in your own documents, the live web, images,
@@ -14,6 +36,7 @@ chunked and embedded locally or against your own key, and nothing is sent to a
 hosted service you did not choose.
 
 > **Production Web App:** [https://pentagon-bice.vercel.app](https://pentagon-bice.vercel.app)  
+> **Interactive Brain Animation:** [https://pentagon-bice.vercel.app/brain-animation.html](https://pentagon-bice.vercel.app/brain-animation.html)  
 > **Backend:** FastAPI + LangGraph  
 > **Cross-Platform:** Android, iOS, Windows, Linux, and Web
 
@@ -74,6 +97,33 @@ Verify downloads using the official [checksums.sha256](https://github.com/Reddir
 | **Resizable sidebar** | Drag the edge to resize; arrow keys work too, double-click resets |
 | **Collapsible sidebar** | Folds to an icon rail with ⌘B / Ctrl+B, and remembers the choice |
 | **Offline-friendly retrieval** | Embeddings fall back to a local model, so RAG survives key changes |
+| **Visual AI Brain** | Mathematical polyhedral core crowned by an 8-pointed star with dual rotating orbits. [View Live](https://pentagon-bice.vercel.app/brain-animation.html) |
+
+---
+
+## Visual Identity: The Pentagon AI Brain
+
+<p align="center">
+  <a href="https://pentagon-bice.vercel.app/brain-animation.html">
+    <img src="docs/assets/pentagon-brain-animated.gif" alt="Pentagon Animated AI Brain" width="280" />
+  </a>
+  <br>
+  <sub><i>The Pentagon AI Brain — 3D Polyhedral Dodecahedron with clockwise celestial orbit halo, pulsing needle-ray compass star, and cosmic aura.</i></sub>
+</p>
+
+The Pentagon brand mark embodies the fusion of mathematical precision and cosmic AI intelligence:
+
+- **3D Polyhedral Dodecahedron Core**: Translucent glass facet panels with refractive gradient depth and beveled structural struts.
+- **Dual Orbital Constellation**: Stationary outer halo with an inner dashed orbital ring rotating clockwise (`spin-cw 12s infinite`).
+- **Celestial Crown**: Floating 8-pointed needle-ray compass star (`scale 1.06` pulse) with crescent moon and radiant 4-pointed starlets.
+- **Interactive Simulation**: Experience the live orbital particle canvas and speed-adjustable controls at **[pentagon-bice.vercel.app/brain-animation.html](https://pentagon-bice.vercel.app/brain-animation.html)**.
+
+| Asset | Format | Location | Usage |
+|---|---|---|---|
+| **Animated GIF** | Looping GIF (30 FPS) | [`docs/assets/pentagon-brain-animated.gif`](docs/assets/pentagon-brain-animated.gif) | Embedded in GitHub README, previews, and social cards |
+| **Vector SVG** | Scalable SVG + CSS | [`docs/assets/pentagon-brain-animated.svg`](docs/assets/pentagon-brain-animated.svg) | Lossless 4K/8K rendering, infinite keyframes, zero pixelation |
+| **Hero Image** | High-Res PNG (800x800) | [`docs/assets/pentagon-brain.png`](docs/assets/pentagon-brain.png) | Static high-DPI hero graphics and badges |
+| **Interactive Demo** | HTML5 / Canvas | [`docs/assets/brain-animation.html`](docs/assets/brain-animation.html) | Standalone interactive web experience |
 
 ---
 
