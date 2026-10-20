@@ -107,27 +107,27 @@ def generate_standalone_animated_svg(paths: dict[str, str], output_path: str) ->
 
     .anim-outer-orbit {{
       transform-origin: 264px 264px;
-      animation: spin-ccw 32s linear infinite;
+      animation: spin-ccw 140s linear infinite;
     }}
     .anim-inner-halo {{
       transform-origin: 255px 79px;
-      animation: spin-cw 12s linear infinite;
+      animation: spin-cw 75s linear infinite;
     }}
     .anim-crown {{
       transform-origin: 255px 79px;
-      animation: crown-float 4.5s ease-in-out infinite;
+      animation: crown-float 6.5s ease-in-out infinite;
     }}
     .anim-star {{
       transform-origin: 255px 79px;
-      animation: star-pulse 3.2s ease-in-out infinite;
+      animation: star-pulse 4.8s ease-in-out infinite;
     }}
     .anim-globe {{
       transform-origin: 264px 300px;
-      animation: globe-breathe 4.5s ease-in-out infinite;
+      animation: globe-breathe 7s ease-in-out infinite;
     }}
     .anim-sparkles {{
       transform-origin: 255px 79px;
-      animation: sparkle-twinkle 2.4s ease-in-out infinite;
+      animation: sparkle-twinkle 3.8s ease-in-out infinite;
     }}
   </style>
 
@@ -189,16 +189,16 @@ def generate_standalone_animated_svg(paths: dict[str, str], output_path: str) ->
 
 def render_html_frame(paths: dict[str, str], t: float) -> str:
     """Render HTML for frame at normalized time t in [0, 1]."""
-    # Rotations
+    # Rotations (gentle slow rotation in sync with 8s loop)
     orbit_deg = t * 360.0
     outer_orbit_deg = -t * 360.0
     # Breathing & floating
     float_y = -3.2 * math.sin(2.0 * math.pi * t)
-    pulse_scale = 1.0 + 0.05 * math.sin(2.0 * math.pi * t)
-    globe_scale = 1.0 + 0.012 * math.sin(2.0 * math.pi * t)
-    sparkle_scale = 1.0 + 0.18 * math.sin(4.0 * math.pi * t)
-    sparkle_opacity = 0.65 + 0.35 * (0.5 + 0.5 * math.sin(4.0 * math.pi * t))
-    glow_opacity = 0.45 + 0.25 * (0.5 + 0.5 * math.sin(2.0 * math.pi * t))
+    pulse_scale = 1.0 + 0.035 * math.sin(2.0 * math.pi * t)
+    globe_scale = 1.0 + 0.01 * math.sin(2.0 * math.pi * t)
+    sparkle_scale = 1.0 + 0.12 * math.sin(2.0 * math.pi * t)
+    sparkle_opacity = 0.7 + 0.3 * (0.5 + 0.5 * math.sin(2.0 * math.pi * t))
+    glow_opacity = 0.45 + 0.2 * (0.5 + 0.5 * math.sin(2.0 * math.pi * t))
 
     return f"""<!DOCTYPE html>
 <html>
@@ -470,9 +470,71 @@ def generate_interactive_html(paths: dict[str, str], output_path: str) -> None:
       color: #e5e7eb;
       border: 1px solid rgba(255, 255, 255, 0.12);
     }}
-    .btn-secondary:hover {{
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 255, 255, 0.25);
+    .preset-btn {{
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 500;
+      background: rgba(255, 255, 255, 0.05);
+      color: #9ca3af;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }}
+    .preset-btn:hover, .preset-btn.active {{
+      background: rgba(52, 211, 153, 0.15);
+      color: #6ee7b7;
+      border-color: rgba(52, 211, 153, 0.4);
+    }}
+
+    @keyframes spin-cw {{
+      from {{ transform: rotate(0deg); }}
+      to {{ transform: rotate(360deg); }}
+    }}
+    @keyframes spin-ccw {{
+      from {{ transform: rotate(0deg); }}
+      to {{ transform: rotate(-360deg); }}
+    }}
+    @keyframes crown-float {{
+      0%, 100% {{ transform: translateY(0px); }}
+      50% {{ transform: translateY(-4px) scale(1.015); }}
+    }}
+    @keyframes star-pulse {{
+      0%, 100% {{ transform: scale(1); opacity: 0.92; }}
+      50% {{ transform: scale(1.05); opacity: 1; filter: drop-shadow(0 0 8px rgba(255,255,255,0.85)); }}
+    }}
+    @keyframes globe-breathe {{
+      0%, 100% {{ transform: scale(1); }}
+      50% {{ transform: scale(1.012); filter: drop-shadow(0 0 24px rgba(52,211,153,0.4)); }}
+    }}
+    @keyframes sparkle-twinkle {{
+      0%, 100% {{ opacity: 0.55; transform: scale(0.94); }}
+      50% {{ opacity: 1; transform: scale(1.15); }}
+    }}
+
+    .anim-outer-orbit {{
+      transform-origin: 264px 264px;
+      animation: spin-ccw calc(140s / var(--speed, 1)) linear infinite;
+    }}
+    .anim-inner-halo {{
+      transform-origin: 255px 79px;
+      animation: spin-cw calc(75s / var(--speed, 1)) linear infinite;
+    }}
+    .anim-crown {{
+      transform-origin: 255px 79px;
+      animation: crown-float calc(6.5s / var(--speed, 1)) ease-in-out infinite;
+    }}
+    .anim-star {{
+      transform-origin: 255px 79px;
+      animation: star-pulse calc(4.8s / var(--speed, 1)) ease-in-out infinite;
+    }}
+    .anim-globe {{
+      transform-origin: 264px 300px;
+      animation: globe-breathe calc(7s / var(--speed, 1)) ease-in-out infinite;
+    }}
+    .anim-sparkles {{
+      transform-origin: 255px 79px;
+      animation: sparkle-twinkle calc(3.8s / var(--speed, 1)) ease-in-out infinite;
     }}
   </style>
 </head>
@@ -486,15 +548,91 @@ def generate_interactive_html(paths: dict[str, str], output_path: str) -> None:
     <div class="badge-wrap">
       <canvas id="particles" class="canvas-bg" width="460" height="460"></canvas>
       <div class="brain-card" id="card">
-        <img id="brain-svg" src="pentagon-brain-animated.svg" width="310" height="310" alt="Pentagon AI Brain" />
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 528 528" width="310" height="310" role="img" aria-label="Pentagon AI Brain Mark">
+          <defs>
+            <radialGradient id="halo-glow-inline" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#34d399" stop-opacity="0.55" />
+              <stop offset="50%" stop-color="#10b981" stop-opacity="0.22" />
+              <stop offset="100%" stop-color="#059669" stop-opacity="0" />
+            </radialGradient>
+            <linearGradient id="glass-gradient-inline" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#6ee7b7" stop-opacity="0.45" />
+              <stop offset="45%" stop-color="#10b981" stop-opacity="0.25" />
+              <stop offset="100%" stop-color="#047857" stop-opacity="0.08" />
+            </linearGradient>
+            <linearGradient id="struts-gradient-inline" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ffffff" />
+              <stop offset="40%" stop-color="#a7f3d0" />
+              <stop offset="100%" stop-color="#34d399" />
+            </linearGradient>
+            <filter id="glow-bright-inline" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3.5" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          <!-- Outer constellation orbital rings -->
+          <circle cx="264" cy="264" r="236" fill="none" stroke="#ffffff" stroke-width="0.8" stroke-opacity="0.08" />
+          <circle class="anim-outer-orbit" cx="264" cy="264" r="218" fill="none" stroke="#34d399" stroke-width="1.4" stroke-dasharray="14 10 24 8" stroke-opacity="0.32" />
+
+          <!-- Background sparkle points -->
+          <circle cx="68" cy="94" r="1.5" fill="#a7f3d0" opacity="0.6" />
+          <circle cx="450" cy="110" r="1.8" fill="#ffffff" opacity="0.8" />
+          <circle cx="460" cy="420" r="1.6" fill="#34d399" opacity="0.7" />
+          <circle cx="78" cy="430" r="1.4" fill="#a7f3d0" opacity="0.6" />
+          <circle cx="264" cy="38" r="1.2" fill="#ffffff" opacity="0.75" />
+
+          <!-- 3D Polyhedral Globe (AI Brain Core) -->
+          <g class="anim-globe" filter="url(#glow-bright-inline)">
+            <path d="{paths['facets']}" fill="url(#glass-gradient-inline)" fill-rule="evenodd" />
+            <path d="{paths['struts']}" fill="url(#struts-gradient-inline)" fill-rule="evenodd" opacity="0.88" />
+          </g>
+
+          <!-- Celestial Crown -->
+          <g class="anim-crown">
+            <circle cx="255" cy="79" r="54" fill="none" stroke="#a7f3d0" stroke-width="1.4" stroke-opacity="0.35" />
+            <circle cx="255" cy="79" r="58" fill="url(#halo-glow-inline)" />
+
+            <!-- Rotating inner halo ring -->
+            <g class="anim-inner-halo">
+              <circle cx="255" cy="79" r="46.5" fill="none" stroke="#34d399" stroke-width="2" stroke-opacity="0.9" stroke-dasharray="28 8 14 6" />
+              <path d="{paths['orbit']}" fill="#6ee7b7" fill-rule="evenodd" opacity="0.85" />
+            </g>
+
+            <path d="{paths['moon']}" fill="#a7f3d0" fill-rule="evenodd" opacity="0.9" />
+
+            <g class="anim-sparkles">
+              <path d="{paths['sparkles']}" fill="#ffffff" fill-rule="evenodd" opacity="0.95" />
+            </g>
+
+            <g class="anim-star">
+              <path d="{paths['star']}" fill="#ffffff" fill-rule="evenodd" opacity="0.95" />
+            </g>
+          </g>
+        </svg>
       </div>
     </div>
 
     <div class="controls">
       <div class="control-row">
-        <span>Animation Speed</span>
-        <input type="range" id="speed" min="0.2" max="3" step="0.1" value="1">
-        <span id="speed-val" style="min-width: 36px; text-align: right; color: #34d399;">1.0x</span>
+        <span>Rotation Speed</span>
+        <input type="range" id="speed" min="0.1" max="2.5" step="0.05" value="1">
+        <span id="speed-val" style="min-width: 50px; text-align: right; color: #34d399; font-family: monospace;">1.00x</span>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; font-size: 11px; color: #9ca3af; margin-top: -6px;">
+        <span>Orbit Cycle: <b id="cycle-readout" style="color: #6ee7b7;">75.0s</b> (Super Slow)</span>
+        <span id="speed-mode" style="color: #34d399;">🌌 Super Slow</span>
+      </div>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button type="button" class="preset-btn active" data-speed="1.0">🌌 Super Slow (Default)</button>
+        <button type="button" class="preset-btn" data-speed="0.5">🧘 Deep Drift (150s)</button>
+        <button type="button" class="preset-btn" data-speed="0.25">⏳ Cosmic Slumber (300s)</button>
+        <button type="button" class="preset-btn" data-speed="2.0">⚡ Dynamic (37s)</button>
       </div>
 
       <div class="btn-group">
@@ -539,12 +677,43 @@ def generate_interactive_html(paths: dict[str, str], output_path: str) -> None:
     }}
     animate();
 
-    // Speed slider
+    // Speed slider & preset controls
     const speedSlider = document.getElementById('speed');
     const speedVal = document.getElementById('speed-val');
+    const cycleReadout = document.getElementById('cycle-readout');
+    const speedMode = document.getElementById('speed-mode');
+    const presetBtns = document.querySelectorAll('.preset-btn');
+
+    function applySpeed(val) {{
+      document.documentElement.style.setProperty('--speed', val);
+      speedVal.textContent = val.toFixed(2) + 'x';
+      const cycle = (75 / val).toFixed(1);
+      cycleReadout.textContent = cycle + 's';
+      if (val <= 0.35) {{
+        speedMode.textContent = '⏳ Cosmic Slumber';
+      }} else if (val <= 0.75) {{
+        speedMode.textContent = '🧘 Deep Drift';
+      }} else if (val <= 1.25) {{
+        speedMode.textContent = '🌌 Super Slow';
+      }} else {{
+        speedMode.textContent = '⚡ Dynamic';
+      }}
+      presetBtns.forEach(btn => {{
+        const target = parseFloat(btn.dataset.speed);
+        btn.classList.toggle('active', Math.abs(target - val) < 0.05);
+      }});
+    }}
+
     speedSlider.addEventListener('input', (e) => {{
-      const val = parseFloat(e.target.value);
-      speedVal.textContent = val.toFixed(1) + 'x';
+      applySpeed(parseFloat(e.target.value));
+    }});
+
+    presetBtns.forEach(btn => {{
+      btn.addEventListener('click', () => {{
+        const val = parseFloat(btn.dataset.speed);
+        speedSlider.value = val;
+        applySpeed(val);
+      }});
     }});
   </script>
 </body>
@@ -574,10 +743,10 @@ def main() -> None:
     still_png_docs = os.path.join(DOCS_ASSETS, "pentagon-brain.png")
     still_png_public = os.path.join(PUBLIC, "pentagon-brain.png")
 
-    # 4. Render 50 frames with headless chrome
-    num_frames = 50
-    fps = 25
-    print(f"Rendering {num_frames} frames for perfectly looping animated GIF...")
+    # 4. Render 80 frames with headless chrome
+    num_frames = 80
+    fps = 10
+    print(f"Rendering {num_frames} frames for perfectly looping super slow animated GIF (8s duration)...")
 
     temp_dir = tempfile.mkdtemp(prefix="pentagon_brain_frames_")
     try:
@@ -597,7 +766,7 @@ def main() -> None:
                 f"file://{html_file}",
             ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        with ThreadPoolExecutor(max_workers=6) as ex:
+        with ThreadPoolExecutor(max_workers=8) as ex:
             list(ex.map(render_frame, range(num_frames)))
 
         # Copy frame 0 as the high-res hero PNG
@@ -613,7 +782,7 @@ def main() -> None:
             "ffmpeg", "-y",
             "-framerate", str(fps),
             "-i", os.path.join(temp_dir, "frame_%03d.png"),
-            "-vf", "fps=25,scale=380:380:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=192:reserve_transparent=0:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3",
+            "-vf", f"fps={fps},scale=360:360:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=160:reserve_transparent=0:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3",
             gif_docs,
         ]
         subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
