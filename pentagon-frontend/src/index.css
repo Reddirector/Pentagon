@@ -605,7 +605,7 @@ textarea { field-sizing: content; }
 .logo-orbit-slow {
   transform-origin: 255px 79px;
   transform-box: view-box;
-  animation: logo-inner-rotate 64s linear infinite;
+  animation: logo-inner-rotate 22s linear infinite;
   will-change: transform;
 }
 
@@ -625,7 +625,7 @@ textarea { field-sizing: content; }
 }
 
 .animate-spin-slow {
-  animation: logo-inner-rotate 60s linear infinite;
+  animation: logo-inner-rotate 20s linear infinite;
 }
 
 .animate-spin-fast {

@@ -57,27 +57,27 @@
 
     .anim-outer-orbit {
       transform-origin: 264px 264px;
-      animation: spin-ccw 140s linear infinite;
+      animation: spin-ccw 32s linear infinite;
     }
     .anim-inner-halo {
       transform-origin: 255px 79px;
-      animation: spin-cw 75s linear infinite;
+      animation: spin-cw 12s linear infinite;
     }
     .anim-crown {
       transform-origin: 255px 79px;
-      animation: crown-float 6.5s ease-in-out infinite;
+      animation: crown-float 4.5s ease-in-out infinite;
     }
     .anim-star {
       transform-origin: 255px 79px;
-      animation: star-pulse 4.8s ease-in-out infinite;
+      animation: star-pulse 3.2s ease-in-out infinite;
     }
     .anim-globe {
       transform-origin: 264px 300px;
-      animation: globe-breathe 7s ease-in-out infinite;
+      animation: globe-breathe 4.5s ease-in-out infinite;
     }
     .anim-sparkles {
       transform-origin: 255px 79px;
-      animation: sparkle-twinkle 3.8s ease-in-out infinite;
+      animation: sparkle-twinkle 2.4s ease-in-out infinite;
     }
   </style>
 
