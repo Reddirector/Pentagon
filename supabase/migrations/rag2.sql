@@ -127,3 +127,19 @@ create policy "own rows" on kg_relations for all using (auth.uid() = user_id) wi
 create policy "own rows" on kg_provenance for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows" on kg_communities for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own rows" on index_jobs for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Enforce strict RLS protection
+alter table collections force row level security;
+alter table collection_files force row level security;
+alter table conversation_collections force row level security;
+alter table chunks force row level security;
+alter table kg_entities force row level security;
+alter table kg_relations force row level security;
+alter table kg_provenance force row level security;
+alter table kg_communities force row level security;
+alter table index_jobs force row level security;
+
+-- Least privilege: revoke all access from anon and public
+revoke all on table collections, collection_files, conversation_collections, chunks, kg_entities, kg_relations, kg_provenance, kg_communities, index_jobs from anon, public;
+grant select, insert, update, delete on table collections, collection_files, conversation_collections, chunks, kg_entities, kg_relations, kg_provenance, kg_communities, index_jobs to authenticated;
+grant all on table collections, collection_files, conversation_collections, chunks, kg_entities, kg_relations, kg_provenance, kg_communities, index_jobs to service_role;
