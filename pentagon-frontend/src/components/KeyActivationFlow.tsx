@@ -455,6 +455,33 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
   const isAccountStep = step === 'account_setup'
   const isKeyStep = step === 'key_input' || step === 'validating' || step === 'discovering'
 
+  function handleAdminBypass() {
+    const adminKey = trimmedKey || 'nvapi-admin-session-active'
+    setStoredNvidiaKey(adminKey)
+    setUserName('Admin')
+    setUserEmail('admin@pentagon.chat')
+    setUserAvatarColor('#10b981')
+    const fallbackModel = 'nvidia/llama-3.1-nemotron-70b-instruct'
+    localStorage.setItem('pentagon.defaultModel', fallbackModel)
+
+    onComplete({
+      key: adminKey,
+      models: discoveredModels.length > 0 ? discoveredModels : [
+        {
+          id: fallbackModel,
+          supports_vision: false,
+          is_reasoning: true,
+        },
+      ],
+      selectedModel: fallbackModel,
+      account: {
+        userName: 'Admin',
+        userEmail: 'admin@pentagon.chat',
+        avatarColor: '#10b981',
+      },
+    })
+  }
+
   return (
     <main className="relative flex min-h-dvh w-full items-center justify-center overflow-x-hidden overflow-y-auto bg-[#000000] px-3 sm:px-4 pt-[calc(1.25rem+env(safe-area-inset-top))] pb-[calc(1.75rem+env(safe-area-inset-bottom))] text-zinc-100 selection:bg-emerald-400/20">
       {/* Dynamic Ambient Constellation Layer */}
@@ -673,6 +700,23 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
               <div className="mt-6 flex items-center justify-center gap-2 text-caption-xs text-zinc-500">
                 <ShieldCheck size={12} className="text-emerald-400/80" />
                 <span>Dedicated private session · Never shared or exposed across users</span>
+              </div>
+
+              {/* Admin Bypass Button to Skip Login */}
+              <div className="mt-5 flex flex-col items-center border-t border-white/[0.06] pt-4">
+                <button
+                  type="button"
+                  onClick={handleAdminBypass}
+                  className="group flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.08] px-4 py-2 text-small font-medium text-emerald-300 backdrop-blur-md transition-all duration-200 hover:border-emerald-400/60 hover:bg-emerald-500/20 hover:text-white hover:shadow-[0_0_20px_rgba(16,185,129,0.25)] active:scale-95"
+                  title="Admin Override: bypass key validation and login directly"
+                >
+                  <Sparkles size={14} className="text-emerald-400 transition-transform group-hover:rotate-12" />
+                  <span>Admin: Skip Login</span>
+                  <ArrowRight size={13} className="text-emerald-400/70 transition-transform group-hover:translate-x-0.5" />
+                </button>
+                <span className="mt-1.5 text-[11px] text-zinc-500">
+                  Instant developer bypass for direct workspace testing
+                </span>
               </div>
             </form>
           </div>
