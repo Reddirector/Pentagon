@@ -48,6 +48,7 @@ __pycache__/
 *.egg-info/
 
 # Tooling / editor
+Anthropic-Cybersecurity-Skills/
 .gradle/
 .idea/
 .vscode/

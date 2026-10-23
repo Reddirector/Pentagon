@@ -4,9 +4,7 @@ import {
   Check,
   ChevronDown,
   Copy,
-  FileSpreadsheet,
   FileText,
-  Globe,
   Image as ImageIcon,
   LoaderCircle,
   Key,
@@ -15,9 +13,7 @@ import {
   Mic,
   Paperclip,
   Plus,
-  Presentation,
   Settings,
-  Sparkles,
   Square,
   Video,
   X,
@@ -42,47 +38,13 @@ import { ThinkingIndicator } from './components/ThinkingIndicator'
 import { AmbientLayer } from './components/AmbientLayer'
 import { AgentActivity } from './components/AgentActivity'
 import { ModelSelector } from './components/ModelSelector'
+import { VisualStudioGallery } from './components/VisualStudioGallery'
 import { AVATAR_THEMES, getPreferences, setUserAvatarColor, setUserEmail, setUserName, subscribePreferences } from './lib/preferences'
 import type { ChatMessage, Conversation, DocumentInfo, ModelInfo } from './types'
 
 const CommandPalette = lazy(() => import('./components/CommandPalette').then((m) => ({ default: m.CommandPalette })))
 const SettingsDialog = lazy(() => import('./components/SettingsDialog').then((m) => ({ default: m.SettingsDialog })))
 const WorkflowDesigner = lazy(() => import('./components/WorkflowDesigner').then((m) => ({ default: m.WorkflowDesigner })))
-
-const DASHBOARD_ACTIONS = [
-  {
-    icon: FileText,
-    badge: 'Executive Proposal',
-    tag: '.docx',
-    title: 'Enterprise Business Proposal',
-    prompt: 'Create a comprehensive 5-page enterprise SaaS business proposal with executive summary, market analysis, financial projections, and implementation roadmap as a Word document (.docx).',
-    agent: true,
-  },
-  {
-    icon: FileSpreadsheet,
-    badge: 'Financial Model',
-    tag: '.xlsx',
-    title: 'SaaS Revenue & Cohorts',
-    prompt: 'Build a multi-year SaaS financial model spreadsheet with monthly revenue forecasts, customer cohorts, CAC/LTV calculations, and EBITDA summaries (.xlsx).',
-    agent: true,
-  },
-  {
-    icon: Presentation,
-    badge: 'Pitch Deck',
-    tag: '.pptx',
-    title: 'Investor Slide Deck',
-    prompt: 'Generate an engaging 10-slide startup pitch deck presentation covering the problem, solution, market size, product demo, unit economics, and team (.pptx).',
-    agent: true,
-  },
-  {
-    icon: Globe,
-    badge: 'Web Synthesis',
-    tag: 'Web',
-    title: 'Frontier AI Research Report',
-    prompt: 'Perform deep research on current 2026 breakthroughs in agentic AI architectures and multi-step reasoning models, synthesizing verified findings and citations.',
-    agent: true,
-  },
-]
 
 function titleFor(message: string) {
   if (!message) return 'New thread'
@@ -1060,83 +1022,48 @@ function App() {
                 deciding={Boolean((message.pendingCommand && deciding === message.pendingCommand.request_id) || (message.turnId && deciding === message.turnId))}
               />)}
             </div> : (
-              <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-6 sm:py-10 text-center">
-                <div className="relative mb-4 sm:mb-6 grid size-16 sm:size-[88px] place-items-center">
-                  <div className="absolute inset-0 rounded-full bg-emerald-400/[0.14] blur-2xl" />
-                  <LogomarkBadge size={56} className="sm:hidden" />
-                  <LogomarkBadge size={72} className="hidden sm:grid" />
+              <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-4 sm:py-8 text-center">
+                {/* Luminous Centerpiece Brand Monolith */}
+                <div className="relative mb-3 sm:mb-4 grid place-items-center">
+                  <div className="absolute -inset-8 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+                  <div className="absolute -inset-3 rounded-full bg-gradient-to-tr from-emerald-500/20 via-sky-500/15 to-purple-500/20 blur-xl opacity-70 pointer-events-none" />
+                  <LogomarkBadge size={54} className="sm:hidden" />
+                  <LogomarkBadge size={68} className="hidden sm:grid" />
                 </div>
 
-                <p className="mb-2 text-[11px] sm:text-caption font-semibold uppercase tracking-[.25em] text-emerald-300/80">
-                  Intelligent Workspace
-                </p>
+                <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-0.5 text-[11px] font-mono tracking-widest text-emerald-300 uppercase">
+                  <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Pentagon Intelligence Studio
+                </div>
 
-                <h1 className="max-w-xl text-balance text-2xl sm:text-3xl md:text-hero-fluid font-medium leading-[1.18] tracking-[-.03em] text-zinc-100">
-                  {active
-                    ? (userName ? `How can I help you today, ${userName}?` : 'How can I help you today?')
-                    : (userName ? `Welcome back, ${userName}` : 'Welcome back')}
+                <h1 className="max-w-xl text-balance text-2xl sm:text-3xl md:text-4xl font-semibold tracking-[-0.03em] text-white">
+                  {userName ? `Welcome back, ${userName}` : 'What shall we engineer today?'}
                 </h1>
 
-                <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 text-[11px] sm:text-micro">
-                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 sm:px-3 py-1 text-zinc-400">
-                    <Sparkles size={11} className="text-emerald-400" /> Multi-Step Reasoning
-                  </span>
-                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 sm:px-3 py-1 text-zinc-400">
-                    <Globe size={11} className="text-sky-400" /> Grounded Search
-                  </span>
-                  <span className="flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 sm:px-3 py-1 text-zinc-400">
-                    <FileText size={11} className="text-purple-400" /> Rich Deliverables
-                  </span>
+                {/* Visual Studio Gallery with Image-Rich Cards */}
+                <div className="mt-4 sm:mt-6 w-full">
+                  <VisualStudioGallery
+                    onSelectPrompt={(promptText) => {
+                      ensureDraftThread()
+                      setDraft(promptText)
+                    }}
+                  />
                 </div>
 
-                {/* Quick Action Cards Grid */}
-                <div className="mt-6 sm:mt-8 grid w-full max-w-2xl grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
-                  {DASHBOARD_ACTIONS.map((card) => {
-                    const Icon = card.icon
-                    return (
-                      <button
-                        key={card.title}
-                        type="button"
-                        onClick={() => {
-                          ensureDraftThread()
-                          setDraft(card.prompt)
-                        }}
-                        className="group hover-lift flex flex-col items-start rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 sm:p-3.5 text-left transition duration-200 hover:border-emerald-400/35 hover:bg-emerald-400/[0.04] hover:shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
-                      >
-                        <div className="mb-2 flex w-full items-center justify-between">
-                          <div className="grid size-7 sm:size-8 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-emerald-400 transition group-hover:border-emerald-400/30 group-hover:bg-emerald-400/10">
-                            <Icon size={15} />
-                          </div>
-                          <span className="rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 sm:px-2 py-0.5 font-mono text-[10px] text-zinc-400 group-hover:text-emerald-300">
-                            {card.tag}
-                          </span>
-                        </div>
-                        <div className="text-small font-semibold text-zinc-200 group-hover:text-white">
-                          {card.title}
-                        </div>
-                        <div className="mt-1 flex items-center gap-1.5 text-micro text-emerald-400/80">
-                          <Sparkles size={11} />
-                          <span>{card.badge}</span>
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                {/* Shortcut hints pill bar (desktop only) */}
-                <div className="mt-7 hidden sm:flex flex-wrap items-center justify-center gap-3 text-caption text-zinc-500">
+                {/* Keyboard shortcuts hints */}
+                <div className="mt-6 hidden sm:flex items-center justify-center gap-3 text-caption text-zinc-500">
                   <span className="flex items-center gap-1.5">
-                    <kbd className="rounded border border-white/[0.1] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">⌘N</kbd>
+                    <kbd className="rounded border border-white/[0.1] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">⌘N</kbd>
                     <span>New thread</span>
                   </span>
                   <span>·</span>
                   <span className="flex items-center gap-1.5">
-                    <kbd className="rounded border border-white/[0.1] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">⌘K</kbd>
+                    <kbd className="rounded border border-white/[0.1] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">⌘K</kbd>
                     <span>Commands</span>
                   </span>
                   <span>·</span>
                   <span className="flex items-center gap-1.5">
-                    <kbd className="rounded border border-white/[0.1] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">⌘B</kbd>
+                    <kbd className="rounded border border-white/[0.1] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">⌘B</kbd>
                     <span>Sidebar</span>
                   </span>
                 </div>
@@ -1155,7 +1082,10 @@ function App() {
           <div aria-hidden="true" className="pointer-events-none -mt-10 sm:-mt-12 h-10 sm:h-12 bg-gradient-to-t from-[#000000] via-[#000000]/70 to-transparent" />
           {media && <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-micro text-zinc-300"><span className="text-emerald-200">{isVideo(media) ? <Video size={13} /> : <ImageIcon size={13} />}</span><span className="min-w-0 flex-1 truncate">{media.name}</span><span className="text-zinc-600">{isVideo(media) ? 'Video' : 'Image'}</span><button onClick={() => setMedia(null)} aria-label="Remove attachment" className="text-zinc-500 hover:text-white"><X size={13} /></button></div>}
           {queuedDocuments.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{queuedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className="panel-enter inline-flex max-w-full items-center gap-1.5 rounded-lg border border-sky-300/10 bg-sky-300/[0.045] px-2 py-1.5 text-caption text-sky-100/80"><FileText size={11} /><span className="max-w-[180px] truncate">{file.name}</span><span className="text-sky-100/40">queued</span><button onClick={() => setQueuedDocuments((items) => items.filter((_, current) => current !== index))} aria-label={`Remove ${file.name}`}><X size={11} /></button></span>)}</div>}
-          <form onSubmit={(event) => void chat.handleSubmit(event)} className="rounded-2xl border border-white/[0.09] bg-[#0f0f0f] p-1.5 sm:p-2 shadow-[0_20px_90px_rgba(0,0,0,.28)] transition duration-200 ease-out focus-within:border-emerald-400/35 focus-within:shadow-[0_0_0_3px_rgba(52,211,153,.08),0_20px_90px_rgba(0,0,0,.28)]">
+          <form
+            onSubmit={(event) => void chat.handleSubmit(event)}
+            className="group relative rounded-2xl border border-white/[0.1] bg-[#0c0e14]/90 p-1.5 sm:p-2.5 shadow-[0_24px_80px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.04)] backdrop-blur-2xl transition-all duration-300 focus-within:border-emerald-400/40 focus-within:shadow-[0_0_35px_rgba(16,185,129,0.16),0_24px_80px_rgba(0,0,0,0.7)]"
+          >
             <textarea
               value={draft}
               onChange={(event) => {
@@ -1185,7 +1115,7 @@ function App() {
               </div>
               {streaming
                 ? <button type="button" onClick={chat.stopStreaming} className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-zinc-200 transition-[background-color,transform] duration-200 ease-out hover:bg-white/[0.1] active:scale-95" aria-label="Stop generating" title="Stop generating"><Square size={13} fill="currentColor" /></button>
-                : <button type="submit" disabled={!selectedModel || transcribing || (!draft.trim() && !media)} className="grid size-8 shrink-0 place-items-center rounded-xl bg-emerald-300 text-[#000000] transition-[background-color,box-shadow,transform] duration-200 ease-out hover:-translate-y-px hover:bg-emerald-200 hover:shadow-[0_6px_18px_rgba(255,255,255,.12)] active:translate-y-0 active:scale-95 disabled:translate-y-0 disabled:scale-100 disabled:bg-white/[0.06] disabled:text-zinc-600 disabled:shadow-none" aria-label="Send message" title="Send message">{transcribing ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.4} />}</button>}
+                : <button type="submit" disabled={!selectedModel || transcribing || (!draft.trim() && !media)} className="grid size-8 sm:size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-tr from-emerald-500 to-emerald-400 text-black font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_20px_rgba(52,211,153,0.45)] active:translate-y-0 active:scale-95 disabled:translate-y-0 disabled:scale-100 disabled:bg-white/[0.06] disabled:text-zinc-600 disabled:shadow-none" aria-label="Send message" title="Send message">{transcribing ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.4} />}</button>}
               <span className="sr-only">{queuedDocuments.length ? `${queuedDocuments.length} documents queued` : uploading ? 'Uploading document' : ''}</span>
             </div>
           </form>
