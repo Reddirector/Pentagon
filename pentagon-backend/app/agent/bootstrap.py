@@ -20,6 +20,7 @@ from app.tools import (
     recall,
     remember,
     search_documents,
+    serve_website_locally,
     update_plan,
     web_search,
 )
@@ -48,6 +49,7 @@ def build_registry() -> ToolRegistry:
     # gated as a local_filesystem_write -- no sandbox needed to write a file
     # the user asked for.
     registry.register(document_generation.TOOL_SPEC, document_generation.run)
+    registry.register(serve_website_locally.TOOL_SPEC, serve_website_locally.run)
     registry.register(image_generation.TOOL_SPEC, image_generation.run)
     # T9: the JS-rendering browser needs Playwright plus its Chromium, so it
     # exists only when they do; fetch_url covers plain documents without them.

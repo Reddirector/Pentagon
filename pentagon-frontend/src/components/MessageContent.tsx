@@ -32,13 +32,14 @@ import {
   Presentation,
   RotateCw,
   Search,
+  Server,
   Smartphone,
   Sparkles,
   Video,
   X,
 } from 'lucide-react'
 
-import { downloadGeneratedFile, fetchFilePreview, getFileBlobUrl, type FilePreviewData } from '../api'
+import { downloadGeneratedFile, fetchFilePreview, getFileBlobUrl, startLocalhostServer, type FilePreviewData } from '../api'
 import { buildClientPdfBlobUrl } from '../lib/pdfGenerator'
 import type { ChatMessage, ExecutionTrace, GeneratedFileInfo, SourcesUsed, TraceEntry } from '../types'
 
@@ -1064,14 +1065,21 @@ function TextPreview({ text, format }: { text: string; format: string }) {
 function HtmlWebsitePreview({
   html,
   filename,
+  fileId,
 }: {
   html: string
   filename: string
+  fileId?: string
 }) {
   const [viewMode, setViewMode] = useState<'preview' | 'code'>('preview')
   const [viewport, setViewport] = useState<'desktop' | 'mobile'>('desktop')
   const [copied, setCopied] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [serverUrl, setServerUrl] = useState<string | null>(null)
+  const [serverPort, setServerPort] = useState<number | null>(null)
+  const [isHosting, setIsHosting] = useState(false)
+  const [copiedLocalhost, setCopiedLocalhost] = useState(false)
+  const [hostError, setHostError] = useState<string | null>(null)
 
   async function copyCode() {
     await navigator.clipboard.writeText(html)
@@ -1095,6 +1103,35 @@ function HtmlWebsitePreview({
         win.document.close()
       }
     }
+  }
+
+  async function handleRunLocalhost() {
+    setIsHosting(true)
+    setHostError(null)
+    try {
+      const res = await startLocalhostServer({
+        file_id: fileId,
+        html: html,
+        title: filename,
+      })
+      if (res && res.url) {
+        setServerUrl(res.url)
+        setServerPort(res.port)
+        window.open(res.url, '_blank', 'noopener,noreferrer')
+      }
+    } catch (err) {
+      console.error('Failed to launch localhost server:', err)
+      setHostError(err instanceof Error ? err.message : 'Could not launch localhost server')
+    } finally {
+      setIsHosting(false)
+    }
+  }
+
+  async function copyLocalhostUrl() {
+    if (!serverUrl) return
+    await navigator.clipboard.writeText(serverUrl)
+    setCopiedLocalhost(true)
+    setTimeout(() => setCopiedLocalhost(false), 1500)
   }
 
   return (
@@ -1175,6 +1212,25 @@ function HtmlWebsitePreview({
 
           <button
             type="button"
+            onClick={() => void handleRunLocalhost()}
+            disabled={isHosting}
+            title={serverUrl ? `Live on ${serverUrl}` : 'Run website on live localhost HTTP server'}
+            className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-micro font-medium transition ${
+              serverUrl
+                ? 'border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 shadow-sm'
+                : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+            }`}
+          >
+            {isHosting ? (
+              <Loader2 size={11} className="animate-spin text-emerald-400" />
+            ) : (
+              <Server size={11} className={serverUrl ? 'text-emerald-400' : 'text-emerald-300'} />
+            )}
+            <span>{serverUrl ? `Live :${serverPort}` : 'Run on Localhost'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleOpenNewTab}
             title="Open website in full browser tab"
             className="flex items-center gap-1.5 rounded-md border border-orange-500/30 bg-orange-500/15 px-2.5 py-1 text-micro font-medium text-orange-300 hover:bg-orange-500/25 transition"
@@ -1195,6 +1251,52 @@ function HtmlWebsitePreview({
           )}
         </div>
       </div>
+
+      {serverUrl && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-emerald-950/40 px-3.5 py-2 text-micro text-emerald-200">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="font-semibold text-emerald-300">Localhost Server:</span>
+            <a
+              href={serverUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-emerald-200 underline decoration-emerald-500/50 underline-offset-2 hover:text-white"
+            >
+              {serverUrl}
+            </a>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void copyLocalhostUrl()}
+              className="flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/20 px-2.5 py-1 text-micro font-medium text-emerald-200 hover:bg-emerald-500/30 transition"
+            >
+              {copiedLocalhost ? <Check size={10} className="text-emerald-300" /> : <Copy size={10} />}
+              <span>{copiedLocalhost ? 'Copied' : 'Copy URL'}</span>
+            </button>
+            <a
+              href={serverUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/30 px-2.5 py-1 text-micro font-semibold text-white hover:bg-emerald-500/40 transition"
+            >
+              <ExternalLink size={10} />
+              <span>Open Localhost</span>
+            </a>
+          </div>
+        </div>
+      )}
+
+      {hostError && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-1.5 text-micro text-red-300">
+          <AlertCircle size={12} className="shrink-0 text-red-400" />
+          <span>{hostError}</span>
+        </div>
+      )}
 
       {viewMode === 'preview' ? (
         <div
@@ -1516,7 +1618,7 @@ function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; 
         )}
 
         {fmt === 'html' && (
-          <HtmlWebsitePreview html={previewData.text || ''} filename={file.filename} />
+          <HtmlWebsitePreview html={previewData.text || ''} filename={file.filename} fileId={file.id} />
         )}
 
         {fmt === 'txt' && (

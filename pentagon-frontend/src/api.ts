@@ -316,6 +316,45 @@ export async function fetchFilePreview(fileId: string): Promise<FilePreviewData>
   return apiRequest<FilePreviewData>(`/api/files/${encodeURIComponent(fileId)}/preview?user_id=${encodeURIComponent(userId)}`)
 }
 
+export type LocalhostServerInfo = {
+  server_id: string
+  port: number
+  url: string
+  title: string
+  file_id?: string | null
+  started_at: string
+}
+
+export async function startLocalhostServer(params: {
+  html?: string
+  file_id?: string
+  title?: string
+  port?: number
+}): Promise<LocalhostServerInfo> {
+  const userId = getLocalUserId()
+  if (params.file_id) {
+    return apiRequest<LocalhostServerInfo>(`/api/files/${encodeURIComponent(params.file_id)}/localhost`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, port: params.port }),
+    })
+  }
+  return apiRequest<LocalhostServerInfo>('/api/localhost/start', {
+    method: 'POST',
+    body: JSON.stringify({
+      html: params.html,
+      title: params.title,
+      port: params.port,
+    }),
+  })
+}
+
+export async function stopLocalhostServer(params: { server_id?: string; port?: number }): Promise<{ status: string }> {
+  return apiRequest<{ status: string }>('/api/localhost/stop', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
 export type WorkflowsResponse = {
   templates: Workflow[]
   workflows: Workflow[]

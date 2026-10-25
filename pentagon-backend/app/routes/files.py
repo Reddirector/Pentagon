@@ -20,6 +20,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,10 +29,22 @@ from app.db.session import get_db
 from app.security.capability_auth import require_capability
 from app.services.document_builder import CONTENT_TYPES, MAX_DOC_CHARS
 from app.services.file_storage import StorageError, get_storage
+from app.services.localhost_server import LOCALHOST_MANAGER
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["files"])
+
+
+class LocalhostStartRequest(BaseModel):
+    html: str = Field(min_length=1, description="Raw HTML to serve")
+    title: str = Field(default="Live Website", max_length=200)
+    port: int | None = Field(default=None, ge=1024, le=65535)
+
+
+class LocalhostStopRequest(BaseModel):
+    port: int | None = None
+    server_id: str | None = None
 
 _MAX_PREVIEW_CHARS = 200_000
 
@@ -119,6 +132,94 @@ async def download_file(
             "Cache-Control": "private, no-store",
         },
     )
+
+
+@router.get("/api/files/{file_id}/live")
+@router.get("/api/files/{file_id}/serve")
+async def serve_live_website(
+    file_id: str,
+    user_id: str | None = Query(default=None, max_length=128),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Serve a generated HTML website directly for live in-browser execution on localhost."""
+    if user_id:
+        row = _load_owned(file_id, user_id, db)
+    else:
+        row = db.get(GeneratedFile, file_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="File not found.")
+    try:
+        data = await get_storage().get(row.storage_path)
+    except StorageError as exc:
+        logger.warning("Live serve failed for %s: %s", row.id, exc)
+        raise HTTPException(status_code=404, detail="The file is no longer in storage.") from None
+
+    media_type = "text/html; charset=utf-8" if row.format == "html" else (row.media_type or "text/plain")
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Content-Security-Policy": "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
+@router.post("/api/files/{file_id}/localhost")
+async def launch_file_localhost_server(
+    file_id: str,
+    port: int | None = Query(default=None, ge=1024, le=65535),
+    user_id: str | None = Query(default=None, max_length=128),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Launch a dedicated background HTTP server on localhost for an existing generated file."""
+    if user_id:
+        row = _load_owned(file_id, user_id, db)
+    else:
+        row = db.get(GeneratedFile, file_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="File not found.")
+    try:
+        data = await get_storage().get(row.storage_path)
+    except StorageError as exc:
+        raise HTTPException(status_code=404, detail="The file is no longer in storage.") from None
+
+    html_str = data.decode("utf-8", errors="replace")
+    result = LOCALHOST_MANAGER.start_server(
+        html=html_str,
+        title=row.filename,
+        port=port,
+        file_id=row.id,
+    )
+    return result
+
+
+@router.post("/api/localhost/start")
+async def start_ad_hoc_localhost_server(payload: LocalhostStartRequest) -> dict:
+    """Launch a dedicated background localhost server directly from raw HTML."""
+    result = LOCALHOST_MANAGER.start_server(
+        html=payload.html,
+        title=payload.title,
+        port=payload.port,
+    )
+    return result
+
+
+@router.post("/api/localhost/stop")
+async def stop_localhost_server(payload: LocalhostStopRequest) -> dict:
+    """Stop an active localhost server by port or server_id."""
+    target = payload.port if payload.port is not None else payload.server_id
+    if not target:
+        raise HTTPException(status_code=400, detail="Must provide either port or server_id to stop.")
+    success = LOCALHOST_MANAGER.stop_server(target)
+    return {"ok": success, "target": target}
+
+
+@router.get("/api/localhost/servers")
+async def list_active_localhost_servers() -> list[dict]:
+    """List all currently active localhost servers."""
+    return LOCALHOST_MANAGER.list_servers()
 
 
 
