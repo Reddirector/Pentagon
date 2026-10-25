@@ -35,6 +35,7 @@ from app.agent.bootstrap import build_registry
 from app.agent.capabilities import ProbeResult
 from app.agent.loop import TurnRequest, run_turn
 from app.agent.schemas import ApprovalGate, AskUserGate, Budget
+from app.agent.system_prompt import default_system_prompt
 from app.db.models import Conversation, Message, ModelCapabilities, User, utc_now
 from app.db.session import SessionLocal, get_db
 from app.security.keys import resolve_api_key_or_http
@@ -283,6 +284,7 @@ async def agent_chat(request: Request, db: Session = Depends(get_db)) -> Streami
         permission_level=permission_level,
         user_message=message_content,
         history=history,
+        system_prompt=default_system_prompt(model_id=payload.model),
         # T12 routing: the first turn with this model id probes it once and
         # caches the result; a seeded row (tests) is read without probing.
         model_id=payload.model,

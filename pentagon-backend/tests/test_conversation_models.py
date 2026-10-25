@@ -227,5 +227,31 @@ def test_models_endpoint_flags_vision_support(model_setup, monkeypatch):
     assert response.status_code == 200
     models = {model["id"]: model for model in response.json()["models"]}
     assert models["meta/llama-3.2-11b-vision-instruct"]["supports_vision"] is True
+    assert models["meta/llama-3.2-11b-vision-instruct"]["supports_docs"] is True
     assert models[MODEL_A]["supports_vision"] is False
+    assert models[MODEL_A]["supports_docs"] is True
     assert models["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]["supports_vision"] is True
+    assert models["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]["supports_docs"] is True
+
+
+def test_chat_rejects_image_on_non_vision_model(model_setup, monkeypatch):
+    import io
+    from PIL import Image
+
+    buf = io.BytesIO()
+    img = Image.new("RGB", (10, 10), color="blue")
+    img.save(buf, format="PNG")
+    png_bytes = buf.getvalue()
+
+    with TestClient(app) as client:
+        files = {"image": ("test.png", io.BytesIO(png_bytes), "image/png")}
+        data = {
+            "user_id": model_setup["user_id"],
+            "conversation_id": model_setup["conversation_id"],
+            "model": MODEL_A,  # Non-vision model
+            "message": "Analyze this picture",
+        }
+        response = client.post("/api/chat", data=data, files=files)
+
+    assert response.status_code == 422
+    assert "does not support image analysis" in response.json()["detail"]

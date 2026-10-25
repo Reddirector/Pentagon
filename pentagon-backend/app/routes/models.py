@@ -13,7 +13,23 @@ router = APIRouter(prefix="/api/models", tags=["models"])
 
 def _supports_vision(model: dict) -> bool:
     model_id = str(model.get("id", "")).lower()
-    indicators = ("vision", "visual", "vlm", "omni", "multimodal", "multi-modal", "llava", "pixtral", "internvl", "video")
+    indicators = (
+        "vision",
+        "visual",
+        "vlm",
+        "omni",
+        "multimodal",
+        "multi-modal",
+        "llava",
+        "pixtral",
+        "internvl",
+        "video",
+        "fuyu",
+        "kosmos",
+        "neva",
+        "vila",
+        "deplot",
+    )
     if any(indicator in model_id for indicator in indicators):
         return True
 
@@ -24,6 +40,21 @@ def _supports_vision(model: dict) -> bool:
         and (isinstance(value, (str, list, tuple, set)))
     ).lower()
     return any(indicator in metadata for indicator in indicators)
+
+
+def _supports_docs(model: dict) -> bool:
+    """Document analysis via RAG chunking works for conversational LLMs, but not for specialized embeddings/guards."""
+    model_id = str(model.get("id", "")).lower()
+    non_doc_indicators = (
+        "embed",
+        "retriev",
+        "guard",
+        "reward",
+        "clip",
+        "calibration",
+        "synthetic-video-detector",
+    )
+    return not any(indicator in model_id for indicator in non_doc_indicators)
 
 
 @router.get("", response_model=ModelsResponse)
@@ -41,7 +72,11 @@ async def get_models(
 
     return {
         "models": [
-            {**model, "supports_vision": _supports_vision(model)}
+            {
+                **model,
+                "supports_vision": _supports_vision(model),
+                "supports_docs": _supports_docs(model),
+            }
             for model in models
         ],
         "default_model": settings.default_chat_model,

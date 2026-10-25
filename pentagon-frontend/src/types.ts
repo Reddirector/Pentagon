@@ -1,6 +1,7 @@
 export type ModelInfo = {
   id: string
   supports_vision?: boolean
+  supports_docs?: boolean
   is_reasoning?: boolean
   context_window?: number
 }

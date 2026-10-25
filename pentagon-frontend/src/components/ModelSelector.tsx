@@ -131,13 +131,20 @@ export function ModelSelector({
           )}
         </div>
 
-        {activeModel?.supports_vision && (
+        {activeModel?.supports_vision ? (
           <span
-            title="Vision supported"
+            title="Vision & Multimodal supported"
             className="hidden items-center gap-1 rounded-md border border-violet-400/20 bg-violet-400/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-300 sm:inline-flex"
           >
             <ImageIcon size={10} />
             <span className="max-md:hidden">Vision</span>
+          </span>
+        ) : (
+          <span
+            title="Text & Documents only (No images/videos)"
+            className="hidden items-center gap-1 rounded-md border border-zinc-700/40 bg-zinc-800/40 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 sm:inline-flex"
+          >
+            <span className="max-md:hidden">Text Only</span>
           </span>
         )}
 

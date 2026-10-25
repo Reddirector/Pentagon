@@ -56,6 +56,7 @@ from app.services.autonomy import (
 )
 
 
+from app.routes.models import _supports_vision
 from app.services.conversation_context import build_model_history, summarize_for_model_switch
 from app.services.document_store import purge_conversation_collection
 from app.services.image_inputs import parse_chat_submission
@@ -142,6 +143,17 @@ async def chat(
         raise HTTPException(
             status_code=422,
             detail="Regenerating a reply is text-only; retry without media.",
+        )
+
+    # Reject media if the requested model does not support multimodal/vision analysis
+    if (image is not None or video is not None) and not _supports_vision({"id": payload.model}):
+        media_type_label = "video" if video is not None else "image"
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"The selected model ({payload.model}) does not support {media_type_label} analysis. "
+                "Please select a Vision-capable model (such as Llama 3.2 Vision) or remove the attachment."
+            ),
         )
 
     api_key = resolve_api_key_or_http(db, payload.user_id)

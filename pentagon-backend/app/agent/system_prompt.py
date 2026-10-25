@@ -21,10 +21,19 @@ _FALLBACK = (
 )
 
 
-def default_system_prompt() -> str:
-    """The contents of prompts/system.md (or a blunt fallback)."""
+def default_system_prompt(model_id: str | None = None) -> str:
+    """The contents of prompts/system.md (or a blunt fallback), contextualized with model identity."""
     try:
         text = PROMPT_PATH.read_text(encoding="utf-8")
     except OSError:
-        return _FALLBACK
-    return text.strip() or _FALLBACK
+        text = _FALLBACK
+    base = text.strip() or _FALLBACK
+    if model_id:
+        model_context = (
+            f"\n\n# Active Model & Identity\n"
+            f"- You are running on model: `{model_id}`.\n"
+            f"- Whenever asked 'Who are you?', 'What are you?', or about your identity, you MUST always reply:\n"
+            f"  \"I'm Pentagon and running on {model_id}\"\n"
+        )
+        return f"{base}{model_context}"
+    return base
