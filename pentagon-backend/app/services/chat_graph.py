@@ -690,16 +690,21 @@ def build_chat_graph(
             "4. Geolocation & Spatial Grounding: You are aware of the user's real-time physical location and GPS coordinates above. Ground local queries, weather, or nearby recommendations in their active location.\n"
             "5. Document Knowledge & Web Results: When retrieved documents or web results are provided, synthesize them accurately and cite evidence from the source material."
         )
+        history_messages = list(state["messages"])
+        if history_messages and isinstance(history_messages[0], SystemMessage):
+            system_text = f"{history_messages[0].content}\n\n{system_text}"
+            history_messages = history_messages[1:]
+
         system_message = SystemMessage(content=system_text)
         prompt_messages = [
             system_message,
-            *state["messages"],
+            *history_messages,
             context_message,
             *state.get("tool_messages", []),
         ]
-        model = model_for_turn()
+        runnable_model = model_for_turn()
         try:
-            response = await model.ainvoke(prompt_messages, config=config)
+            response = await runnable_model.ainvoke(prompt_messages, config=config)
         except Exception:
             _node_trace("generate_response", started, status="failed")
             raise
