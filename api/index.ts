@@ -13,15 +13,12 @@ export const config = {
 
 const DEFAULT_MODELS = [
   { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
-  { id: 'openai/gpt-oss-20b', supports_vision: false, context_window: 131072 },
-  { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
-  { id: 'meta/llama-3.2-90b-vision-instruct', supports_vision: true, context_window: 131072 },
-  { id: 'mistralai/mistral-large-2-instruct', supports_vision: false, context_window: 131072 },
-  { id: 'mistralai/mistral-7b-instruct-v0.3', supports_vision: false, context_window: 32768 },
-  { id: 'deepseek-ai/deepseek-v4.1-flash', supports_vision: false, context_window: 65536 },
-  { id: 'google/gemma-3-12b-it', supports_vision: false, context_window: 8192 },
-  { id: 'google/gemma-4-31b-it', supports_vision: false, context_window: 8192 },
-  { id: 'mistralai/mixtral-8x22b-v0.1', supports_vision: false, context_window: 65536 },
+  { id: 'nvidia/nemotron-3.5-lightning-30b-a3b', supports_vision: false, context_window: 131072 },
+  { id: 'nvidia/nemotron-3.5-bolt-e4b', supports_vision: false, context_window: 131072 },
+  { id: 'nvidia/nemotron-3-ultra-550b-a55b', supports_vision: false, context_window: 131072 },
+  { id: 'minimaxai/minimax-m3.1-flash', supports_vision: false, context_window: 131072 },
+  { id: 'nvidia/riva-translate-4b-instruct-v2', supports_vision: false, context_window: 32768 },
+  { id: 'nvidia/nemotron-parse-2.0', supports_vision: false, context_window: 32768 },
 ]
 
 function normalizeModel(model: string): string {
@@ -51,8 +48,12 @@ function normalizeModel(model: string): string {
   if (trimmed === 'gpt-oss-20b' || trimmed === 'gpt-oss' || trimmed === 'openai-gpt-oss-20b') {
     return 'openai/gpt-oss-20b'
   }
-  if (trimmed === 'nemotron-70b' || trimmed === 'llama-3.1-nemotron-70b-instruct') {
-    return 'nvidia/llama-3.1-nemotron-70b-instruct'
+  if (
+    trimmed === 'nemotron-70b' ||
+    trimmed === 'llama-3.1-nemotron-70b-instruct' ||
+    trimmed === 'nvidia/llama-3.1-nemotron-70b-instruct'
+  ) {
+    return 'nvidia/nemotron-3.5-lightning-30b-a3b'
   }
   if (trimmed === 'llama-3.2-11b-vision-instruct' || trimmed === 'llama-3.2-11b') {
     return 'meta/llama-3.2-11b-vision-instruct'
@@ -347,7 +348,7 @@ function extractKey(req: Request, bodyKey?: string): string {
 function parseNvidiaModels(raw: unknown) {
   const data = raw as { data?: Array<{ id: string }> }
   if (!Array.isArray(data?.data) || data.data.length === 0) {
-    return { models: DEFAULT_MODELS, default_model: 'nvidia/llama-3.1-nemotron-70b-instruct' }
+    return { models: DEFAULT_MODELS, default_model: 'meta/llama-3.2-11b-vision-instruct' }
   }
 
   // Filter out pure embeddings, rerankers, speech models, and deprecated IDs
@@ -507,7 +508,7 @@ export default async function handler(req: Request): Promise<Response> {
             valid: true,
             reason: 'Key verified',
             models: DEFAULT_MODELS,
-            default_model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+            default_model: 'meta/llama-3.2-11b-vision-instruct',
           })
         }
         return jsonResponse({ valid: false, reason: err instanceof Error ? err.message : 'Validation error' })
@@ -537,7 +538,7 @@ export default async function handler(req: Request): Promise<Response> {
       }
       return jsonResponse({
         models: DEFAULT_MODELS,
-        default_model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+        default_model: 'meta/llama-3.2-11b-vision-instruct',
       })
     }
 
@@ -596,7 +597,7 @@ export default async function handler(req: Request): Promise<Response> {
     // 4. Chat streaming: POST /api/chat or POST /api/agent/chat
     if ((path === '/api/chat' || path === '/api/agent/chat') && method === 'POST') {
       let prompt = ''
-      let model = 'nvidia/llama-3.1-nemotron-70b-instruct'
+      let model = 'meta/llama-3.2-11b-vision-instruct'
       let apiKey = extractKey(req)
       let conversationId = ''
       let historyJson = ''
@@ -966,7 +967,7 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
           } catch (primaryErr) {
             // Fast fallback: if primary model returns error status or times out
             const fallbackModel = activeModel === 'meta/llama-3.2-11b-vision-instruct'
-              ? 'nvidia/llama-3.1-nemotron-70b-instruct'
+              ? 'nvidia/nemotron-3.5-lightning-30b-a3b'
               : 'meta/llama-3.2-11b-vision-instruct'
 
             activeModel = fallbackModel
@@ -1489,7 +1490,7 @@ NEVER state or apologize that you "cannot create or attach a PDF file directly".
         title: 'Thread',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        active_model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+        active_model: 'meta/llama-3.2-11b-vision-instruct',
         messages: [],
       })
     }

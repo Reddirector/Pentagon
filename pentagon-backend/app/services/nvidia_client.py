@@ -44,20 +44,130 @@ def _new_async_client(timeout_seconds: float | None = None) -> httpx.AsyncClient
     return httpx.AsyncClient(timeout=timeout_seconds or settings.nvidia_timeout_seconds)
 
 
+MODEL_ALIASES: dict[str, str] = {
+    # Retired / deprecated Nemotron models on NVIDIA NIM -> active Nemotron models
+    "nvidia/llama-3.1-nemotron-70b-instruct": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/llama-3.1-nemotron-51b-instruct": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1": "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-4-340b-instruct": "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-4-340b-reward": "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/llama3-chatqa-1.5-70b": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/mistral-nemo-minitron-8b-8k-instruct": "nvidia/nemotron-3.5-bolt-e4b",
+    "nvidia/nemotron-nano-3-30b-a3b": "nvidia/nemotron-3.5-bolt-e4b",
+    "nvidia/cosmos-reason2-8b": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/neva-22b": "meta/llama-3.2-11b-vision-instruct",
+    "nvidia/vila": "meta/llama-3.2-11b-vision-instruct",
+    "nvidia/nemotron-3-super-120b-a12b": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+
+    # EOL Meta models -> active Meta Llama 3.2 11B Vision
+    "meta/llama-3.1-70b-instruct": "meta/llama-3.2-11b-vision-instruct",
+    "meta/llama-3.1-8b-instruct": "meta/llama-3.2-11b-vision-instruct",
+    "meta/llama-3.2-3b-instruct": "meta/llama-3.2-11b-vision-instruct",
+    "meta/llama-3.3-70b-instruct": "meta/llama-3.2-11b-vision-instruct",
+    "meta/llama-3.2-90b-vision-instruct": "meta/llama-3.2-11b-vision-instruct",
+
+    # EOL / unprovisioned Mistral models -> active Nemotron
+    "mistralai/mixtral-8x7b-instruct-v0.1": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "mistralai/mistral-large-2-instruct": "nvidia/nemotron-3-ultra-550b-a55b",
+    "mistralai/mistral-7b-instruct-v0.3": "nvidia/nemotron-3.5-bolt-e4b",
+    "mistralai/mixtral-8x22b-v0.1": "nvidia/nemotron-3-ultra-550b-a55b",
+
+    # Unprovisioned Google, OpenAI, & DeepSeek models on NVIDIA NIM
+    "google/gemma-3-12b-it": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "google/gemma-4-31b-it": "nvidia/nemotron-3-ultra-550b-a55b",
+    "deepseek-ai/deepseek-v4.1-flash": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "openai/gpt-oss-20b": "nvidia/nemotron-3.5-lightning-30b-a3b",
+}
+
+
+def canonical_model_id(model: str | None) -> str:
+    raw = (model or "").strip()
+    if not raw:
+        return settings.default_chat_model or "meta/llama-3.2-11b-vision-instruct"
+    if raw in MODEL_ALIASES:
+        return MODEL_ALIASES[raw]
+    if "llama-3.1-nemotron-70b" in raw or "nemotron-70b" in raw:
+        return "nvidia/nemotron-3.5-lightning-30b-a3b"
+    if "nemotron-340b" in raw:
+        return "nvidia/nemotron-3-ultra-550b-a55b"
+    if "llama-3.1-8b" in raw or "llama-3.1-70b" in raw or "llama-3.2-3b" in raw:
+        return "meta/llama-3.2-11b-vision-instruct"
+    return raw
+
+
+def _is_unsupported_model_error(exc: Exception) -> bool:
+    status = getattr(exc, "status_code", None)
+    if status in (400, 404, 410):
+        return True
+    msg = str(exc).lower()
+    indicators = (
+        "not found for account",
+        "function '",
+        "has reached its end of life",
+        "does not exist",
+        "model not found",
+        "content cannot be a plain string",
+        "failed to generate completions",
+    )
+    return any(ind in msg for ind in indicators)
+
+
+def _resolve_fallback_model(model_name: str) -> str:
+    lower = (model_name or "").lower()
+    if any(k in lower for k in ("vision", "vlm", "omni", "multimodal", "vl")):
+        return "meta/llama-3.2-11b-vision-instruct"
+    return "nvidia/nemotron-3.5-lightning-30b-a3b"
+
+
 class _RateLimitedRunnable:
     """Acquire one shared-budget permit for each actual chat-completion call."""
 
-    def __init__(self, runnable: Any) -> None:
+    def __init__(
+        self,
+        runnable: Any,
+        *,
+        api_key: str = "",
+        model_name: str = "",
+        bound_tools: tuple[tuple[Any, ...], dict[str, Any]] | None = None,
+    ) -> None:
         self._runnable = runnable
+        self._api_key = api_key
+        self._model_name = model_name
+        self._bound_tools = bound_tools
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._runnable, name)
 
     def bind_tools(self, *args: Any, **kwargs: Any) -> "_RateLimitedRunnable":
-        return _RateLimitedRunnable(self._runnable.bind_tools(*args, **kwargs))
+        return _RateLimitedRunnable(
+            self._runnable.bind_tools(*args, **kwargs),
+            api_key=self._api_key,
+            model_name=self._model_name,
+            bound_tools=(args, kwargs),
+        )
 
     def bind(self, *args: Any, **kwargs: Any) -> "_RateLimitedRunnable":
-        return _RateLimitedRunnable(self._runnable.bind(*args, **kwargs))
+        return _RateLimitedRunnable(
+            self._runnable.bind(*args, **kwargs),
+            api_key=self._api_key,
+            model_name=self._model_name,
+            bound_tools=self._bound_tools,
+        )
+
+    def _make_fallback_runnable(self, fallback_model: str) -> Any:
+        m = ChatOpenAI(
+            model=fallback_model,
+            api_key=self._api_key or "dummy-key-for-graph-inspection",
+            base_url=settings.nvidia_base_url,
+            timeout=settings.nvidia_timeout_seconds,
+            stream_chunk_timeout=settings.nvidia_timeout_seconds,
+            max_retries=2,
+            streaming=True,
+        )
+        if self._bound_tools:
+            b_args, b_kwargs = self._bound_tools
+            return m.bind_tools(*b_args, **b_kwargs)
+        return m
 
     async def astream(self, *args: Any, **kwargs: Any):
         await rate_limiter.acquire(current_provider_lane())
@@ -68,15 +178,56 @@ class _RateLimitedRunnable:
                 yield chunk
         except Exception as exc:
             if chunks_yielded == 0:
+                if _is_unsupported_model_error(exc):
+                    fallback_model = _resolve_fallback_model(self._model_name)
+                    logger.warning(
+                        "NVIDIA model '%s' failed (%s); auto-recovering with fallback '%s'",
+                        self._model_name,
+                        exc,
+                        fallback_model,
+                    )
+                    fallback_runnable = self._make_fallback_runnable(fallback_model)
+                    async for chunk in fallback_runnable.astream(*args, **kwargs):
+                        chunks_yielded += 1
+                        yield chunk
+                    return
+
                 logger.debug("astream produced no chunks or failed (%s); falling back to ainvoke", exc)
-                res = await self._runnable.ainvoke(*args, **kwargs)
+                try:
+                    res = await self._runnable.ainvoke(*args, **kwargs)
+                except Exception as ainvoke_exc:
+                    if _is_unsupported_model_error(ainvoke_exc):
+                        fallback_model = _resolve_fallback_model(self._model_name)
+                        logger.warning(
+                            "NVIDIA model '%s' ainvoke failed (%s); auto-recovering with fallback '%s'",
+                            self._model_name,
+                            ainvoke_exc,
+                            fallback_model,
+                        )
+                        fallback_runnable = self._make_fallback_runnable(fallback_model)
+                        res = await fallback_runnable.ainvoke(*args, **kwargs)
+                    else:
+                        raise
                 yield res
             else:
                 raise
 
     async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
         await rate_limiter.acquire(current_provider_lane())
-        return await self._runnable.ainvoke(*args, **kwargs)
+        try:
+            return await self._runnable.ainvoke(*args, **kwargs)
+        except Exception as exc:
+            if _is_unsupported_model_error(exc):
+                fallback_model = _resolve_fallback_model(self._model_name)
+                logger.warning(
+                    "NVIDIA model '%s' ainvoke failed (%s); auto-recovering with fallback '%s'",
+                    self._model_name,
+                    exc,
+                    fallback_model,
+                )
+                fallback_runnable = self._make_fallback_runnable(fallback_model)
+                return await fallback_runnable.ainvoke(*args, **kwargs)
+            raise
 
 
 def _models_url() -> str:
@@ -172,8 +323,8 @@ async def list_models_for_user(user_id: str, api_key: str) -> list[dict[str, Any
 
 def make_chat_model(api_key: str, model: str) -> _RateLimitedRunnable:
     key = api_key or "dummy-key-for-graph-inspection"
-    model_name = model or settings.default_chat_model or "meta/llama-3.2-11b-vision-instruct"
-    return _RateLimitedRunnable(ChatOpenAI(
+    model_name = canonical_model_id(model or settings.default_chat_model or "meta/llama-3.2-11b-vision-instruct")
+    runnable = ChatOpenAI(
         model=model_name,
         api_key=key,
         base_url=settings.nvidia_base_url,
@@ -181,7 +332,8 @@ def make_chat_model(api_key: str, model: str) -> _RateLimitedRunnable:
         stream_chunk_timeout=settings.nvidia_timeout_seconds,
         max_retries=2,
         streaming=True,
-    ))
+    )
+    return _RateLimitedRunnable(runnable, api_key=key, model_name=model_name)
 
 
 async def complete_vision_request(

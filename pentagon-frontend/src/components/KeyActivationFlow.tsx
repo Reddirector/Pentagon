@@ -109,11 +109,12 @@ function cleanModelName(id: string): string {
 
 const FALLBACK_NVIDIA_MODELS: ModelInfo[] = [
   { id: 'meta/llama-3.2-11b-vision-instruct', supports_vision: true, context_window: 131072 },
-  { id: 'nvidia/llama-3.1-nemotron-70b-instruct', supports_vision: false, context_window: 131072 },
-  { id: 'meta/llama-3.2-90b-vision-instruct', supports_vision: true, context_window: 131072 },
-  { id: 'mistralai/mistral-large-2-instruct', supports_vision: false, context_window: 131072 },
-  { id: 'openai/gpt-oss-20b', supports_vision: false, context_window: 131072 },
-  { id: 'mistralai/mistral-7b-instruct-v0.3', supports_vision: false, context_window: 32768 },
+  { id: 'nvidia/nemotron-3.5-lightning-30b-a3b', supports_vision: false, context_window: 131072 },
+  { id: 'nvidia/nemotron-3.5-bolt-e4b', supports_vision: false, context_window: 131072 },
+  { id: 'nvidia/nemotron-3-ultra-550b-a55b', supports_vision: false, context_window: 131072 },
+  { id: 'minimaxai/minimax-m3.1-flash', supports_vision: false, context_window: 131072 },
+  { id: 'nvidia/riva-translate-4b-instruct-v2', supports_vision: false, context_window: 32768 },
+  { id: 'nvidia/nemotron-parse-2.0', supports_vision: false, context_window: 32768 },
 ]
 
 function getModelFamily(id: string): { label: string; tone: string } {
@@ -380,7 +381,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
         setUserEmail(email)
         setUserAvatarColor(accountColor)
 
-        const finalModel = selectedModel || discoveredModels[0]?.id || 'nvidia/llama-3.1-nemotron-70b-instruct'
+        const finalModel = selectedModel || discoveredModels[0]?.id || 'meta/llama-3.2-11b-vision-instruct'
         localStorage.setItem('pentagon.defaultModel', finalModel)
 
         onComplete({
@@ -430,7 +431,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
         setUserEmail(email)
         setUserAvatarColor(avatarColor)
 
-        const finalModel = selectedModel || discoveredModels[0]?.id || 'nvidia/llama-3.1-nemotron-70b-instruct'
+        const finalModel = selectedModel || discoveredModels[0]?.id || 'meta/llama-3.2-11b-vision-instruct'
         localStorage.setItem('pentagon.defaultModel', finalModel)
 
         onComplete({
@@ -461,7 +462,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
     setUserName('Admin')
     setUserEmail('admin@pentagon.chat')
     setUserAvatarColor('#10b981')
-    const fallbackModel = selectedModel || 'nvidia/llama-3.1-nemotron-70b-instruct'
+    const fallbackModel = selectedModel || 'meta/llama-3.2-11b-vision-instruct'
     localStorage.setItem('pentagon.defaultModel', fallbackModel)
 
     onComplete({

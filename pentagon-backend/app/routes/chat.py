@@ -56,11 +56,11 @@ from app.services.autonomy import (
 )
 
 
-from app.routes.models import _supports_vision
+from app.routes.models import ACTIVE_VERIFIED_MODELS, _supports_vision
 from app.services.conversation_context import build_model_history, summarize_for_model_switch
 from app.services.document_store import purge_conversation_collection
 from app.services.image_inputs import parse_chat_submission
-from app.services.nvidia_client import NvidiaApiError, list_models_for_user
+from app.services.nvidia_client import NvidiaApiError, canonical_model_id, list_models_for_user
 from app.services.rate_limiter import RateLimitTimeout
 from app.services.speech import stream_speech
 
@@ -166,16 +166,23 @@ async def chat(
     )
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found for this user.")
-    if conversation.active_model is not None and conversation.active_model != payload.model:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"This conversation uses {conversation.active_model}. Switch it with "
-                "PATCH /api/conversations/{conversation_id} before chatting with another model."
-            ),
-        )
-    if conversation.active_model is None:
-        conversation.active_model = payload.model
+    canonical_payload_model = canonical_model_id(payload.model)
+    if conversation.active_model is not None:
+        canonical_active = canonical_model_id(conversation.active_model)
+        if canonical_active != conversation.active_model:
+            conversation.active_model = canonical_active
+            db.commit()
+        if canonical_active != canonical_payload_model:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"This conversation uses {conversation.active_model}. Switch it with "
+                    "PATCH /api/conversations/{conversation_id} before chatting with another model."
+                ),
+            )
+    else:
+        conversation.active_model = canonical_payload_model
+        db.commit()
     prior_messages = list(
         db.scalars(
             select(Message)
@@ -599,19 +606,23 @@ async def switch_conversation_model(
 
     api_key = resolve_api_key_or_http(db, conversation.user_id)
 
+    target_model = canonical_model_id(payload.model)
+
     try:
         models = await list_models_for_user(conversation.user_id, api_key)
     except NvidiaApiError as exc:
         status_code = 429 if exc.category == "rate_limited" else 502
         raise HTTPException(status_code=status_code, detail=exc.reason) from None
-    if not any(model.get("id") == payload.model for model in models):
+    
+    verified_ids = {m["id"] for m in ACTIVE_VERIFIED_MODELS}
+    if target_model not in verified_ids and not any(model.get("id") == target_model for model in models):
         raise HTTPException(status_code=422, detail="The requested model is not available to this API key.")
 
-    if conversation.active_model == payload.model:
+    if conversation.active_model == target_model:
         current_summary = conversation.summary_at_switch or ""
         return {
             "conversation_id": conversation.id,
-            "active_model": payload.model,
+            "active_model": target_model,
             "summary_generated": False,
             "summary_word_count": len(current_summary.split()),
         }
@@ -626,12 +637,12 @@ async def switch_conversation_model(
     summary: str | None = None
     if prior_messages:
         try:
-            summary = await summarize_for_model_switch(api_key, payload.model, prior_messages)
+            summary = await summarize_for_model_switch(api_key, target_model, prior_messages)
         except Exception as exc:
             logger.warning(
                 "Conversation model switch summary failed conversation=%s model=%s error=%s",
                 conversation_id,
-                payload.model,
+                target_model,
                 type(exc).__name__,
             )
             raise HTTPException(
@@ -639,21 +650,21 @@ async def switch_conversation_model(
                 detail="Could not summarize this conversation with the requested model; the active model was not changed.",
             ) from None
 
-    conversation.active_model = payload.model
+    conversation.active_model = target_model
     conversation.summary_at_switch = summary
     conversation.updated_at = utc_now()
     db.commit()
     logger.info(
         "conversation model switched conversation=%s model=%s summary_generated=%s summary_word_count=%d retained_raw_messages=%d",
         conversation_id,
-        payload.model,
+        target_model,
         summary is not None,
         len(summary.split()) if summary else 0,
         min(len(prior_messages), 6),
     )
     return {
         "conversation_id": conversation.id,
-        "active_model": payload.model,
+        "active_model": target_model,
         "summary_generated": summary is not None,
         "summary_word_count": len(summary.split()) if summary else 0,
     }
@@ -1012,8 +1023,8 @@ async def _stream_turn(
                 )
             elif status_code in (401, 403):
                 error_message = "NVIDIA rejected the stored API key. Save a valid key and try again."
-            elif "not found for account" in str(exc).lower() or "function '" in str(exc).lower():
-                error_message = f"NVIDIA Cloud Error: Model '{model}' is not active or provisioned for your account. Please select another model (e.g. Llama 3.1 Nemotron or Llama 3.2 Vision) using the model picker."
+            elif "not found for account" in str(exc).lower() or "function '" in str(exc).lower() or "has reached its end of life" in str(exc).lower():
+                error_message = f"NVIDIA NIM Error: Model '{model}' is not active or available for your account. Please select an active model (such as Nemotron 3.5 Lightning or Llama 3.2 Vision) using the model picker."
             else:
                 error_message = "The NVIDIA chat request failed. Please try again."
             yield _sse(
