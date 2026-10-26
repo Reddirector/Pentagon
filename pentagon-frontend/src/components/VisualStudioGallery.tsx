@@ -23,7 +23,7 @@ export interface StudioCardItem {
   renderArtwork: () => React.ReactNode
 }
 
-export const STUDIO_ITEMS: StudioCardItem[] = [
+const STUDIO_ITEMS: StudioCardItem[] = [
   {
     id: 'document-forge',
     category: 'docs',

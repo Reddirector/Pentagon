@@ -115,6 +115,11 @@ function App() {
   const [queuedDocuments, setQueuedDocuments] = useState<File[]>([])
   const [media, setMedia] = useState<File | null>(null)
   const [selectedModel, setSelectedModel] = useState('')
+  const selectedModelInfo = useMemo(
+    () => models.find((m) => m.id === selectedModel),
+    [models, selectedModel],
+  )
+  const supportsVision = Boolean(selectedModelInfo?.supports_vision)
   const [search, setSearch] = useState('')
   const [draft, setDraft] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -752,6 +757,12 @@ function App() {
 
   async function switchModel(nextModel: string) {
     if (!nextModel || nextModel === selectedModel || switching) return
+    const targetModelInfo = models.find((m) => m.id === nextModel)
+    if (targetModelInfo && !targetModelInfo.supports_vision && media) {
+      setMedia(null)
+      const cleanName = nextModel.split('/').pop() || nextModel
+      setNotice(`Image attachment removed: ${cleanName} is a text-only model.`)
+    }
     const previous = selectedModel
     setSelectedModel(nextModel)
     setError('')
@@ -775,10 +786,22 @@ function App() {
   async function acceptFiles(files: File[]) {
     const accepted: File[] = []
     let nextMedia: File | null = null
+    const modelName = selectedModel.split('/').pop() || selectedModel
+
     for (const file of files) {
-      if (isDocument(file)) accepted.push(file)
-      else if (isImage(file) || isVideo(file)) nextMedia = file
-      else setError(`${file.name} is not a supported file format.`)
+      if (isDocument(file)) {
+        accepted.push(file)
+      } else if (isImage(file) || isVideo(file)) {
+        if (!supportsVision) {
+          setError(
+            `${file.name} cannot be attached: ${modelName} does not support vision or image analysis. Switch to a vision-capable model (like Llama 3.2 Vision) to analyze images.`,
+          )
+        } else {
+          nextMedia = file
+        }
+      } else {
+        setError(`${file.name} is not a supported file format.`)
+      }
     }
     if (nextMedia) setMedia(nextMedia)
     if (!accepted.length) return
@@ -1022,7 +1045,7 @@ function App() {
                 deciding={Boolean((message.pendingCommand && deciding === message.pendingCommand.request_id) || (message.turnId && deciding === message.turnId))}
               />)}
             </div> : (
-              <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-4 sm:py-8 text-center">
+              <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-4 sm:py-8 text-center pb-32 sm:pb-40">
                 {/* Luminous Centerpiece Brand Monolith */}
                 <div className="relative mb-3 sm:mb-4 grid place-items-center">
                   <div className="absolute -inset-8 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
@@ -1109,9 +1132,61 @@ function App() {
             />
             <div className="flex items-center justify-between gap-1.5 sm:gap-2 px-1 pb-0.5">
               <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
-                <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log" multiple hidden onChange={(event) => { ensureDraftThread(); void chat.handleAttachmentChange(event) }} />
-                <button type="button" onClick={() => { ensureDraftThread(); fileInput.current?.click() }} disabled={streaming || uploading} className="flex min-h-8 sm:min-h-9 items-center gap-1.5 rounded-lg px-2 sm:px-2.5 py-1 sm:py-1.5 text-micro text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40" title="Attach an image, video, document, or spreadsheet"><Paperclip size={14} /><span className="max-sm:hidden">Attach</span></button>
-                <button type="button" onClick={() => { ensureDraftThread(); void chat.toggleRecording() }} disabled={streaming || transcribing} className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`} title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'} aria-label={recording ? 'Stop recording' : 'Record a voice message'}>{recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}</button>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept={
+                    supportsVision
+                      ? "image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log"
+                      : ".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.txt,.md,.markdown,.json,.yaml,.yml,.html,.htm,.xml,.rst,.py,.js,.ts,.tsx,.jsx,.sh,.sql,.log"
+                  }
+                  multiple
+                  hidden
+                  onChange={(event) => { ensureDraftThread(); void chat.handleAttachmentChange(event) }}
+                />
+                <button
+                  type="button"
+                  onClick={() => { ensureDraftThread(); fileInput.current?.click() }}
+                  disabled={streaming || uploading}
+                  className="flex min-h-8 sm:min-h-9 items-center gap-1.5 rounded-lg px-2 sm:px-2.5 py-1 sm:py-1.5 text-micro text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40"
+                  title={
+                    supportsVision
+                      ? "Attach an image, video, document, or spreadsheet"
+                      : "Attach document (.pdf, .docx, .xlsx, .txt) · Selected model is text-only. Switch to a Vision model for images."
+                  }
+                >
+                  <Paperclip size={14} />
+                  <span className="max-sm:hidden">{supportsVision ? 'Attach' : 'Attach Doc'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { ensureDraftThread(); void chat.toggleRecording() }}
+                  disabled={streaming || transcribing}
+                  className={`grid size-8 place-items-center rounded-lg transition ${recording ? 'bg-rose-400/10 text-rose-300' : 'text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-200'} disabled:opacity-40`}
+                  title={recording ? 'Stop recording' : 'Record a voice message - replies come back spoken'}
+                  aria-label={recording ? 'Stop recording' : 'Record a voice message'}
+                >
+                  {recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}
+                </button>
+
+                {/* Model Multimodal Capability Status Indicator Pill */}
+                {supportsVision ? (
+                  <span
+                    title="Multimodal Vision Active: this model can inspect diagrams, screenshots, and photos."
+                    className="hidden xs:inline-flex items-center gap-1 rounded-md border border-violet-400/25 bg-violet-400/10 px-2 py-0.5 text-[10px] font-medium text-violet-300 select-none"
+                  >
+                    <ImageIcon size={10} />
+                    <span>Vision Ready</span>
+                  </span>
+                ) : (
+                  <span
+                    title="Text & Documents only: image/video uploads are disabled. Switch to a Vision model (like Llama 3.2 Vision) to attach pictures."
+                    className="hidden xs:inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-zinc-400 select-none"
+                  >
+                    <FileText size={10} />
+                    <span>Text &amp; Docs Only</span>
+                  </span>
+                )}
               </div>
               {streaming
                 ? <button type="button" onClick={chat.stopStreaming} className="grid size-8 shrink-0 place-items-center rounded-xl border border-white/[0.1] bg-white/[0.06] text-zinc-200 transition-[background-color,transform] duration-200 ease-out hover:bg-white/[0.1] active:scale-95" aria-label="Stop generating" title="Stop generating"><Square size={13} fill="currentColor" /></button>
@@ -1120,7 +1195,11 @@ function App() {
             </div>
           </form>
           <div className="flex items-center justify-between gap-3 px-2 pt-1.5 sm:pt-2 text-[11px] sm:text-caption text-zinc-600">
-            <span className="truncate">Drop files to upload · Markdown supported</span>
+            <span className="truncate">
+              {supportsVision
+                ? 'Drop files to upload · Multimodal Vision active'
+                : 'Drop documents to upload (.pdf, .docx, .xlsx, .txt) · Text-only model'}
+            </span>
             {(transcribing || uploading) && (
               <span className="max-w-[50%] truncate text-right">{transcribing ? 'Transcribing…' : 'Uploading…'}</span>
             )}

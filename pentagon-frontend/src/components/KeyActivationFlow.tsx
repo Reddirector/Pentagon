@@ -461,7 +461,7 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
     setUserName('Admin')
     setUserEmail('admin@pentagon.chat')
     setUserAvatarColor('#10b981')
-    const fallbackModel = 'nvidia/llama-3.1-nemotron-70b-instruct'
+    const fallbackModel = selectedModel || 'nvidia/llama-3.1-nemotron-70b-instruct'
     localStorage.setItem('pentagon.defaultModel', fallbackModel)
 
     onComplete({
@@ -899,14 +899,27 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
                 <ArrowRight size={16} />
               </button>
 
-              <button
-                type="button"
-                onClick={() => setStep('key_input')}
-                className="flex items-center gap-1 text-micro text-zinc-500 transition hover:text-zinc-300"
-              >
-                <ArrowLeft size={12} />
-                <span>Change API key</span>
-              </button>
+              <div className="flex w-full items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={() => setStep('key_input')}
+                  className="flex items-center gap-1 text-micro text-zinc-500 transition hover:text-zinc-300"
+                >
+                  <ArrowLeft size={12} />
+                  <span>Change API key</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAdminBypass}
+                  className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.08] px-2.5 py-1 text-micro font-medium text-emerald-300 transition hover:border-emerald-400/50 hover:bg-emerald-500/20 hover:text-white"
+                  title="Admin Override: skip registration and enter workspace"
+                >
+                  <Sparkles size={11} className="text-emerald-400" />
+                  <span>Admin: Skip to Chat</span>
+                  <ArrowRight size={11} />
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1112,15 +1125,26 @@ export function KeyActivationFlow({ userId, onComplete }: KeyActivationFlowProps
                 </button>
               </div>
 
-              {/* Back to Model Selection */}
-              <div className="text-center pt-2">
+              {/* Back to Model Selection & Admin Bypass */}
+              <div className="flex items-center justify-between pt-2">
                 <button
                   type="button"
                   onClick={() => setStep('model_select')}
                   className="inline-flex items-center gap-1 text-micro text-zinc-500 transition hover:text-zinc-300"
                 >
                   <ArrowLeft size={12} />
-                  <span>Back to model selection</span>
+                  <span>Back to models</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAdminBypass}
+                  className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.08] px-2.5 py-1 text-micro font-medium text-emerald-300 transition hover:border-emerald-400/50 hover:bg-emerald-500/20 hover:text-white"
+                  title="Admin Override: skip registration and enter workspace"
+                >
+                  <Sparkles size={11} className="text-emerald-400" />
+                  <span>Admin: Skip Login</span>
+                  <ArrowRight size={11} />
                 </button>
               </div>
             </form>

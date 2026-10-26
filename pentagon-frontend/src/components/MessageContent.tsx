@@ -1504,7 +1504,19 @@ function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; 
     return () => {
       cancelled = true
     }
-  }, [file.id, file.data_base64, file.preview_text, fmt, messageContent])
+  }, [
+    file.id,
+    file.data_base64,
+    file.preview_text,
+    file.filename,
+    file.format,
+    file.media_type,
+    file.size,
+    file.pdf_pages,
+    fmt,
+    isImage,
+    messageContent,
+  ])
 
   async function handleDownload() {
     if (downloading) return
