@@ -11,9 +11,12 @@ import {
   LockKeyhole,
   Menu,
   Mic,
+  PanelRightClose,
   Paperclip,
   Plus,
+  Server,
   Settings,
+  Sparkles,
   Square,
   Video,
   X,
@@ -39,8 +42,11 @@ import { AmbientLayer } from './components/AmbientLayer'
 import { AgentActivity } from './components/AgentActivity'
 import { ModelSelector } from './components/ModelSelector'
 import { VisualStudioGallery } from './components/VisualStudioGallery'
+import { ArtifactPanel } from './components/ArtifactPanel'
+import { PromptLibraryModal } from './components/PromptLibraryModal'
+import { McpHubModal } from './components/McpHubModal'
 import { AVATAR_THEMES, getPreferences, setUserAvatarColor, setUserEmail, setUserName, subscribePreferences } from './lib/preferences'
-import type { ChatMessage, Conversation, DocumentInfo, ModelInfo } from './types'
+import type { ArtifactItem, ChatMessage, Conversation, DocumentInfo, ModelInfo } from './types'
 
 const CommandPalette = lazy(() => import('./components/CommandPalette').then((m) => ({ default: m.CommandPalette })))
 const SettingsDialog = lazy(() => import('./components/SettingsDialog').then((m) => ({ default: m.SettingsDialog })))
@@ -157,6 +163,18 @@ function App() {
   })
   const [viewMode, setViewMode] = useState<'chat' | 'workflows'>('chat')
   const [canRetry, setCanRetry] = useState(false)
+  const [activeArtifact, setActiveArtifact] = useState<ArtifactItem | null>(null)
+  const [artifactsHistory, setArtifactsHistory] = useState<ArtifactItem[]>([])
+  const [promptLibraryOpen, setPromptLibraryOpen] = useState(false)
+  const [mcpHubOpen, setMcpHubOpen] = useState(false)
+
+  const handleOpenArtifact = useCallback((art: ArtifactItem) => {
+    setActiveArtifact(art)
+    setArtifactsHistory((prev) => {
+      const exists = prev.some((a) => a.id === art.id)
+      return exists ? prev : [art, ...prev]
+    })
+  }, [])
   useEffect(() => {
     // Silently obtain GPS location in the background for model grounding (without displaying any UI indicator)
     if (typeof window !== 'undefined' && 'geolocation' in navigator) {
@@ -911,6 +929,38 @@ function App() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          {activeArtifact && (
+            <button
+              type="button"
+              onClick={() => setActiveArtifact(null)}
+              aria-label="Close split-screen Artifact Panel"
+              title="Close split-screen Artifact Panel"
+              className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/15 px-2 sm:px-2.5 text-caption font-semibold text-amber-200 transition duration-150 hover:bg-amber-500/25"
+            >
+              <PanelRightClose size={13} className="text-amber-400" />
+              <span className="hidden sm:inline">Artifact</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setPromptLibraryOpen(true)}
+            aria-label="Scaled Prompts Library"
+            title="Browse Scaled Prompts (Claude-Grade templates)"
+            className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-amber-500/20 bg-amber-500/[0.07] px-2 sm:px-2.5 text-caption font-medium text-amber-300 transition duration-150 hover:border-amber-500/40 hover:bg-amber-500/15 hover:text-amber-200"
+          >
+            <Sparkles size={13} className="text-amber-400" />
+            <span className="hidden sm:inline">Prompts</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMcpHubOpen(true)}
+            aria-label="MCP Server Hub"
+            title="Manage connected Model Context Protocol (MCP) servers & tools"
+            className="flex h-9 items-center justify-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-2 sm:px-2.5 text-caption font-medium text-zinc-300 transition duration-150 hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-zinc-100"
+          >
+            <Server size={13} className="text-emerald-400" />
+            <span className="hidden sm:inline">MCP Hub</span>
+          </button>
           <button
             type="button"
             onClick={() => setKeyNeeded(true)}
@@ -951,12 +1001,15 @@ function App() {
           />
         </Suspense>
       ) : (
-      <section
-        id="workspace-panel-Chat"
-        role="region"
-        aria-label="Conversation"
-        className="relative flex min-h-0 flex-1 flex-col"
-      >
+      <div className="flex min-h-0 flex-1 w-full overflow-hidden">
+        <section
+          id="workspace-panel-Chat"
+          role="region"
+          aria-label="Conversation"
+          className={`relative flex min-h-0 flex-col transition-all duration-300 ${
+            activeArtifact ? 'w-full lg:w-1/2 xl:w-[48%] border-r border-white/[0.08]' : 'w-full flex-1'
+          }`}
+        >
         {(!atBottom && messages.length > 0) ? <button type="button" onClick={jumpToLatest} className="panel-enter absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/[0.1] bg-[#0f0f0f]/95 px-3 py-1.5 text-micro text-zinc-300 shadow-[0_10px_30px_rgba(0,0,0,.45)] backdrop-blur transition hover:border-emerald-300/30 hover:text-zinc-100">
           <ChevronDown size={12} className="rotate-180" />Jump to latest
         </button> : null}
@@ -1045,6 +1098,7 @@ function App() {
                 onAnswerQuestion={(turnId, text) => void chat.answerAgentQuestion(turnId, text)}
                 commandTimeoutSeconds={commandSettings.approval_timeout_seconds}
                 deciding={Boolean((message.pendingCommand && deciding === message.pendingCommand.request_id) || (message.turnId && deciding === message.turnId))}
+                onOpenArtifact={handleOpenArtifact}
               />)}
             </div> : (
               <div className="empty-state-enter flex flex-1 flex-col items-center justify-center py-4 sm:py-8 text-center pb-32 sm:pb-40">
@@ -1170,6 +1224,24 @@ function App() {
                 >
                   {recording ? <Square size={12} fill="currentColor" /> : <Mic size={14} />}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setPromptLibraryOpen(true)}
+                  className="flex min-h-8 sm:min-h-9 items-center gap-1.5 rounded-lg px-2 sm:px-2.5 py-1 sm:py-1.5 text-micro text-amber-300/80 transition hover:bg-amber-500/[0.08] hover:text-amber-200"
+                  title="Open Scaled Prompts Library"
+                >
+                  <Sparkles size={13} className="text-amber-400" />
+                  <span className="hidden sm:inline">Prompts</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMcpHubOpen(true)}
+                  className="flex min-h-8 sm:min-h-9 items-center gap-1.5 rounded-lg px-2 sm:px-2.5 py-1 sm:py-1.5 text-micro text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
+                  title="Inspect MCP Tool Servers"
+                >
+                  <Server size={13} className="text-emerald-400" />
+                  <span className="hidden sm:inline">MCP</span>
+                </button>
 
                 {/* Model Multimodal Capability Status Indicator Pill */}
                 {supportsVision ? (
@@ -1207,7 +1279,34 @@ function App() {
             )}
           </div>
         </div>
-      </section>)}
+      </section>
+      {activeArtifact && (
+        <section
+          id="workspace-panel-Artifact"
+          role="region"
+          aria-label="Interactive Artifact Panel"
+          className="hidden lg:flex w-1/2 xl:w-[52%] h-full flex-col min-w-0 z-10"
+        >
+          <ArtifactPanel
+            artifact={activeArtifact}
+            artifactsHistory={artifactsHistory}
+            onSelectArtifact={(item) => setActiveArtifact(item)}
+            onClose={() => setActiveArtifact(null)}
+          />
+        </section>
+      )}
+      </div>)}
+      {/* Mobile / Tablet Artifact Overlay Drawer */}
+      {activeArtifact && (
+        <div className="fixed inset-0 z-40 flex flex-col bg-[#0c0c0f] lg:hidden">
+          <ArtifactPanel
+            artifact={activeArtifact}
+            artifactsHistory={artifactsHistory}
+            onSelectArtifact={(item) => setActiveArtifact(item)}
+            onClose={() => setActiveArtifact(null)}
+          />
+        </div>
+      )}
     </main>
     {paletteOpen ? (
       <Suspense fallback={null}>
@@ -1248,10 +1347,34 @@ function App() {
         />
       </Suspense>
     ) : null}
+    <PromptLibraryModal
+      isOpen={promptLibraryOpen}
+      onClose={() => setPromptLibraryOpen(false)}
+      onSelectPrompt={(promptText) => {
+        ensureDraftThread()
+        setDraft(promptText)
+      }}
+    />
+    <McpHubModal
+      isOpen={mcpHubOpen}
+      onClose={() => setMcpHubOpen(false)}
+    />
   </div>
 }
 
-function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, onDecideCommand, onApproveTools, onDenyTools, onAnswerQuestion, commandTimeoutSeconds = 300, deciding = false }: {
+function MessageRowImpl({
+  message,
+  isStreaming = false,
+  copied = false,
+  onCopy,
+  onDecideCommand,
+  onApproveTools,
+  onDenyTools,
+  onAnswerQuestion,
+  commandTimeoutSeconds = 300,
+  deciding = false,
+  onOpenArtifact,
+}: {
   message: ChatMessage
   isStreaming?: boolean
   copied?: boolean
@@ -1262,6 +1385,7 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
   onAnswerQuestion?: (turnId: string, text: string) => void
   commandTimeoutSeconds?: number
   deciding?: boolean
+  onOpenArtifact?: (artifact: ArtifactItem) => void
 }) {
   const prefs = useSyncExternalStore(subscribePreferences, getPreferences)
   const currentUserName = prefs.userName.trim() || 'You'
@@ -1299,7 +1423,11 @@ function MessageRowImpl({ message, isStreaming = false, copied = false, onCopy, 
         />
         {message.content || (message.generatedFiles && message.generatedFiles.length > 0) ? (
           <div className={isStreaming ? 'streaming-answer' : undefined}>
-            <AssistantDetails message={message} />
+            <AssistantDetails
+              message={message}
+              onOpenArtifact={onOpenArtifact}
+              isStreaming={isStreaming}
+            />
           </div>
         ) : isStreaming ? (
           !message.agentSteps?.length ? (
@@ -1343,7 +1471,8 @@ const MessageRow = memo(MessageRowImpl, (previous, next) =>
   previous.message === next.message &&
   previous.isStreaming === next.isStreaming &&
   previous.copied === next.copied &&
-  previous.deciding === next.deciding
+  previous.deciding === next.deciding &&
+  previous.onOpenArtifact === next.onOpenArtifact
 )
 
 export default App

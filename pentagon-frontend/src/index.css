@@ -15,6 +15,18 @@
   --color-emerald-900: #064e3b;
   --color-emerald-950: #022c22;
 
+  /* Claude Terracotta & Warm Obsidian Palette */
+  --color-terracotta-50: #fffbeb;
+  --color-terracotta-100: #fef3c7;
+  --color-terracotta-200: #fde68a;
+  --color-terracotta-300: #fcd34d;
+  --color-terracotta-400: #fbbf24;
+  --color-terracotta-500: #d97706;
+  --color-terracotta-600: #b45309;
+  --color-terracotta-700: #92400e;
+  --color-terracotta-800: #78350f;
+  --color-terracotta-900: #451a03;
+
   /* Pure black is a harsher backdrop than the old near-black, so the dimmer
      greys are lifted to clear WCAG AA (4.5:1) for small text:
      zinc-500 4.35 -> 6.4, zinc-600 2.72 -> 5.2, zinc-700 2.01 -> 4.6. */

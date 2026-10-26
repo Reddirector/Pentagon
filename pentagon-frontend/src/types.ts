@@ -213,6 +213,16 @@ export type AgentArtifact = {
   bytes?: number
 }
 
+/** Client-side Claude-style interactive artifact workspace item. */
+export type ArtifactItem = {
+  id: string
+  title: string
+  language: string
+  content: string
+  type?: 'code' | 'html' | 'markdown' | 'svg' | 'react'
+  created_at?: string
+}
+
 /** A question the turn asked and is waiting on. */
 export type AgentQuestion = {
   question: string

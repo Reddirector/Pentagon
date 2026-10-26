@@ -41,7 +41,9 @@ import {
 
 import { downloadGeneratedFile, fetchFilePreview, getFileBlobUrl, startLocalhostServer, type FilePreviewData } from '../api'
 import { buildClientPdfBlobUrl } from '../lib/pdfGenerator'
-import type { ChatMessage, ExecutionTrace, GeneratedFileInfo, SourcesUsed, TraceEntry } from '../types'
+import type { ArtifactItem, ChatMessage, ExecutionTrace, GeneratedFileInfo, SourcesUsed, TraceEntry } from '../types'
+import { MermaidViewer } from './MermaidViewer'
+import { ThinkingAccordion } from './ThinkingAccordion'
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
   const byteChars = atob(base64)
@@ -79,22 +81,68 @@ function textFromNode(node: ReactNode): string {
   }).join('')
 }
 
-function CodePanel({ code, language, children }: { code: string; language: string; children: ReactNode }) {
+function CodePanel({
+  code,
+  language,
+  children,
+  onOpenArtifact,
+}: {
+  code: string
+  language: string
+  children: ReactNode
+  onOpenArtifact?: (artifact: ArtifactItem) => void
+}) {
   const [copied, setCopied] = useState(false)
   async function copy() {
     await navigator.clipboard.writeText(code)
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1500)
   }
-  return <div className="group relative my-4 overflow-hidden rounded-xl border border-white/[0.09] bg-[#000000]">
-    <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2 text-micro uppercase tracking-[.16em] text-zinc-500">
-      <span>{language || 'Code'}</span>
-      <button onClick={() => void copy()} className="flex items-center gap-1.5 rounded-md px-2 py-1 normal-case tracking-normal text-zinc-400 transition hover:bg-white/[0.07] hover:text-white" aria-label="Copy code">
-        {copied ? <Check size={12} /> : <Copy size={12} />}{copied ? 'Copied' : 'Copy'}
-      </button>
+
+  const handleOpenArtifact = () => {
+    if (!onOpenArtifact) return
+    const lang = (language || 'text').toLowerCase()
+    const isWeb = ['html', 'htm', 'svg', 'react', 'jsx', 'tsx'].includes(lang)
+    onOpenArtifact({
+      id: `art_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      title: `${language ? language.toUpperCase() : 'Code'} Snippet`,
+      language: language || 'text',
+      content: code,
+      type: isWeb ? 'html' : 'code',
+    })
+  }
+
+  return (
+    <div className="group relative my-4 overflow-hidden rounded-xl border border-white/[0.09] bg-[#0c0c0f] shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
+      <div className="flex items-center justify-between border-b border-white/[0.07] bg-white/[0.02] px-4 py-2 text-micro uppercase tracking-[.16em] text-zinc-500">
+        <span className="font-semibold text-zinc-400">{language || 'Code'}</span>
+        <div className="flex items-center gap-2">
+          {onOpenArtifact && (
+            <button
+              type="button"
+              onClick={handleOpenArtifact}
+              className="flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-micro font-medium normal-case tracking-normal text-amber-300 transition hover:bg-amber-500/25"
+              title="Open in split-screen Artifact Panel"
+            >
+              <Maximize2 size={11} />
+              <span>Artifact</span>
+            </button>
+          )}
+          <button
+            onClick={() => void copy()}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 normal-case tracking-normal text-zinc-400 transition hover:bg-white/[0.07] hover:text-white"
+            aria-label="Copy code"
+          >
+            {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      </div>
+      <pre className="overflow-x-auto px-4 py-3 text-body leading-6 text-[#d4d8df]">
+        <code>{children}</code>
+      </pre>
     </div>
-    <pre className="overflow-x-auto px-4 py-3 text-body leading-6 text-[#d4d8df]"><code>{children}</code></pre>
-  </div>
+  )
 }
 
 function removeCalloutPrefix(node: ReactNode): ReactNode {
@@ -189,88 +237,133 @@ function CustomBlockquote({ children }: { children: ReactNode }) {
   )
 }
 
-const markdownComponents: Components = {
-  h1: ({ children }) => (
-    <h1 className="mb-3 mt-6 first:mt-0 flex items-center gap-2 border-b border-white/[0.08] pb-2 text-xl font-bold tracking-tight text-white">
-      <span className="h-5 w-1 rounded-full bg-emerald-400 shrink-0" />
-      <span>{children}</span>
-    </h1>
-  ),
-  h2: ({ children }) => (
-    <h2 className="mb-2.5 mt-5 first:mt-0 flex items-center gap-2 text-base sm:text-lg font-semibold tracking-tight text-zinc-100">
-      <span className="h-4 w-1 rounded-full bg-emerald-400/80 shrink-0" />
-      <span>{children}</span>
-    </h2>
-  ),
-  h3: ({ children }) => (
-    <h3 className="mb-2 mt-4 first:mt-0 flex items-center gap-1.5 text-sm sm:text-base font-semibold text-zinc-200">
-      <span className="size-1.5 rounded-full bg-emerald-400/60 shrink-0" />
-      <span>{children}</span>
-    </h3>
-  ),
-  p: ({ children }) => <p className="mb-2.5 leading-[1.68] text-[#d4d7dc] last:mb-0 first:mt-0">{children}</p>,
-  ul: ({ children }) => <ul className="mb-3 ml-1 space-y-1.5 pl-3 border-l border-emerald-500/20">{children}</ul>,
-  ol: ({ children }) => <ol className="mb-3 ml-5 list-decimal space-y-1.5 marker:font-semibold marker:text-emerald-400 text-zinc-300 leading-relaxed">{children}</ol>,
-  li: ({ children }) => (
-    <li className="relative pl-3 text-zinc-300 leading-relaxed before:absolute before:left-0 before:top-2.5 before:size-1.5 before:rounded-full before:bg-emerald-400/70">
-      {children}
-    </li>
-  ),
-  blockquote: ({ children }) => <CustomBlockquote>{children}</CustomBlockquote>,
-  a: ({ href, children }) => {
-    const url = safeExternalUrl(href)
-    return url ? (
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className="font-medium text-emerald-300 underline decoration-emerald-300/30 underline-offset-4 hover:text-emerald-200 hover:decoration-emerald-300 transition-colors"
+function parseThinkingAndContent(raw: string): {
+  thinking: string
+  answer: string
+  isThinkingStillOpen: boolean
+} {
+  if (!raw) return { thinking: '', answer: '', isThinkingStillOpen: false }
+  const thinkRegex = /<(?:think|antthinking)>([\s\S]*?)(?:<\/(?:think|antthinking)>|$)/i
+  const match = raw.match(thinkRegex)
+  if (match) {
+    const thinking = match[1].trim()
+    const isThinkingStillOpen = !raw.includes('</think>') && !raw.includes('</antthinking>')
+    const answer = raw.replace(thinkRegex, '').trim()
+    return { thinking, answer, isThinkingStillOpen }
+  }
+  return { thinking: '', answer: raw, isThinkingStillOpen: false }
+}
+
+function createMarkdownComponents(onOpenArtifact?: (artifact: ArtifactItem) => void): Components {
+  return {
+    h1: ({ children }) => (
+      <h1 className="mb-3 mt-6 first:mt-0 flex items-center gap-2 border-b border-white/[0.08] pb-2 text-xl font-bold tracking-tight text-white">
+        <span className="h-5 w-1 rounded-full bg-emerald-400 shrink-0" />
+        <span>{children}</span>
+      </h1>
+    ),
+    h2: ({ children }) => (
+      <h2 className="mb-2.5 mt-5 first:mt-0 flex items-center gap-2 text-base sm:text-lg font-semibold tracking-tight text-zinc-100">
+        <span className="h-4 w-1 rounded-full bg-emerald-400/80 shrink-0" />
+        <span>{children}</span>
+      </h2>
+    ),
+    h3: ({ children }) => (
+      <h3 className="mb-2 mt-4 first:mt-0 flex items-center gap-1.5 text-sm sm:text-base font-semibold text-zinc-200">
+        <span className="size-1.5 rounded-full bg-emerald-400/60 shrink-0" />
+        <span>{children}</span>
+      </h3>
+    ),
+    p: ({ children }) => <p className="mb-2.5 leading-[1.68] text-[#d4d7dc] last:mb-0 first:mt-0">{children}</p>,
+    ul: ({ children }) => <ul className="mb-3 ml-1 space-y-1.5 pl-3 border-l border-emerald-500/20">{children}</ul>,
+    ol: ({ children }) => <ol className="mb-3 ml-5 list-decimal space-y-1.5 marker:font-semibold marker:text-emerald-400 text-zinc-300 leading-relaxed">{children}</ol>,
+    li: ({ children }) => (
+      <li className="relative pl-3 text-zinc-300 leading-relaxed before:absolute before:left-0 before:top-2.5 before:size-1.5 before:rounded-full before:bg-emerald-400/70">
+        {children}
+      </li>
+    ),
+    blockquote: ({ children }) => <CustomBlockquote>{children}</CustomBlockquote>,
+    a: ({ href, children }) => {
+      const url = safeExternalUrl(href)
+      return url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-emerald-300 underline decoration-emerald-300/30 underline-offset-4 hover:text-emerald-200 hover:decoration-emerald-300 transition-colors"
+        >
+          {children}
+          <ExternalLink className="ml-1 inline" size={11} />
+        </a>
+      ) : (
+        <span>{children}</span>
+      )
+    },
+    code: ({ className, children }) => (
+      <code
+        className={
+          className
+            ? 'font-mono text-[.92em] text-emerald-200'
+            : 'rounded-md border border-white/[0.08] bg-white/[0.06] px-1.5 py-0.5 font-mono text-[.88em] text-emerald-200'
+        }
       >
         {children}
-        <ExternalLink className="ml-1 inline" size={11} />
-      </a>
-    ) : (
-      <span>{children}</span>
-    )
-  },
-  code: ({ className, children }) => (
-    <code
-      className={
-        className
-          ? 'font-mono text-[.92em] text-emerald-200'
-          : 'rounded-md border border-white/[0.08] bg-white/[0.06] px-1.5 py-0.5 font-mono text-[.88em] text-emerald-200'
+      </code>
+    ),
+    pre: ({ children }) => {
+      const first = Children.toArray(children).find(isValidElement)
+      const props = first && isValidElement<{ className?: string; children?: ReactNode }>(first) ? first.props : undefined
+      const language = props?.className?.replace(/^language-/, '') || ''
+      const source = textFromNode(children).replace(/\n$/, '')
+
+      if (language.toLowerCase() === 'mermaid') {
+        return (
+          <MermaidViewer
+            chart={source}
+            onOpenArtifact={
+              onOpenArtifact
+                ? () => {
+                    onOpenArtifact({
+                      id: `mermaid_${Date.now()}`,
+                      title: 'Mermaid Diagram',
+                      language: 'svg',
+                      content: source,
+                      type: 'svg',
+                    })
+                  }
+                : undefined
+            }
+          />
+        )
       }
-    >
-      {children}
-    </code>
-  ),
-  pre: ({ children }) => {
-    const first = Children.toArray(children).find(isValidElement)
-    const props = first && isValidElement<{ className?: string; children?: ReactNode }>(first) ? first.props : undefined
-    const language = props?.className?.replace(/^language-/, '') || ''
-    const source = textFromNode(children).replace(/\n$/, '')
-    return <CodePanel code={source} language={language}>{children}</CodePanel>
-  },
-  table: ({ children }) => (
-    <div className="my-3.5 overflow-x-auto rounded-xl border border-white/[0.1] bg-[#0c0d10] shadow-sm">
-      <table className="w-full border-collapse text-left text-small">{children}</table>
-    </div>
-  ),
-  thead: ({ children }) => (
-    <thead className="border-b border-white/[0.1] bg-white/[0.04] text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
-      {children}
-    </thead>
-  ),
-  tbody: ({ children }) => <tbody className="divide-y divide-white/[0.04]">{children}</tbody>,
-  tr: ({ children }) => (
-    <tr className="odd:bg-transparent even:bg-white/[0.015] hover:bg-white/[0.03] transition-colors">
-      {children}
-    </tr>
-  ),
-  th: ({ children }) => <th className="px-3.5 py-2 font-semibold text-zinc-200 whitespace-nowrap">{children}</th>,
-  td: ({ children }) => <td className="px-3.5 py-2 text-zinc-300 text-small leading-normal">{children}</td>,
-  hr: () => <hr className="my-5 border-white/[0.08]" />,
-  img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} />,
+
+      return (
+        <CodePanel code={source} language={language} onOpenArtifact={onOpenArtifact}>
+          {children}
+        </CodePanel>
+      )
+    },
+    table: ({ children }) => (
+      <div className="my-3.5 overflow-x-auto rounded-xl border border-white/[0.1] bg-[#0c0d10] shadow-sm">
+        <table className="w-full border-collapse text-left text-small">{children}</table>
+      </div>
+    ),
+    thead: ({ children }) => (
+      <thead className="border-b border-white/[0.1] bg-white/[0.04] text-[11px] font-semibold uppercase tracking-wider text-zinc-300">
+        {children}
+      </thead>
+    ),
+    tbody: ({ children }) => <tbody className="divide-y divide-white/[0.04]">{children}</tbody>,
+    tr: ({ children }) => (
+      <tr className="odd:bg-transparent even:bg-white/[0.015] hover:bg-white/[0.03] transition-colors">
+        {children}
+      </tr>
+    ),
+    th: ({ children }) => <th className="px-3.5 py-2 font-semibold text-zinc-200 whitespace-nowrap">{children}</th>,
+    td: ({ children }) => <td className="px-3.5 py-2 text-zinc-300 text-small leading-normal">{children}</td>,
+    hr: () => <hr className="my-5 border-white/[0.08]" />,
+    img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} />,
+  }
 }
 
 function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
@@ -294,8 +387,6 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
   )
 }
 
-
-
 function safeExternalUrl(value: string | undefined): string | null {
   if (!value) return null
   try {
@@ -304,13 +395,39 @@ function safeExternalUrl(value: string | undefined): string | null {
   } catch { return null }
 }
 
-export function MarkdownAnswer({ content }: { content: string }) {
-  const sanitized = useMemo(() => sanitizeMarkdownContent(content), [content])
+export function MarkdownAnswer({
+  content,
+  onOpenArtifact,
+  isStreaming,
+}: {
+  content: string
+  onOpenArtifact?: (artifact: ArtifactItem) => void
+  isStreaming?: boolean
+}) {
+  const { thinking, answer, isThinkingStillOpen } = useMemo(
+    () => parseThinkingAndContent(content),
+    [content]
+  )
+  const sanitized = useMemo(() => sanitizeMarkdownContent(answer), [answer])
+  const components = useMemo(() => createMarkdownComponents(onOpenArtifact), [onOpenArtifact])
+
   return (
     <div className="markdown-content min-w-0 break-words text-title leading-[1.68] text-[#d8d9dc]">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={markdownComponents}>
-        {sanitized}
-      </ReactMarkdown>
+      {thinking ? (
+        <ThinkingAccordion
+          thinking={thinking}
+          isStreaming={isStreaming && isThinkingStillOpen}
+        />
+      ) : null}
+      {sanitized ? (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeKatex]}
+          components={components}
+        >
+          {sanitized}
+        </ReactMarkdown>
+      ) : null}
     </div>
   )
 }
@@ -1375,7 +1492,15 @@ function ImageFilePreview({
   )
 }
 
-function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; messageContent?: string }) {
+function GeneratedFileCard({
+  file,
+  messageContent,
+  onOpenArtifact,
+}: {
+  file: GeneratedFileInfo
+  messageContent?: string
+  onOpenArtifact?: (artifact: ArtifactItem) => void
+}) {
   const [downloading, setDownloading] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
@@ -1668,6 +1793,25 @@ function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; 
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenArtifact && (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenArtifact({
+                    id: file.id,
+                    title: file.filename,
+                    language: file.format || 'text',
+                    content: previewData?.text || messageContent || '',
+                    type: ['html', 'htm', 'svg'].includes((file.format || '').toLowerCase()) ? 'html' : 'code',
+                  })
+                }}
+                className="flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-micro font-medium text-amber-300 transition hover:bg-amber-500/20"
+                title="Open in split-screen Artifact Panel"
+              >
+                <Maximize2 size={12} />
+                <span>Artifact</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={togglePreview}
@@ -1775,7 +1919,15 @@ function GeneratedFileCard({ file, messageContent }: { file: GeneratedFileInfo; 
   )
 }
 
-function GeneratedFilesList({ files, messageContent }: { files: GeneratedFileInfo[]; messageContent?: string }) {
+function GeneratedFilesList({
+  files,
+  messageContent,
+  onOpenArtifact,
+}: {
+  files: GeneratedFileInfo[]
+  messageContent?: string
+  onOpenArtifact?: (artifact: ArtifactItem) => void
+}) {
   if (!files || files.length === 0) return null
   return (
     <div className="mt-4 space-y-2.5">
@@ -1785,24 +1937,55 @@ function GeneratedFilesList({ files, messageContent }: { files: GeneratedFileInf
       </div>
       <div className="grid gap-2.5">
         {files.map((file) => (
-          <GeneratedFileCard key={file.id} file={file} messageContent={messageContent} />
+          <GeneratedFileCard
+            key={file.id}
+            file={file}
+            messageContent={messageContent}
+            onOpenArtifact={onOpenArtifact}
+          />
         ))}
       </div>
     </div>
   )
 }
 
-
-
-export function AssistantDetails({ message }: { message: ChatMessage }) {
-  return <>
-    {message.execution_trace && <TracePanel trace={message.execution_trace} />}
-    {message.content && <MarkdownAnswer content={message.content} />}
-    {message.generatedFiles && message.generatedFiles.length > 0 && (
-      <GeneratedFilesList files={message.generatedFiles} messageContent={message.content} />
-    )}
-    {message.sources_used && <SourcesButton sources={message.sources_used} />}
-    {message.audioUrl && <audio className="panel-enter mt-4 h-9 w-full max-w-sm" controls preload="metadata" src={message.audioUrl} aria-label="Assistant audio reply" />}
-  </>
+export function AssistantDetails({
+  message,
+  onOpenArtifact,
+  isStreaming,
+}: {
+  message: ChatMessage
+  onOpenArtifact?: (artifact: ArtifactItem) => void
+  isStreaming?: boolean
+}) {
+  return (
+    <>
+      {message.execution_trace && <TracePanel trace={message.execution_trace} />}
+      {message.content && (
+        <MarkdownAnswer
+          content={message.content}
+          onOpenArtifact={onOpenArtifact}
+          isStreaming={isStreaming}
+        />
+      )}
+      {message.generatedFiles && message.generatedFiles.length > 0 && (
+        <GeneratedFilesList
+          files={message.generatedFiles}
+          messageContent={message.content}
+          onOpenArtifact={onOpenArtifact}
+        />
+      )}
+      {message.sources_used && <SourcesButton sources={message.sources_used} />}
+      {message.audioUrl && (
+        <audio
+          className="panel-enter mt-4 h-9 w-full max-w-sm"
+          controls
+          preload="metadata"
+          src={message.audioUrl}
+          aria-label="Assistant audio reply"
+        />
+      )}
+    </>
+  )
 }
 
