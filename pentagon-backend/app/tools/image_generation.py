@@ -164,10 +164,18 @@ async def run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
     try:
         with db_session.SessionLocal() as db:
+            from app.db.models import User, Conversation
+            if not db.get(User, ctx.user_id):
+                db.add(User(id=ctx.user_id))
+                db.flush()
+            if not db.get(Conversation, ctx.conversation_id):
+                db.add(Conversation(id=ctx.conversation_id, user_id=ctx.user_id, title=prompt[:100] or "Generated Images"))
+                db.flush()
             db.add(record)
             db.commit()
             payload = _serialize(record)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to save image record (%s): %s", type(exc).__name__, exc)
         try:
             await storage.delete(key)
         except Exception:

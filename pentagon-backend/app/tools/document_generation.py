@@ -186,10 +186,18 @@ async def run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     )
     try:
         with db_session.SessionLocal() as db:
+            from app.db.models import User, Conversation
+            if not db.get(User, ctx.user_id):
+                db.add(User(id=ctx.user_id))
+                db.flush()
+            if not db.get(Conversation, ctx.conversation_id):
+                db.add(Conversation(id=ctx.conversation_id, user_id=ctx.user_id, title=title or "Generated Deliverables"))
+                db.flush()
             db.add(record)
             db.commit()
             payload = _serialize(record)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to save GeneratedFile record (%s): %s", type(exc).__name__, exc)
         # The row and the object must appear together or not at all: an
         # orphaned object would be invisible (no row to list) yet still occupy
         # the bucket, and an orphaned row would 404 on download.
@@ -202,6 +210,8 @@ async def run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     if isinstance(ctx.shared, dict):
         ctx.shared["generated_file"] = payload
     res_payload = dict(payload)
+    res_payload["title"] = title
+    res_payload["content"] = content if isinstance(content, str) else json.dumps(content, indent=2)
     res_payload["message"] = (
         f"The {format.upper()} deliverable '{filename}' was successfully compiled and delivered to the user with an interactive preview. "
         "Only if the user prompt explicitly requested an additional distinct deliverable format (such as both a spreadsheet AND a presentation deck), invoke document_generation for that format. Otherwise, STOP calling tools and proceed immediately to present your comprehensive executive briefing in chat now with comparison tables, callouts, and key takeaways."

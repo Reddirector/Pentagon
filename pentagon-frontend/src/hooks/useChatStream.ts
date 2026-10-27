@@ -13,7 +13,7 @@ import type {
   TranscriptInfo,
   Verification,
 } from './types/app'
-import type { DocumentInfo } from '../types'
+import type { DocumentInfo, ArtifactItem } from '../types'
 import { getClientEnvironmentContext } from '../lib/deviceContext'
 
 /** How often streamed text is committed to the message list. Each commit re-parses
@@ -69,6 +69,7 @@ export interface UseChatStreamOptions {
   documents?: DocumentInfo[]
   onAudioUrl: (url: string) => void
   onApprovalResolved?: (conversationId: string) => void
+  onOpenArtifact?: (artifact: ArtifactItem) => void
 }
 
 /**
@@ -567,16 +568,30 @@ export function useChatStream(options: UseChatStreamOptions) {
           },
         }))
       } else if (eventName === 'artifact') {
+        const id = String(payload.id ?? payload.name ?? 'artifact')
+        const content = typeof payload.content === 'string' ? payload.content : ''
+        const title = String(payload.title ?? payload.name ?? 'Deliverable')
+        const language = String(payload.language ?? 'markdown')
+        const artifactType = (payload.type as ArtifactItem['type']) || (['html', 'htm'].includes(language.toLowerCase()) ? 'html' : 'markdown')
+
+        if (content && options.onOpenArtifact) {
+          options.onOpenArtifact({
+            id,
+            title,
+            language,
+            content,
+            type: artifactType,
+          })
+        }
         mutate((item) => {
-          const id = String(payload.id ?? payload.name ?? 'artifact')
           if ((item.agentArtifacts ?? []).some((entry) => entry.id === id)) return item
           return {
             ...item,
             agentArtifacts: [...(item.agentArtifacts ?? []), {
               id,
-              name: String(payload.name ?? id),
+              name: title,
               path: typeof payload.path === 'string' ? payload.path : undefined,
-              bytes: typeof payload.bytes === 'number' ? payload.bytes : undefined,
+              bytes: typeof payload.bytes === 'number' ? payload.bytes : (content ? content.length : undefined),
             }],
           }
         })

@@ -164,6 +164,7 @@ class _RateLimitedRunnable:
             max_tokens=settings.nvidia_max_tokens,
             max_retries=2,
             streaming=True,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )
         if self._bound_tools:
             b_args, b_kwargs = self._bound_tools
@@ -334,6 +335,7 @@ def make_chat_model(api_key: str, model: str) -> _RateLimitedRunnable:
         max_tokens=settings.nvidia_max_tokens,
         max_retries=2,
         streaming=True,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
     return _RateLimitedRunnable(runnable, api_key=key, model_name=model_name)
 

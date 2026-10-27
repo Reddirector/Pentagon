@@ -947,6 +947,7 @@ async def _stream_turn(
     first_token_ms: float | None = None
 
     upstream_stalled = False
+    in_thinking = False
     for attempt in range(_MAX_RATE_LIMIT_RETRIES + 1):
         emitted_token = False
         try:
@@ -964,8 +965,25 @@ async def _stream_turn(
                     continue
                 if chunk["type"] == "messages":
                     message_chunk, _metadata = chunk["data"]
+                    reasoning_chunk = ""
+                    if hasattr(message_chunk, "additional_kwargs") and isinstance(message_chunk.additional_kwargs, dict):
+                        reasoning_chunk = str(message_chunk.additional_kwargs.get("reasoning_content") or "")
+
+                    if reasoning_chunk:
+                        if not in_thinking:
+                            in_thinking = True
+                            emitted_token = True
+                            answer += "<think>\n"
+                            yield _sse("token", {"content": "<think>\n"})
+                        answer += reasoning_chunk
+                        yield _sse("token", {"content": reasoning_chunk})
+
                     token_text = _content_as_text(message_chunk.content)
                     if token_text:
+                        if in_thinking:
+                            in_thinking = False
+                            answer += "\n</think>\n\n"
+                            yield _sse("token", {"content": "\n</think>\n\n"})
                         if first_token_ms is None:
                             first_token_ms = round(
                                 (time.perf_counter() - (llm_started or graph_started)) * 1000,
@@ -983,6 +1001,10 @@ async def _stream_turn(
                     ):
                         llm_started = time.perf_counter()
 
+            if in_thinking:
+                in_thinking = False
+                answer += "\n</think>\n\n"
+                yield _sse("token", {"content": "\n</think>\n\n"})
             break
         except _UpstreamStalled:
             upstream_stalled = True
@@ -1091,15 +1113,34 @@ async def _stream_turn(
         yield _sse("error", {"message": _STALL_MESSAGE})
         return
 
-    if not answer and final_state.get("generated_file"):
+    if final_state.get("generated_file"):
         gen = final_state.get("generated_file")
         if isinstance(gen, dict) and gen.get("filename"):
-            answer = (
-                f"I have compiled your document **{gen.get('filename')}** ({gen.get('format', '').upper()}). "
-                "You can preview it directly in the viewer below or download it."
-            )
-            emitted_token = True
-            yield _sse("token", {"content": answer})
+            yield _sse("generated_file", gen)
+            doc_content = gen.get("content") or ""
+            doc_title = gen.get("title") or gen.get("filename")
+            doc_format = str(gen.get("format", "markdown")).lower()
+            artifact_type = "html" if doc_format in ("html", "htm") else ("svg" if doc_format == "svg" else "markdown")
+            yield _sse("artifact", {
+                "id": gen.get("id"),
+                "name": gen.get("filename"),
+                "title": doc_title,
+                "language": doc_format,
+                "content": doc_content,
+                "type": artifact_type,
+            })
+            if (not answer or len(answer.strip()) < 180) and doc_content:
+                if doc_format in ("pdf", "docx", "markdown", "txt") and isinstance(doc_content, str):
+                    answer = f"# {doc_title}\n\n{doc_content}\n\n---\n*Deliverable compiled as [{gen.get('filename')}](/api/files/{gen.get('id')}/download).*"
+                    emitted_token = True
+                    yield _sse("token", {"content": answer})
+                elif not answer:
+                    answer = (
+                        f"I have compiled your document **{gen.get('filename')}** ({gen.get('format', '').upper()}). "
+                        "You can preview it directly in the split-screen Artifact panel or download it."
+                    )
+                    emitted_token = True
+                    yield _sse("token", {"content": answer})
 
     if answer and not emitted_token:
         # Some compatible endpoints return one complete message even when

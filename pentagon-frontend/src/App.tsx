@@ -292,6 +292,7 @@ function App() {
     onApprovalResolved: (id) => {
       void loadThreadRef.current(id)
     },
+    onOpenArtifact: handleOpenArtifact,
   })
 
   const activeId = active?.id || null
