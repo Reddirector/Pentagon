@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     # Reasoning models on NVIDIA NIM can take 2-3 minutes before their first
     # output token; 30s killed every app request (verified live, Oct 2026).
     nvidia_timeout_seconds: float = 300.0
+    # Generous completion window so long-form multi-page documents and deep analyses are never truncated.
+    nvidia_max_tokens: int = 4096
     tavily_api_key: SecretStr | None = None
     chroma_persist_directory: str = "./chroma_data"
     image_upload_directory: str = "./image_uploads"

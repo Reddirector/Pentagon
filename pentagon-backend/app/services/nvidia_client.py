@@ -161,6 +161,7 @@ class _RateLimitedRunnable:
             base_url=settings.nvidia_base_url,
             timeout=settings.nvidia_timeout_seconds,
             stream_chunk_timeout=settings.nvidia_timeout_seconds,
+            max_tokens=settings.nvidia_max_tokens,
             max_retries=2,
             streaming=True,
         )
@@ -330,6 +331,7 @@ def make_chat_model(api_key: str, model: str) -> _RateLimitedRunnable:
         base_url=settings.nvidia_base_url,
         timeout=settings.nvidia_timeout_seconds,
         stream_chunk_timeout=settings.nvidia_timeout_seconds,
+        max_tokens=settings.nvidia_max_tokens,
         max_retries=2,
         streaming=True,
     )
@@ -361,7 +363,7 @@ async def complete_vision_request(
                     }
                 ],
                 "temperature": 0.2,
-                "max_tokens": 1024,
+                "max_tokens": settings.nvidia_max_tokens,
                 "stream": False,
             },
         )
@@ -395,7 +397,7 @@ async def complete_video_request(
                 "model": model,
                 "messages": [{"role": "user", "content": content}],
                 "temperature": 0.2,
-                "max_tokens": 1024,
+                "max_tokens": settings.nvidia_max_tokens,
                 "stream": False,
                 "chat_template_kwargs": {"enable_thinking": False},
             },

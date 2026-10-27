@@ -194,12 +194,14 @@ _TRIVIAL_NON_SEARCH = {
 
 _QUERY_PREFIX_STRIP = re.compile(
     r"^(?:can\s+you\s+|could\s+you\s+|would\s+you\s+|please\s+|just\s+)*"
-    r"(?:tell\s+me\s+(?:about|regarding)|explain(?:\s+to\s+me)?|describe|write\s+(?:a\s+)?(?:report|doc|document|summary|analysis|paper)\s+(?:on|about|regarding)|create\s+(?:a\s+)?(?:report|doc|document|presentation|sheet|table)\s+(?:on|about|regarding)|give\s+me\s+(?:a\s+)?(?:summary|overview|breakdown)\s+(?:of|on|about)|what\s+is|what\s+are|how\s+to|search\s+(?:for|about|the\s+web\s+for)?)\s+",
+    r"(?:tell\s+me\s+(?:about|regarding)|explain(?:\s+to\s+me)?|describe|"
+    r"(?:write|create|generate|draft|make|build|provide|produce)\s+(?:a\s+)?(?:\w+[\s-]page\s+|\d+[\s-]page\s+)?(?:comprehensive\s+|detailed\s+)?(?:report|doc|document|summary|analysis|paper|guide|article|essay|biography|presentation|sheet|table)\s+(?:on|about|regarding)|"
+    r"give\s+me\s+(?:a\s+)?(?:summary|overview|breakdown)\s+(?:of|on|about)|what\s+is|what\s+are|how\s+to|search\s+(?:for|about|the\s+web\s+for)?)\s+",
     re.IGNORECASE,
 )
 
 _QUERY_POSTFIX_STRIP = re.compile(
-    r"\b(?:in\s+pdf(?:\s+format)?|as\s+(?:a\s+)?pdf|in\s+docx?|as\s+(?:a\s+)?word(?:\s+doc(?:ument)?)?|in\s+pptx?|in\s+xlsx?|as\s+a\s+spreadsheet|in\s+\d+\s+pages?|with\s+(?:a\s+)?table)\b.*$",
+    r"\b(?:with\s+(?:real\s+)?(?:photos?|pictures?|images?)|with\s+(?:a\s+)?table|in\s+pdf(?:\s+format)?|as\s+(?:a\s+)?pdf|in\s+docx?|as\s+(?:a\s+)?word(?:\s+doc(?:ument)?)?|in\s+pptx?|in\s+xlsx?|as\s+a\s+spreadsheet|in\s+\d+\s+pages?|in\s+\w+\s+pages?)\b.*$",
     re.IGNORECASE,
 )
 
@@ -240,12 +242,12 @@ def _web_context(
     if image_results:
         img_lines = [
             f"- ![{img.get('title', 'Photo')}]({img['image_url']})"
-            for img in image_results[:4]
+            for img in image_results[:6]
             if img.get("image_url")
         ]
         if img_lines:
             parts.append(
-                "VERIFIED REAL IMAGES FROM THE WEB (Use these real URLs directly when visual media or document illustrations are appropriate. DO NOT generate synthetic images unless the user explicitly commanded AI generation):\n"
+                "VERIFIED REAL IMAGES FROM THE WEB (You MUST embed these real photo markdown URLs directly in your document or response sections whenever photos, visual media, or entity/celebrity illustrations are requested):\n"
                 + "\n".join(img_lines)
             )
     return "\n\n".join(parts)
@@ -266,39 +268,43 @@ _ACTION_GUIDANCE = (
     "inventing a workaround or claiming you opened it. "
     "When the user asks you to write, create, generate, draft, or export a document, report, "
     "spreadsheet, presentation, PDF, Word file (docx), Excel sheet (xlsx), PowerPoint (pptx), "
-    "HTML, or CSV, ALWAYS call the document_generation tool to generate the downloadable file. "
-    "Provide thorough, high-quality content (detailed sections, Markdown tables, bullet points, and headers). "
-    "After calling document_generation, present an executive summary in your chat response highlighting key sections and takeaways."
+    "HTML, or CSV, ALWAYS invoke the document_generation tool to generate the downloadable file, "
+    "while ALSO rendering the full, comprehensive, high-quality document directly in your visible chat response."
 )
 
 _STRUCTURED_OUTPUT_GUIDANCE = (
-    "OUTPUT STRUCTURE, CONCISENESS & FORMATTING RULES:\n"
-    "1. Zero Conversational Fluff: Never begin with pleasantries, conversational preambles, or filler phrases "
-    "(e.g., 'Sure!', 'Certainly!', 'Here is the breakdown', 'I would be happy to help'). "
-    "Never end with conversational sign-offs (e.g., 'I hope this helps!', 'Let me know if you need anything else'). "
-    "Open immediately with the direct conclusion, bottom line, or core insight.\n"
-    "2. Maximum Conciseness & Information Density: Express ideas with punchy, high-signal phrasing. "
-    "Eliminate redundant filler words and repetitive explanations. Keep paragraphs short (1-3 sentences max).\n"
-    "3. Visual Hierarchy: Structure answers logically using clean Markdown headings (## for major sections, ### for subsections). "
-    "Never produce dense, unbroken walls of narrative text.\n"
-    "4. Tables for Comparative & Structured Data: When presenting comparisons, options, schedules, metrics, or parameters, "
-    "ALWAYS use Markdown pipe tables (| ... |). Tables provide vastly superior scannability compared to prose.\n"
-    "5. Scannable Bullets with Bold Lead-Ins: Format lists using bold lead-ins (- **Key Topic**: Crisp concise explanation) "
-    "for effortless scanning.\n"
-    "6. Callout Blocks: Highlight critical takeaways, tips, caveats, or alerts using GitHub-style callouts "
-    "(> [!NOTE], > [!TIP], > [!WARNING], > [!IMPORTANT]).\n"
-    "7. Real Images vs. AI Image Generation: ALWAYS prioritize and use REAL images (from web search results or verified public URLs) "
-    "for real-world entities, people, locations, events, hardware, and products. "
-    "ONLY invoke the `image_generation` tool when the user EXPLICITLY COMMANDS an image to be generated, drawn, painted, or synthesized "
-    "(e.g. 'generate an image of...', 'draw a picture of...', 'create an AI illustration of...'). "
-    "Never generate synthetic AI images for real-world factual topics when real web images are available.\n"
-    "8. Document Generation & Images: When asked to generate or draft documents, reports, presentations, or spreadsheets, "
-    "ALWAYS call `document_generation` with comprehensive, high-quality content. When embedding images in documents, "
-    "use real image URLs (![Caption](https://...)) from web search results whenever possible. Only use ![Caption](generate:prompt) "
-    "when the user explicitly commanded generated/synthetic artwork. "
-    "In your chat reply, DO NOT duplicate the entire document body; present a crisp 3-4 bullet executive summary highlighting key findings, structure, and takeaways.\n"
-    "9. Actionable Conclusion: Conclude complex analyses or guides with a concise 'Next Steps' or 'Key Takeaways' section.\n"
-    "10. Contemporary Grounding: Emphasize current trends, 2026 advancements, and state-of-the-art standards based on real-time internet intelligence."
+    "CLAUDE-STYLE OUTPUT DEPTH, GUIDANCE & FORMATTING EXCELLENCE:\n"
+    "1. Substantive, Generous Depth & Proportional Length (Like Claude):\n"
+    "   - Provide comprehensive, thorough, and well-developed responses that genuinely explore topics in depth.\n"
+    "   - When asked to generate a document (e.g. 'two-page doc on AI', 'two-page doc on [celebrity] with photos', 'report', 'guide', 'essay', or 'deep dive'), "
+    "produce a COMPLETE, full-length document right in your response (for a two-page doc, approximately 800 to 1,500 words across multiple rich sections). "
+    "NEVER truncate the document to a brief 3-4 bullet summary or a single lonely table.\n"
+    "   - Even when no length or page count is specified, give a substantial, intelligent, and well-rounded answer with proper guidance, background context, "
+    "nuanced explanations, practical examples, and actionable takeaways. Avoid artificial brevity or shallow one-liner summaries.\n"
+    "2. Zero Conversational Fluff & Direct Start:\n"
+    "   - Do not waste words on generic pleasantries or filler openings (e.g., 'Sure!', 'Certainly!', 'I would be happy to help with that'). "
+    "Begin directly with the authoritative title, executive insight, or core answer.\n"
+    "3. Well-Developed Paragraphs & Prose Quality:\n"
+    "   - Write rich, articulate, well-crafted prose with full multi-sentence paragraphs that thoroughly explain mechanisms, history, arguments, and implications. "
+    "Do not chop thoughts into artificial 1-2 sentence fragments.\n"
+    "4. Clean Visual Hierarchy & Document Architecture:\n"
+    "   - Organize long-form content with clear markdown headings (`# Title`, `## Section`, `### Subsection`).\n"
+    "   - Use bold lead-in bullet points (`- **Concept**: Detailed explanation...`) when listing features, timelines, or principles.\n"
+    "   - Use GitHub-style callouts (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`) to accentuate key insights, architectural caveats, or quotes.\n"
+    "5. Balanced Data Tables (Complementary, Not Sole Content):\n"
+    "   - Use Markdown pipe tables (`| ... |`) to present structured comparisons, timelines, metrics, or specifications as a complementary synthesis within your sections. "
+    "A table should NEVER be the entire response when a document, analysis, or explanation is requested.\n"
+    "6. Real Photos & Media Integration:\n"
+    "   - When the user asks for photos, pictures, or visuals (e.g. of a celebrity, historical event, technology, or place), "
+    "YOU MUST actively embed verified real images from the web context directly into the relevant sections using standard markdown "
+    "`![Descriptive Caption](image_url)`.\n"
+    "   - Integrate images elegantly alongside the biographical, career, technical, or analytical narrative.\n"
+    "7. Full Document Deliverables:\n"
+    "   - When compiling a downloadable file via `document_generation` (PDF, DOCX, HTML, PPTX, XLSX), "
+    "also provide the full, rich, beautifully formatted document in your visible chat output (or interactive HTML preview), "
+    "so the user can read the complete work immediately without needing to open external software.\n"
+    "8. Actionable Guidance & Contemporary Grounding:\n"
+    "   - Conclude deep analyses, guides, and strategic documents with actionable takeaways, practical guidance, and modern 2026 perspectives."
 )
 
 _LATEST_TRENDS_GUIDANCE = (
@@ -471,7 +477,7 @@ def build_chat_graph(
             is_custom_images = (search_images is not _DEFAULT_SEARCH_IMAGES)
             if not is_custom_search or is_custom_images:
                 try:
-                    image_results = await search_images(query, max_results=4)
+                    image_results = await search_images(query, max_results=6)
                 except Exception as exc:
                     logger.debug("Image search error (%s): %s", query, exc)
             return {
