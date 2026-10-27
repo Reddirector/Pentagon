@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -46,9 +46,97 @@ ACTIVE_VERIFIED_MODELS: list[dict] = [
         "supports_docs": True,
     },
     {
+        "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+        "object": "model",
+        "owned_by": "nvidia",
+        "context_window": 131072,
+        "supports_vision": True,
+        "supports_docs": True,
+    },
+    {
+        "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "object": "model",
+        "owned_by": "nvidia",
+        "context_window": 131072,
+        "supports_vision": True,
+        "supports_docs": True,
+    },
+    {
         "id": "minimaxai/minimax-m3.1-flash",
         "object": "model",
         "owned_by": "minimaxai",
+        "context_window": 131072,
+        "supports_vision": False,
+        "supports_docs": True,
+    },
+    {
+        "id": "meta/llama-3.2-90b-vision-instruct",
+        "object": "model",
+        "owned_by": "meta",
+        "context_window": 131072,
+        "supports_vision": True,
+        "supports_docs": True,
+    },
+    {
+        "id": "stepfun-ai/step-5-preview",
+        "object": "model",
+        "owned_by": "stepfun-ai",
+        "context_window": 131072,
+        "supports_vision": False,
+        "supports_docs": True,
+    },
+    {
+        "id": "z-ai/glm-5.3",
+        "object": "model",
+        "owned_by": "z-ai",
+        "context_window": 131072,
+        "supports_vision": False,
+        "supports_docs": True,
+    },
+    {
+        "id": "z-ai/glm-5.3-flash",
+        "object": "model",
+        "owned_by": "z-ai",
+        "context_window": 131072,
+        "supports_vision": False,
+        "supports_docs": True,
+    },
+    {
+        "id": "openai/gpt-oss-20b",
+        "object": "model",
+        "owned_by": "openai",
+        "context_window": 131072,
+        "supports_vision": False,
+        "supports_docs": True,
+    },
+    {
+        "id": "deepseek-ai/deepseek-v4.1-flash",
+        "object": "model",
+        "owned_by": "deepseek-ai",
+        "context_window": 131072,
+        "supports_vision": False,
+        "supports_docs": True,
+    },
+    {
+        "id": "mistralai/mistral-large-2-instruct",
+        "object": "model",
+        "owned_by": "mistralai",
+        "context_window": 131072,
+        "supports_vision": False,
+        "supports_docs": True,
+    },
+    {
+        "id": "google/gemma-3-12b-it",
+        "object": "model",
+        "owned_by": "google",
+        "context_window": 131072,
+        "supports_vision": False,
+        "supports_docs": True,
+    },
+    {
+        "id": "google/gemma-4-31b-it",
+        "object": "model",
+        "owned_by": "google",
         "context_window": 131072,
         "supports_vision": False,
         "supports_docs": True,
@@ -197,10 +285,13 @@ def _is_chat_compatible(model: dict) -> bool:
 
 @router.get("", response_model=ModelsResponse)
 async def get_models(
+    request: Request,
     user_id: str = Query(min_length=1, max_length=128),
+    x_nvidia_key: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> dict:
-    api_key = resolve_api_key_or_http(db, user_id)
+    header_key = x_nvidia_key or request.headers.get("x-nvidia-key") or request.headers.get("X-Nvidia-Key")
+    api_key = resolve_api_key_or_http(db, user_id, request_key=header_key)
 
     try:
         raw_models = await list_models_for_user(user_id, api_key)
@@ -208,18 +299,21 @@ async def get_models(
         status_code = 429 if exc.category == "rate_limited" else 502
         raise HTTPException(status_code=status_code, detail=exc.reason) from None
 
-    # Filter out known 404/410/non-chat models
+    # Filter out known non-chat models (embeddings, clip, guards, detectors)
     filtered = [
         m for m in raw_models
         if _is_chat_compatible(m)
     ]
 
-    # Prepend and deduplicate verified models
-    verified_ids = {m["id"] for m in ACTIVE_VERIFIED_MODELS}
-    final_models: list[dict] = [m.copy() for m in ACTIVE_VERIFIED_MODELS]
-    for m in filtered:
-        if m.get("id") not in verified_ids:
-            final_models.append(m)
+    # Prioritize verified active models at the top while preserving all models returned by NVIDIA
+    if filtered:
+        verified_order = {m["id"]: i for i, m in enumerate(ACTIVE_VERIFIED_MODELS)}
+        final_models = sorted(
+            filtered,
+            key=lambda m: (verified_order.get(m.get("id", ""), 9999), m.get("id", "")),
+        )
+    else:
+        final_models = [m.copy() for m in ACTIVE_VERIFIED_MODELS]
 
     default_model = settings.default_chat_model or "meta/llama-3.2-11b-vision-instruct"
 

@@ -86,13 +86,20 @@ export function ModelSelector({
   }
 
   function getModelFamily(id: string) {
-    if (id.includes('llama')) return 'Llama'
-    if (id.includes('deepseek')) return 'DeepSeek'
-    if (id.includes('mixtral') || id.includes('mistral')) return 'Mistral'
-    if (id.includes('nemotron')) return 'Nemotron'
-    if (id.includes('gpt') || id.includes('openai')) return 'OpenAI'
-    if (id.includes('qwen')) return 'Qwen'
-    if (id.includes('gemma')) return 'Gemma'
+    const lower = id.toLowerCase()
+    if (lower.includes('llama')) return 'Llama'
+    if (lower.includes('deepseek')) return 'DeepSeek'
+    if (lower.includes('mixtral') || lower.includes('mistral') || lower.includes('codestral')) return 'Mistral'
+    if (lower.includes('nemotron') || lower.includes('riva')) return 'NVIDIA'
+    if (lower.includes('gpt') || lower.includes('openai')) return 'OpenAI'
+    if (lower.includes('qwen')) return 'Qwen'
+    if (lower.includes('gemma')) return 'Gemma'
+    if (lower.includes('minimax')) return 'MiniMax'
+    if (lower.includes('glm') || lower.includes('z-ai')) return 'GLM'
+    if (lower.includes('step')) return 'StepFun'
+    if (lower.includes('granite') || lower.includes('ibm')) return 'IBM'
+    if (lower.includes('phi')) return 'Microsoft'
+    if (lower.includes('yi-') || lower.includes('01-ai')) return '01.AI'
     return 'LLM'
   }
 

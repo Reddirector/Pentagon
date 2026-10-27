@@ -21,17 +21,32 @@ class NoKeyAvailableError(RuntimeError):
     """No NVIDIA key is stored for the user and no server fallback is configured."""
 
 
-def resolve_api_key(db: Session, user_id: str) -> str:
+def resolve_api_key(db: Session, user_id: str, request_key: str | None = None) -> str:
     """Return the NVIDIA key for a request.
 
-    Precedence: the user's stored key (decrypted) first, then the server-side
-    fallback key from settings. Decrypt failures propagate so route handlers can
-    map them to their existing HTTP responses. The server key is never returned
-    to the client; it exists only so the app works before a user stores a key.
+    Precedence:
+    1. Direct request key (from X-Nvidia-Key header or request body) if provided.
+    2. The user's stored key (decrypted) in the database.
+    3. Any active key stored in the ApiKey table (fallback for multi-tab/ephemeral user IDs in local Pentagon installs).
+    4. The server-side fallback key from settings. Decrypt failures propagate so
+       route handlers can map them to their existing HTTP responses.
     """
+    if request_key and isinstance(request_key, str) and request_key.strip():
+        cleaned_key = request_key.strip()
+        if len(cleaned_key) > 8:
+            return cleaned_key
+
     row = db.scalar(select(ApiKey).where(ApiKey.user_id == user_id))
     if row is not None:
         return decrypt_api_key(row.encrypted_key)
+
+    # Local multi-session/ephemeral ID fallback: if any key exists in DB, use the latest one
+    fallback_row = db.scalars(select(ApiKey).order_by(ApiKey.created_at.desc())).first()
+    if fallback_row is not None:
+        try:
+            return decrypt_api_key(fallback_row.encrypted_key)
+        except Exception:
+            logger.warning("Fallback ApiKey decryption failed, checking server settings.")
 
     server_key = settings.nvidia_server_api_key
     if server_key is not None:
@@ -54,7 +69,7 @@ def key_error_to_http(exc: Exception) -> HTTPException:
     )
 
 
-def resolve_api_key_or_http(db: Session, user_id: str) -> str:
+def resolve_api_key_or_http(db: Session, user_id: str, request_key: str | None = None) -> str:
     """Resolve a key for a request, mapping every failure to an HTTP error.
 
     ``resolve_api_key`` can also fail to decrypt a stored key, which happens in
@@ -63,6 +78,6 @@ def resolve_api_key_or_http(db: Session, user_id: str) -> str:
     and model request failed with an opaque error and no way forward.
     """
     try:
-        return resolve_api_key(db, user_id)
+        return resolve_api_key(db, user_id, request_key=request_key)
     except (NoKeyAvailableError, EncryptionConfigurationError, EncryptedKeyError) as exc:
         raise key_error_to_http(exc) from None

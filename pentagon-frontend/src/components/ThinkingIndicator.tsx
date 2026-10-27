@@ -45,8 +45,8 @@ export function ThinkingIndicator({ model, label = 'Thinking' }: { model: string
         {formatElapsed(elapsed)}
       </span>
       {slow ? (
-        <span className="truncate text-zinc-500 text-[11px] max-w-[200px] sm:max-w-none">
-          · deep reasoning in progress
+        <span className="truncate text-emerald-400/80 text-[11px] max-w-[240px] sm:max-w-none animate-pulse">
+          · {elapsed >= 35 ? 'large model reasoning (may take 1–2 min)' : 'deep reasoning in progress'}
         </span>
       ) : null}
       <span className="sr-only">{model} is working on your request.</span>

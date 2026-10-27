@@ -207,7 +207,12 @@ async def agent_chat(request: Request, db: Session = Depends(get_db)) -> Streami
     if not message_content:
         raise HTTPException(status_code=422, detail="message is required.")
 
-    api_key = resolve_api_key_or_http(db, payload.user_id)
+    request_key = (
+        getattr(payload, "nvidia_key", None)
+        or request.headers.get("x-nvidia-key")
+        or request.headers.get("X-Nvidia-Key")
+    )
+    api_key = resolve_api_key_or_http(db, payload.user_id, request_key=request_key)
 
     conversation = db.scalar(
         select(Conversation).where(

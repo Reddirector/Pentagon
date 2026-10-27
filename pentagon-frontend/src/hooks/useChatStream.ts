@@ -411,7 +411,7 @@ export function useChatStream(options: UseChatStreamOptions) {
     // approval card), so any real silence this long means the connection or
     // the backend is gone and the UI must say so instead of spinning forever.
     // Bytes of any kind -- tokens, events, pings -- re-arm the timer.
-    const SSE_READ_STALL_MS = 75_000
+    const SSE_READ_STALL_MS = 180_000
     let stallTimer: number | null = null
     let stallError: Error | null = null
     const armStallTimer = () => {
@@ -427,10 +427,10 @@ export function useChatStream(options: UseChatStreamOptions) {
     armStallTimer()
 
     let firstTokenReceived = false
-    const FIRST_TOKEN_TIMEOUT_MS = 65_000
+    const FIRST_TOKEN_TIMEOUT_MS = 300_000
     let firstTokenTimer: number | null = window.setTimeout(() => {
       if (!firstTokenReceived) {
-        stallError = new Error('The model took too long to produce the first token (65s timeout). Please try again or switch to a faster model.')
+        stallError = new Error('The model took longer than expected to produce the first token (300s timeout). Large reasoning models can take significant time; please try again or switch to a faster model.')
         streamAbort.current?.abort()
       }
     }, FIRST_TOKEN_TIMEOUT_MS)

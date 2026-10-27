@@ -156,7 +156,12 @@ async def chat(
             ),
         )
 
-    api_key = resolve_api_key_or_http(db, payload.user_id)
+    request_key = (
+        getattr(payload, "nvidia_key", None)
+        or request.headers.get("x-nvidia-key")
+        or request.headers.get("X-Nvidia-Key")
+    )
+    api_key = resolve_api_key_or_http(db, payload.user_id, request_key=request_key)
 
     conversation = db.scalar(
         select(Conversation).where(
@@ -356,10 +361,12 @@ def create_conversation(
     db: Session = Depends(get_db),
 ) -> Conversation:
     if db.get(User, payload.user_id) is None:
-        if settings.nvidia_server_api_key is None:
+        try:
+            from app.security.keys import resolve_api_key
+            resolve_api_key(db, payload.user_id)
+        except Exception:
             raise HTTPException(status_code=404, detail="User not found. Store an API key first.")
-        # Server-key fallback mode: provision the local user so chat can start
-        # before any personal key is stored.
+        # Provision the local user so chat can start once a valid key is available
         db.add(User(id=payload.user_id))
         db.flush()
     title = (payload.title or "New conversation").strip() or "New conversation"
@@ -1324,6 +1331,7 @@ async def pending_approvals(
 
 @router.post("/pending-approvals/{approval_id}/approve", dependencies=[Depends(require_capability)])
 async def approve_approval(
+    request: Request,
     approval_id: str,
     payload: ResumeRequest,
     db: Session = Depends(get_db),
@@ -1342,7 +1350,12 @@ async def approve_approval(
     )
     model = (conversation.active_model if conversation else "") or ""
     try:
-        api_key = resolve_api_key_or_http(db, payload.user_id)
+        request_key = (
+            getattr(payload, "nvidia_key", None)
+            or request.headers.get("x-nvidia-key")
+            or request.headers.get("X-Nvidia-Key")
+        )
+        api_key = resolve_api_key_or_http(db, payload.user_id, request_key=request_key)
     except Exception:
         api_key = ""
 
@@ -1387,6 +1400,7 @@ async def approve_approval(
 
 @router.post("/pending-approvals/{approval_id}/deny", dependencies=[Depends(require_capability)])
 async def deny_approval(
+    request: Request,
     approval_id: str,
     payload: ResumeRequest,
     db: Session = Depends(get_db),
@@ -1404,7 +1418,12 @@ async def deny_approval(
     )
     model = (conversation.active_model if conversation else "") or ""
     try:
-        api_key = resolve_api_key_or_http(db, payload.user_id)
+        request_key = (
+            getattr(payload, "nvidia_key", None)
+            or request.headers.get("x-nvidia-key")
+            or request.headers.get("X-Nvidia-Key")
+        )
+        api_key = resolve_api_key_or_http(db, payload.user_id, request_key=request_key)
     except Exception:
         api_key = ""
 
@@ -1581,6 +1600,7 @@ async def get_audit_log(
 
 @router.post("/chat/{conversation_id}/resume", dependencies=[Depends(require_capability)])
 async def resume_chat(
+    request: Request,
     conversation_id: str,
     payload: ResumeRequest,
     db: Session = Depends(get_db),
@@ -1600,7 +1620,12 @@ async def resume_chat(
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
 
-    api_key = resolve_api_key_or_http(db, payload.user_id)
+    request_key = (
+        getattr(payload, "nvidia_key", None)
+        or request.headers.get("x-nvidia-key")
+        or request.headers.get("X-Nvidia-Key")
+    )
+    api_key = resolve_api_key_or_http(db, payload.user_id, request_key=request_key)
     user = db.get(User, payload.user_id)
     command_tool_enabled = bool(
         settings.command_tool_enabled
