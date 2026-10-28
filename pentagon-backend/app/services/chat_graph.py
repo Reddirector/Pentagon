@@ -33,7 +33,7 @@ from app.tools import image_generation as image_generation_tool
 from app.services.document_store import has_documents, retrieve_chunks
 from app.services.permissions import DEFAULT_PERMISSION_LEVEL, normalize_level
 from app.skills.router import match_for_turn
-from app.services.nvidia_client import make_chat_model
+from app.services.nvidia_client import canonical_model_id, make_chat_model
 from app.services.vision import VISION_MODEL_ID, analyze_image
 from app.services.video import VIDEO_MODEL_ID, analyze_video
 from app.services.web_search import search_images, search_web
@@ -193,10 +193,9 @@ _TRIVIAL_NON_SEARCH = {
 }
 
 _QUERY_PREFIX_STRIP = re.compile(
-    r"^(?:can\s+you\s+|could\s+you\s+|would\s+you\s+|please\s+|just\s+)*"
-    r"(?:tell\s+me\s+(?:about|regarding)|explain(?:\s+to\s+me)?|describe|"
-    r"(?:write|create|generate|draft|make|build|provide|produce)\s+(?:a\s+)?(?:\w+[\s-]page\s+|\d+[\s-]page\s+)?(?:comprehensive\s+|detailed\s+)?(?:report|doc|document|summary|analysis|paper|guide|article|essay|biography|presentation|sheet|table)\s+(?:on|about|regarding)|"
-    r"give\s+me\s+(?:a\s+)?(?:summary|overview|breakdown)\s+(?:of|on|about)|what\s+is|what\s+are|how\s+to|search\s+(?:for|about|the\s+web\s+for)?)\s+",
+    r"^(?:(?:can\s+you\s+|could\s+you\s+|would\s+you\s+|please\s+|just\s+)*(?:tell\s+me\s+(?:about|regarding)|explain(?:\s+to\s+me)?|describe|(?:write|create|generate|draft|make|build|provide|produce|give\s+me)\s+(?:a\s+)?|what\s+is|what\s+are|how\s+to|search\s+(?:for|about|the\s+web\s+for)?)\s*)?"
+    r"(?:(?:\d+|\w+)[\s-]page\s+)?(?:comprehensive\s+|detailed\s+)?"
+    r"(?:report|doc|document|pdf|docx|summary|overview|breakdown|analysis|paper|guide|article|essay|biography|presentation|sheet|table)\s+(?:on|about|regarding|of)\s+",
     re.IGNORECASE,
 )
 
@@ -204,6 +203,33 @@ _QUERY_POSTFIX_STRIP = re.compile(
     r"\b(?:with\s+(?:real\s+)?(?:photos?|pictures?|images?)|with\s+(?:a\s+)?table|in\s+pdf(?:\s+format)?|as\s+(?:a\s+)?pdf|in\s+docx?|as\s+(?:a\s+)?word(?:\s+doc(?:ument)?)?|in\s+pptx?|in\s+xlsx?|as\s+a\s+spreadsheet|in\s+\d+\s+pages?|in\s+\w+\s+pages?)\b.*$",
     re.IGNORECASE,
 )
+
+
+def _detect_requested_deliverable(message: str) -> dict[str, Any] | None:
+    msg = message.strip().lower()
+    pages_match = re.search(r"\b(\d+|two|three|four|five|six|seven|eight|nine|ten)[\s-]pages?\b", msg)
+    pages_hint = pages_match.group(1) if pages_match else None
+
+    # Exclude non-creation inquiries like "how do I convert a pdf?" or "can you read this pdf?"
+    if any(phrase in msg for phrase in ["how do i", "can you read", "upload", "how to read"]):
+        return None
+
+    if re.search(r"\b(pdf|\.pdf)\b", msg):
+        return {"format": "pdf", "pages": pages_hint}
+    elif re.search(r"\b(pptx|\.pptx|presentation|slide\s+deck|slides)\b", msg):
+        return {"format": "pptx", "pages": pages_hint}
+    elif re.search(r"\b(xlsx|\.xlsx|spreadsheet|excel\s+sheet|excel\s+file|workbook)\b", msg):
+        return {"format": "xlsx", "pages": pages_hint}
+    elif re.search(r"\b(html|\.html|landing\s+page|website|web\s+app)\b", msg):
+        return {"format": "html", "pages": pages_hint}
+    elif re.search(r"\b(docx|\.docx|word\s+doc(?:ument)?)\b", msg):
+        return {"format": "docx", "pages": pages_hint}
+    elif (
+        re.search(r"\b(?:(?:\d+|\w+)[\s-]pages?\s+)?(?:doc|document|report|dossier|paper|guide|profile|essay)\s+(?:on|about|regarding|of)\b", msg)
+        or re.search(r"\b(?:\d+|\w+)[\s-]pages?\s+(?:doc|document|report|paper)\b", msg)
+    ):
+        return {"format": "docx", "pages": pages_hint}
+    return None
 
 
 def _prepare_search_query(message: str) -> str:
@@ -299,10 +325,14 @@ _STRUCTURED_OUTPUT_GUIDANCE = (
     "YOU MUST actively embed verified real images from the web context directly into the relevant sections using standard markdown "
     "`![Descriptive Caption](image_url)`.\n"
     "   - Integrate images elegantly alongside the biographical, career, technical, or analytical narrative.\n"
-    "7. Full Document Deliverables:\n"
-    "   - When compiling a downloadable file via `document_generation` (PDF, DOCX, HTML, PPTX, XLSX), "
-    "also provide the full, rich, beautifully formatted document in your visible chat output (or interactive HTML preview), "
-    "so the user can read the complete work immediately without needing to open external software.\n"
+    "7. Full Document Deliverables & Non-Hallucination Strict Enforcement:\n"
+    "   - When asked for ANY document, report, PDF, Word doc (docx), presentation (pptx), spreadsheet (xlsx), or website (html) -- whether phrased as an imperative or nominal request ('7 page doc on X', '2 page pdf on Y') -- "
+    "YOU MUST actively invoke the `document_generation` tool during THIS current turn. "
+    "NEVER claim that a document was created, compiled, or is ready for download/preview unless you actively invoked `document_generation` during THIS turn. "
+    "Claiming in chat that 'I have created a PDF' without calling the tool is strictly forbidden.\n"
+    "   - In the `content` parameter of `document_generation`, write out the ENTIRE full-length, production-grade text. "
+    "NEVER write placeholders like '(Content to be formatted)' or brief outlines. "
+    "When a page count is requested (e.g. 7 pages, 2 pages), write extensive, deep sections proportional to that length with explicit page breaks ('---' or '[PAGE_BREAK]').\n"
     "8. Actionable Guidance & Contemporary Grounding:\n"
     "   - Conclude deep analyses, guides, and strategic documents with actionable takeaways, practical guidance, and modern 2026 perspectives."
 )
@@ -332,6 +362,16 @@ _TOOLS_OFF_NOTE = (
 )
 
 
+def _supports_native_tools(model_name: str) -> bool:
+    name = canonical_model_id(model_name).lower()
+    # NVIDIA NIM fails or hangs for 90s on process_single_item_agent when tools are bound
+    # to Nemotron, Gemma, DeepSeek, Palmyra, GLM, etc.
+    if any(k in name for k in ("nemotron", "gemma", "deepseek", "palmyra", "glm", "jamba", "phi", "arctic")):
+        return False
+    # Meta Llama (3.1/3.2/3.3) and Mistral (large/mixtral) reliably support OpenAI-compatible tool calling
+    return any(k in name for k in ("llama-3", "llama3", "mistral", "mixtral", "codestral"))
+
+
 def build_chat_graph(
     api_key: str,
     model: str,
@@ -352,6 +392,9 @@ def build_chat_graph(
         is absent the model simply never emits a tool call, so the loop below
         is inert and the graph behaves exactly as it did before.
         """
+        if not hasattr(chat_model, "bind_tools") or not _supports_native_tools(model):
+            return chat_model
+
         if (
             command_tool_enabled
             and settings.command_tool_enabled
@@ -386,8 +429,6 @@ def build_chat_graph(
         # tools; when the model cannot carry them the graph simply runs the
         # turn tool-less rather than crashing it. Generation then never fires,
         # which is the same behaviour a deployment without tool support gets.
-        if not hasattr(chat_model, "bind_tools"):
-            return chat_model
         return chat_model.bind_tools(tools)
 
     async def intent_router(state: ChatState) -> dict[str, Any]:
@@ -619,6 +660,25 @@ def build_chat_graph(
             else:
                 label = "Image description"
             sections.append(_untrusted_context(label, state["vision_result"]))
+
+        deliverable_req = _detect_requested_deliverable(state["user_message"])
+        if deliverable_req:
+            fmt = deliverable_req.get("format", "docx").upper()
+            pages = deliverable_req.get("pages")
+            page_text = f"{pages.upper()}-PAGE " if pages else ""
+            sections.append(
+                f"MANDATORY DELIVERABLE SPECIFICATION ({page_text}{fmt}):\n"
+                f"- The user explicitly requested a {page_text}{fmt} deliverable ('{state['user_message']}').\n"
+                f"- You MUST provide the ENTIRE, COMPLETE, FULL-LENGTH document directly in your response right now.\n"
+                + (
+                    f"- Provide at least {pages} detailed sections separated by explicit page breaks ('---' or '[PAGE_BREAK]'), with extensive analytical text, policy breakdowns, historical chronology, and Markdown comparison tables.\n"
+                    if pages
+                    else "- Provide complete, detailed, production-grade text with clear sections, headings, and tables.\n"
+                )
+                + f"- DO NOT write placeholders, stubs, brief summaries, or claim 'I have generated your file above' without writing the full text. The system automatically compiles your complete markdown text into an authentic downloadable {fmt} file and opens the interactive preview for the user.\n"
+                f"- Treat this as a FRESH request. Even if prior turns mentioned a file, produce the new, expanded, complete content right now."
+            )
+
         sections.append("User question:\n" + state["user_message"])
         return {
             "augmented_prompt": "\n\n".join(sections),
@@ -994,7 +1054,7 @@ def build_chat_graph(
             "generated_file": generated_file,
         }
 
-    def verify_final_result(state: ChatState) -> dict[str, Any]:
+    async def verify_final_result(state: ChatState) -> dict[str, Any]:
         started = time.perf_counter()
         answer = state.get("answer") or ""
 
@@ -1025,8 +1085,64 @@ def build_chat_graph(
             answer = answer.rstrip() + "\n```\n"
             fences_repaired = True
 
-        # 4. Deliverable verification
+        # 4. Deliverable auto-compilation & verification
         generated_file = state.get("generated_file")
+        if not generated_file:
+            deliverable_req = _detect_requested_deliverable(state.get("user_message", ""))
+            if deliverable_req and len(answer.strip()) > 180:
+                target_format = deliverable_req.get("format", "docx")
+                first_heading = re.search(r"^#\s+(.+)$", answer, re.MULTILINE)
+                title = first_heading.group(1).strip() if first_heading else state.get("user_message", "")[:60]
+                try:
+                    data = await asyncio.to_thread(
+                        document_generation_tool.build_document,
+                        target_format,
+                        title,
+                        answer,
+                    )
+                    if data:
+                        filename = document_generation_tool.safe_filename(title, target_format)
+                        storage = document_generation_tool.get_storage()
+                        file_id = str(uuid4())
+                        key = document_generation_tool.build_key(
+                            state["user_id"],
+                            state["conversation_id"],
+                            file_id,
+                            document_generation_tool.EXTENSIONS[target_format],
+                        )
+                        await storage.put(key, data, document_generation_tool.CONTENT_TYPES[target_format])
+                        record = document_generation_tool.GeneratedFile(
+                            id=file_id,
+                            user_id=state["user_id"],
+                            conversation_id=state["conversation_id"],
+                            filename=filename,
+                            format=target_format,
+                            media_type=document_generation_tool.CONTENT_TYPES[target_format],
+                            size_bytes=len(data),
+                            storage_path=key,
+                        )
+                        with document_generation_tool.db_session.SessionLocal() as db:
+                            from app.db.models import User, Conversation
+                            if not db.get(User, state["user_id"]):
+                                db.add(User(id=state["user_id"]))
+                                db.flush()
+                            if not db.get(Conversation, state["conversation_id"]):
+                                db.add(Conversation(id=state["conversation_id"], user_id=state["user_id"], title=title))
+                                db.flush()
+                            db.add(record)
+                            db.commit()
+                            payload = document_generation_tool._serialize(record)
+                            payload["title"] = title
+                            payload["content"] = answer
+                            generated_file = payload
+                            logger.info("Auto-compiled deliverable %s format=%s bytes=%d", filename, target_format, len(data))
+                except Exception as exc:
+                    logger.warning("Auto-compile deliverable failed (%s): %s", type(exc).__name__, exc)
+
+        if generated_file and isinstance(generated_file, dict):
+            if not generated_file.get("content") and len(answer.strip()) > 180:
+                generated_file["content"] = answer
+
         deliverable_valid = True
         if generated_file:
             if not (generated_file.get("filename") and generated_file.get("size") and generated_file.get("format")):
@@ -1045,6 +1161,7 @@ def build_chat_graph(
         return {
             "answer": answer,
             "execution_trace": trace,
+            "generated_file": generated_file,
         }
 
     def route_after_generate(state: ChatState) -> str:

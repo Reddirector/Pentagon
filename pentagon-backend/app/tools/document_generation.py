@@ -74,9 +74,10 @@ TOOL_SPEC = ToolSpec(
             "content": {
                 "type": ["string", "object"],
                 "description": (
-                    "The document or website body: full working HTML code for html (never placeholder text);"
-                    " markdown-like text for docx/pdf/md/txt; markdown or {slides: [...]} for pptx;"
-                    " {columns, rows} for csv/xlsx; {sheets: [...]} for a multi-sheet workbook."
+                    "The complete, exhaustive, full-length document body. NEVER write placeholders, stubs, outlines, or '(Content to be added)'. "
+                    "You MUST write out the ENTIRE full text of every page and section in markdown format: rich multi-sentence paragraphs, "
+                    "# headings, ## subheadings, - bullet points, | pipe tables |, and '---' or '[PAGE_BREAK]' between pages. "
+                    "For html: complete, working HTML5/CSS/JS code. For pptx: markdown with '---' between slides. For xlsx/csv: complete {columns, rows}."
                 ),
             },
         },

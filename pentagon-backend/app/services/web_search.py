@@ -21,7 +21,7 @@ class WebSearchNotConfigured(RuntimeError):
 
 _MAX_FETCH_BYTES = 2_000_000
 _MAX_FETCH_PAGES = 3
-_FETCH_TIMEOUT_SECONDS = 12.0
+_FETCH_TIMEOUT_SECONDS = 7.0
 _ALLOWED_SCHEMES = {"http", "https"}
 _TEXTUAL_CONTENT_TYPES = ("text/", "application/xhtml", "application/xml")
 
@@ -178,14 +178,14 @@ async def _search_ddgs(query: str) -> list[dict[str, Any]]:
     from ddgs import DDGS
 
     def _run() -> list[dict[str, Any]]:
-        with DDGS(timeout=10) as client:
+        with DDGS(timeout=4) as client:
             rows = list(client.text(query, max_results=5))
             if not rows:
                 rows = list(client.news(query, max_results=5))
         return [row for row in rows if isinstance(row, dict)]
 
     try:
-        rows = await asyncio.to_thread(_run)
+        rows = await asyncio.wait_for(asyncio.to_thread(_run), timeout=5.0)
     except Exception:
         return []
     return [
@@ -272,12 +272,12 @@ async def search_images(query: str, max_results: int = 4) -> list[dict[str, Any]
     from ddgs import DDGS
 
     def _run() -> list[dict[str, Any]]:
-        with DDGS(timeout=10) as client:
+        with DDGS(timeout=4) as client:
             rows = list(client.images(query, max_results=max_results))
         return [row for row in rows if isinstance(row, dict)]
 
     try:
-        rows = await asyncio.to_thread(_run)
+        rows = await asyncio.wait_for(asyncio.to_thread(_run), timeout=5.0)
     except Exception as exc:
         logger.debug("Web image search failed for '%s': %s", query, exc)
         return []

@@ -994,7 +994,9 @@ async def _stream_turn(
                         yield _sse("token", {"content": token_text})
                 elif chunk["type"] == "values":
                     final_state = chunk["data"]
-                    answer = final_state.get("answer", answer)
+                    state_ans = final_state.get("answer")
+                    if state_ans and isinstance(state_ans, str) and state_ans.strip():
+                        answer = state_ans
                     if (
                         llm_started is None
                         and "context_assembler" in final_state.get("execution_trace", {})
@@ -1129,18 +1131,25 @@ async def _stream_turn(
                 "content": doc_content,
                 "type": artifact_type,
             })
-            if (not answer or len(answer.strip()) < 180) and doc_content:
-                if doc_format in ("pdf", "docx", "markdown", "txt") and isinstance(doc_content, str):
-                    answer = f"# {doc_title}\n\n{doc_content}\n\n---\n*Deliverable compiled as [{gen.get('filename')}](/api/files/{gen.get('id')}/download).*"
-                    emitted_token = True
-                    yield _sse("token", {"content": answer})
-                elif not answer:
-                    answer = (
-                        f"I have compiled your document **{gen.get('filename')}** ({gen.get('format', '').upper()}). "
-                        "You can preview it directly in the split-screen Artifact panel or download it."
-                    )
-                    emitted_token = True
-                    yield _sse("token", {"content": answer})
+            if doc_content and isinstance(doc_content, str):
+                if doc_format in ("pdf", "docx", "markdown", "txt", "html"):
+                    # Deliver complete substantive document in chat if not already present
+                    snippet = doc_content.strip()[:80]
+                    if not snippet or snippet not in answer:
+                        doc_section = f"\n\n---\n\n# {doc_title}\n\n{doc_content}\n\n---\n*Deliverable compiled and available for [Download ({gen.get('filename')})](/api/files/{gen.get('id')}/download).*"
+                        if not answer:
+                            answer = doc_section.lstrip()
+                        else:
+                            answer += doc_section
+                        emitted_token = True
+                        yield _sse("token", {"content": doc_section if answer != doc_section.lstrip() else answer})
+            elif not answer:
+                answer = (
+                    f"I have compiled your document **{gen.get('filename')}** ({gen.get('format', '').upper()}). "
+                    f"You can preview it directly in the split-screen Artifact panel or [download it](/api/files/{gen.get('id')}/download)."
+                )
+                emitted_token = True
+                yield _sse("token", {"content": answer})
 
     if answer and not emitted_token:
         # Some compatible endpoints return one complete message even when
